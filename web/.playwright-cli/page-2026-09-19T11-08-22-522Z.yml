@@ -1,0 +1,84 @@
+- generic [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e63] [cursor=pointer]
+  - alert [ref=e82]: 商品库存
+  - generic [ref=e391]:
+    - complementary [ref=e392]:
+      - generic [ref=e393]:
+        - generic [ref=e399]:
+          - strong [ref=e400]: 商品库存
+          - generic [ref=e401]: 家庭库存工作台
+        - menu [ref=e402]:
+          - menuitem [ref=e403] [cursor=pointer]:
+            - img "appstore" [ref=e404]
+            - link "商品库存" [ref=e408]:
+              - /url: /
+          - menuitem [ref=e409] [cursor=pointer]:
+            - img "tags" [ref=e410]
+            - link "分类管理" [ref=e414]:
+              - /url: /categories
+        - generic [ref=e415]: 商品与分类分开管理
+    - generic [ref=e416]:
+      - banner [ref=e417]:
+        - generic [ref=e418]:
+          - generic [ref=e419]: 系统功能
+          - generic [aria-hidden] [ref=e420]: /
+          - strong [ref=e421]: 商品库存
+        - generic [ref=e422]:
+          - generic [ref=e423]: SQLite 商品数据
+          - generic [ref=e424]: 入库 / 出库仍为页面原型
+      - main [ref=e425]:
+        - generic [ref=e426]:
+          - generic [ref=e427]:
+            - heading "商品库存" [level=1] [ref=e428]
+            - button "plus 新增商品" [ref=e429] [cursor=pointer]:
+              - img "plus" [ref=e431]
+              - generic [ref=e435]: 新增商品
+          - generic "商品分类与搜索" [ref=e436]:
+            - generic [ref=e437]:
+              - generic "厨房用品" [ref=e567]:
+                - text: 厨房用品
+                - combobox "选择商品分类" [expanded] [active] [ref=e439]
+              - img "search" [ref=e568]
+              - button "Clear" [ref=e444] [cursor=pointer]:
+                - img "close-circle" [ref=e445]
+            - textbox "搜索商品" [ref=e453]:
+              - /placeholder: 搜索尺寸或备注
+            - generic [ref=e455]: 共 0 个商品
+          - region "商品库存列表" [ref=e456]:
+            - generic [ref=e458]:
+              - generic [ref=e459]: 当前分类
+              - strong [ref=e460]: 厨房用品
+            - table [ref=e467]:
+              - rowgroup [ref=e477]:
+                - row [ref=e478]:
+                  - columnheader "商品图片" [ref=e479]
+                  - columnheader "尺寸" [ref=e480]
+                  - columnheader "装箱数" [ref=e481]
+                  - columnheader "单位" [ref=e482]
+                  - columnheader "单价" [ref=e483]
+                  - columnheader "当前箱数" [ref=e484]
+                  - columnheader "备注" [ref=e485]
+                  - columnheader "操作" [ref=e486]
+              - rowgroup [ref=e487]:
+                - row [aria-hidden] [ref=e488]:
+                  - cell [ref=e489]
+                  - cell [ref=e490]
+                  - cell [ref=e491]
+                  - cell [ref=e492]
+                  - cell [ref=e493]
+                  - cell [ref=e494]
+                  - cell [ref=e495]
+                  - cell [ref=e496]
+                - row [ref=e571]:
+                  - cell "没有符合条件的商品" [ref=e572]
+  - generic [ref=e551]:
+    - menu [ref=e552]:
+      - menuitemcheckbox "全部商品" [ref=e553] [cursor=pointer]
+      - menuitemcheckbox "厨房用品 right" [checked] [ref=e555] [cursor=pointer]:
+        - generic [ref=e556]: 厨房用品
+        - img "right" [ref=e558]
+      - menuitemcheckbox "圣诞系列 right" [ref=e561] [cursor=pointer]:
+        - generic [ref=e562]: 圣诞系列
+        - img "right" [ref=e564]
+    - menu [ref=e574]:
+      - menuitemcheckbox "盘子" [ref=e575] [cursor=pointer]

@@ -1,0 +1,75 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - complementary [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - generic [ref=f1e10]:
+          - strong [ref=f1e11]: 商品库存
+          - generic [ref=f1e12]: 家庭库存工作台
+        - menu [ref=f1e13]:
+          - menuitem [ref=f1e14] [cursor=pointer]:
+            - img "appstore" [ref=f1e15]
+            - link "商品库存" [ref=f1e19]:
+              - /url: /
+          - menuitem [ref=f1e20] [cursor=pointer]:
+            - img "tags" [ref=f1e21]
+            - link "分类管理" [ref=f1e25]:
+              - /url: /categories
+        - generic [ref=f1e26]: 商品与分类分开管理
+    - generic [ref=f1e27]:
+      - banner [ref=f1e28]:
+        - generic [ref=f1e29]:
+          - generic [ref=f1e30]: 系统功能
+          - generic [aria-hidden] [ref=f1e31]: /
+          - strong [ref=f1e32]: 商品库存
+        - generic [ref=f1e33]:
+          - generic [ref=f1e34]: SQLite 商品数据
+          - generic [ref=f1e35]: 入库 / 出库仍为页面原型
+      - main [ref=f1e36]:
+        - generic [ref=f1e37]:
+          - generic [ref=f1e38]:
+            - heading "商品库存" [level=1] [ref=f1e39]
+            - button "plus 新增商品" [ref=f1e40] [cursor=pointer]:
+              - img "plus" [ref=f1e42]
+              - generic [ref=f1e46]: 新增商品
+          - generic "商品分类与搜索" [ref=f1e47]:
+            - generic [ref=f1e48]:
+              - generic "全部商品" [ref=f1e49]:
+                - text: 全部商品
+                - combobox "选择商品分类" [disabled] [ref=f1e50]
+              - img "down" [ref=f1e52]
+            - textbox "搜索商品" [ref=f1e60]:
+              - /placeholder: 搜索尺寸或备注
+            - generic [ref=f1e62]: 共 0 个商品
+          - region "商品库存列表" [ref=f1e63]:
+            - generic [ref=f1e65]:
+              - generic [ref=f1e66]: 当前分类
+              - strong [ref=f1e67]: 全部商品
+            - generic [ref=f1e69]:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - table:
+                        - rowgroup:
+                          - row "商品图片 尺寸 装箱数 单位 单价 当前箱数 备注 操作":
+                            - columnheader "商品图片"
+                            - columnheader "尺寸"
+                            - columnheader "装箱数"
+                            - columnheader "单位"
+                            - columnheader "单价"
+                            - columnheader "当前箱数"
+                            - columnheader "备注"
+                            - columnheader "操作"
+                        - rowgroup:
+                          - row [aria-hidden]:
+                            - cell
+                            - cell
+                            - cell
+                            - cell
+                            - cell
+                            - cell
+                            - cell
+                            - cell
+                          - row "没有符合条件的商品":
+                            - cell "没有符合条件的商品"
+  - button "Open Next.js Dev Tools" [ref=f1e82] [cursor=pointer]

@@ -1,0 +1,37 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e10]:
+          - strong [ref=e11]: 商品库存
+          - generic [ref=e12]: 家庭库存工作台
+        - menu [ref=e13]:
+          - menuitem [ref=e14] [cursor=pointer]:
+            - img "appstore" [ref=e15]
+            - link "商品库存" [ref=e19]:
+              - /url: /
+          - menuitem [ref=e20] [cursor=pointer]:
+            - img "tags" [ref=e21]
+            - link "分类管理" [ref=e25]:
+              - /url: /categories
+        - generic [ref=e26]: 商品与分类分开管理
+    - generic [ref=e27]:
+      - banner [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]: 系统功能
+          - generic [aria-hidden] [ref=e31]: /
+          - strong [ref=e32]: 分类管理
+        - generic [ref=e33]:
+          - generic [ref=e34]: SQLite 商品数据
+          - generic [ref=e35]: 入库 / 出库仍为页面原型
+      - main [ref=e36]:
+        - generic [ref=e37]:
+          - generic [ref=e38]:
+            - generic [ref=e39]:
+              - heading "分类管理" [level=1] [ref=e40]
+              - paragraph [ref=e41]: 一级分类 0 个 · 二级分类 0 个
+            - button "plus 新增一级分类" [ref=e42] [cursor=pointer]:
+              - img "plus" [ref=e44]
+              - generic [ref=e48]: 新增一级分类
+          - generic "正在加载分类" [ref=e49]: 正在读取分类…
+  - button "Open Next.js Dev Tools" [ref=e63] [cursor=pointer]

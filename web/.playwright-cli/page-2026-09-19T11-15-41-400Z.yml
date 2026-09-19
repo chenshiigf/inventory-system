@@ -1,0 +1,179 @@
+- generic [ref=f1e1]:
+  - generic [ref=f1e2]:
+    - complementary [ref=f1e3]:
+      - generic [ref=f1e4]:
+        - generic [ref=f1e10]:
+          - strong [ref=f1e11]: 商品库存
+          - generic [ref=f1e12]: 家庭库存工作台
+        - menu [ref=f1e13]:
+          - menuitem [ref=f1e14] [cursor=pointer]:
+            - img "appstore" [ref=f1e15]
+            - link "商品库存" [ref=f1e19]:
+              - /url: /
+          - menuitem [ref=f1e20] [cursor=pointer]:
+            - img "tags" [ref=f1e21]
+            - link "分类管理" [ref=f1e25]:
+              - /url: /categories
+        - generic [ref=f1e26]: 商品与分类分开管理
+    - generic [ref=f1e27]:
+      - banner [ref=f1e28]:
+        - generic [ref=f1e29]:
+          - generic [ref=f1e30]: 系统功能
+          - generic [aria-hidden] [ref=f1e31]: /
+          - strong [ref=f1e32]: 商品库存
+        - generic [ref=f1e33]:
+          - generic [ref=f1e34]: SQLite 商品数据
+          - generic [ref=f1e35]: 入库 / 出库仍为页面原型
+      - main [ref=f1e36]:
+        - generic [ref=f1e37]:
+          - generic [ref=f1e38]:
+            - heading "商品库存" [level=1] [ref=f1e39]
+            - button "plus 新增商品" [ref=f1e40] [cursor=pointer]:
+              - img "plus" [ref=f1e42]
+              - generic [ref=f1e46]: 新增商品
+          - generic "商品分类与搜索" [ref=f1e47]:
+            - generic [ref=f1e48]:
+              - generic "厨房用品 / 盘子" [ref=f1e232]:
+                - text: 厨房用品 / 盘子
+                - combobox "选择商品分类" [ref=f1e50]
+              - img "down" [ref=f1e233]
+              - button "Clear" [ref=f1e86] [cursor=pointer]:
+                - img "close-circle" [ref=f1e87]
+            - textbox "搜索商品" [ref=f1e60]:
+              - /placeholder: 搜索尺寸或备注
+            - generic [ref=f1e62]: 共 1 个商品
+          - region "商品库存列表" [ref=f1e63]:
+            - generic [ref=f1e65]:
+              - generic [ref=f1e66]: 当前分类
+              - strong [ref=f1e67]: 厨房用品 / 盘子
+            - generic [ref=f1e90]:
+              - table [ref=f1e94]:
+                - rowgroup [ref=f1e104]:
+                  - row [ref=f1e105]:
+                    - columnheader "商品图片" [ref=f1e106]
+                    - columnheader "尺寸" [ref=f1e107]
+                    - columnheader "装箱数" [ref=f1e108]
+                    - columnheader "单位" [ref=f1e109]
+                    - columnheader "单价" [ref=f1e110]
+                    - columnheader "当前箱数" [ref=f1e111]
+                    - columnheader "备注" [ref=f1e112]
+                    - columnheader "操作" [ref=f1e113]
+                - rowgroup [ref=f1e114]:
+                  - row [aria-hidden] [ref=f1e115]:
+                    - cell [ref=f1e116]
+                    - cell [ref=f1e117]
+                    - cell [ref=f1e118]
+                    - cell [ref=f1e119]
+                    - cell [ref=f1e120]
+                    - cell [ref=f1e121]
+                    - cell [ref=f1e122]
+                    - cell [ref=f1e123]
+                  - row [ref=f1e124]:
+                    - cell [ref=f1e125]:
+                      - generic "商品图片暂未接入" [ref=f1e127]: 图片待接入
+                    - cell "TEST-20cm" [ref=f1e132]
+                    - cell "24" [ref=f1e133]
+                    - cell "pcs" [ref=f1e134]
+                    - cell "¥ 1.00" [ref=f1e135]
+                    - cell "10 箱" [ref=f1e137]:
+                      - generic [ref=f1e138]:
+                        - strong [ref=f1e139]: "10"
+                        - generic [ref=f1e140]: 箱
+                    - cell "分类功能浏览器验收测试" [ref=f1e141]
+                    - cell [ref=f1e143]:
+                      - generic [ref=f1e144]:
+                        - button "为尺寸 TEST-20cm 的商品入库" [ref=f1e146] [cursor=pointer]:
+                          - generic [ref=f1e147]: 入库
+                        - button "为尺寸 TEST-20cm 的商品出库" [ref=f1e149] [cursor=pointer]:
+                          - generic [ref=f1e150]: 出库
+                        - button "编辑尺寸 TEST-20cm 的商品" [ref=f1e152] [cursor=pointer]:
+                          - generic [ref=f1e153]: 编辑
+              - list [ref=f1e184]:
+                - listitem [ref=f1e185]: 1-1 条，共 1 条
+                - listitem "上一页" [ref=f1e186]:
+                  - button [disabled] [ref=f1e187]:
+                    - img "left" [ref=f1e188]
+                - listitem "1" [ref=f1e191] [cursor=pointer]
+                - listitem "下一页" [ref=f1e193]:
+                  - button [disabled] [ref=f1e194]:
+                    - img "right" [ref=f1e195]
+                - listitem [ref=f1e198]:
+                  - generic [ref=f1e199]:
+                    - generic "20 条/页" [ref=f1e200]:
+                      - text: 20 条/页
+                      - combobox "页码" [ref=f1e201]
+                    - img "down" [ref=f1e203]
+  - button "Open Next.js Dev Tools" [ref=f1e82] [cursor=pointer]
+  - alert [ref=f1e206]
+  - generic [ref=f1e236]:
+    - dialog "编辑商品":
+      - generic [ref=f1e237]:
+        - button "关闭" [active] [ref=f1e238] [cursor=pointer]:
+          - generic "关闭" [ref=f1e239]:
+            - img "close" [ref=f1e240]
+        - generic [ref=f1e243]: 编辑商品
+        - generic [ref=f1e245]:
+          - alert [ref=f1e246]:
+            - img "info-circle" [ref=f1e248]
+            - generic [ref=f1e251]: 本阶段暂不接入图片上传；商品图片路径不会被修改。
+          - generic [ref=f1e253]:
+            - img "picture" [ref=f1e255]
+            - generic [ref=f1e258]: 图片上传将在后续阶段接入。
+          - generic [ref=f1e259]:
+            - generic [ref=f1e260]:
+              - generic [ref=f1e262]:
+                - generic "商品分类" [ref=f1e264]
+                - generic [ref=f1e268] [cursor=pointer]:
+                  - generic "厨房用品 / 盘子" [ref=f1e269]:
+                    - text: 厨房用品 / 盘子
+                    - combobox "商品分类" [ref=f1e270]
+                  - img "down" [ref=f1e272]
+                  - button "Clear" [ref=f1e275]:
+                    - img "close-circle" [ref=f1e276]
+              - generic [ref=f1e280]:
+                - generic "尺寸" [ref=f1e282]
+                - textbox "尺寸" [ref=f1e286]:
+                  - /placeholder: 例如 18 × 18 cm
+                  - text: TEST-20cm
+              - generic [ref=f1e288]:
+                - generic "装箱数" [ref=f1e290]
+                - generic [ref=f1e294]:
+                  - spinbutton "装箱数" [ref=f1e295]: "24"
+                  - generic:
+                    - button "Increase Value" [ref=f1e296] [cursor=pointer]:
+                      - img "up" [ref=f1e297]
+                    - button "Decrease Value" [ref=f1e300] [cursor=pointer]:
+                      - img "down" [ref=f1e301]
+              - generic [ref=f1e305]:
+                - generic "单位" [ref=f1e307]
+                - generic [ref=f1e311] [cursor=pointer]:
+                  - generic "pcs" [ref=f1e312]:
+                    - text: pcs
+                    - combobox "单位" [ref=f1e313]
+                  - img "down" [ref=f1e315]
+              - generic [ref=f1e319]:
+                - generic "单价" [ref=f1e321]
+                - generic [ref=f1e325]:
+                  - spinbutton "单价" [ref=f1e326]: "1.00"
+                  - generic:
+                    - button "Increase Value" [ref=f1e327] [cursor=pointer]:
+                      - img "up" [ref=f1e328]
+                    - button "Decrease Value" [ref=f1e331] [cursor=pointer]:
+                      - img "down" [ref=f1e332]
+              - generic [ref=f1e336]:
+                - generic "当前箱数" [ref=f1e338]
+                - generic [ref=f1e342]:
+                  - spinbutton [ref=f1e343]: "10"
+                  - generic:
+                    - button "Increase Value" [ref=f1e344] [cursor=pointer]:
+                      - img "up" [ref=f1e345]
+                    - button "Decrease Value" [ref=f1e348] [cursor=pointer]:
+                      - img "down" [ref=f1e349]
+            - generic [ref=f1e353]:
+              - generic "备注" [ref=f1e355]
+              - generic [ref=f1e359]:
+                - textbox "备注" [ref=f1e360]: 分类功能浏览器验收测试
+                - generic: 11 / 2000
+        - generic [ref=f1e361]:
+          - button "取 消" [ref=f1e362] [cursor=pointer]
+          - button "保 存" [ref=f1e364] [cursor=pointer]

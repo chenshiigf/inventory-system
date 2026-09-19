@@ -1,0 +1,136 @@
+- generic [ref=f2e1]:
+  - generic [ref=f2e2]:
+    - complementary [ref=f2e3]:
+      - generic [ref=f2e4]:
+        - generic [ref=f2e10]:
+          - strong [ref=f2e11]: 商品库存
+          - generic [ref=f2e12]: 家庭库存工作台
+        - menu [ref=f2e13]:
+          - menuitem [ref=f2e14] [cursor=pointer]:
+            - img "appstore" [ref=f2e15]
+            - link "商品库存" [ref=f2e19]:
+              - /url: /
+          - menuitem [ref=f2e20] [cursor=pointer]:
+            - img "tags" [ref=f2e21]
+            - link "分类管理" [ref=f2e25]:
+              - /url: /categories
+        - generic [ref=f2e26]: 商品与分类分开管理
+    - generic [ref=f2e27]:
+      - banner [ref=f2e28]:
+        - generic [ref=f2e29]:
+          - generic [ref=f2e30]: 系统功能
+          - generic [aria-hidden] [ref=f2e31]: /
+          - strong [ref=f2e32]: 商品库存
+        - generic [ref=f2e33]:
+          - generic [ref=f2e34]: SQLite 商品数据
+          - generic [ref=f2e35]: 入库 / 出库仍为页面原型
+      - main [ref=f2e36]:
+        - generic [ref=f2e37]:
+          - generic [ref=f2e38]:
+            - heading "商品库存" [level=1] [ref=f2e39]
+            - button "plus 新增商品" [ref=f2e40] [cursor=pointer]:
+              - img "plus" [ref=f2e42]
+              - generic [ref=f2e46]: 新增商品
+          - generic "商品分类与搜索" [ref=f2e47]:
+            - generic [ref=f2e48]:
+              - generic "全部商品" [ref=f2e49]:
+                - text: 全部商品
+                - combobox "选择商品分类" [expanded] [active] [ref=f2e50]
+              - generic:
+                - img "search"
+              - button "Clear" [ref=f2e86] [cursor=pointer]:
+                - img "close-circle" [ref=f2e87]
+            - textbox "搜索商品" [ref=f2e60]:
+              - /placeholder: 搜索尺寸或备注
+            - generic [ref=f2e62]: 共 2 个商品
+          - region "商品库存列表" [ref=f2e63]:
+            - generic [ref=f2e65]:
+              - generic [ref=f2e66]: 当前分类
+              - strong [ref=f2e67]: 全部商品
+            - generic [ref=f2e90]:
+              - table [ref=f2e94]:
+                - rowgroup [ref=f2e104]:
+                  - row [ref=f2e105]:
+                    - columnheader "商品图片" [ref=f2e106]
+                    - columnheader "尺寸" [ref=f2e107]
+                    - columnheader "装箱数" [ref=f2e108]
+                    - columnheader "单位" [ref=f2e109]
+                    - columnheader "单价" [ref=f2e110]
+                    - columnheader "当前箱数" [ref=f2e111]
+                    - columnheader "备注" [ref=f2e112]
+                    - columnheader "操作" [ref=f2e113]
+                - rowgroup [ref=f2e114]:
+                  - row [aria-hidden] [ref=f2e115]:
+                    - cell [ref=f2e116]
+                    - cell [ref=f2e117]
+                    - cell [ref=f2e118]
+                    - cell [ref=f2e119]
+                    - cell [ref=f2e120]
+                    - cell [ref=f2e121]
+                    - cell [ref=f2e122]
+                    - cell [ref=f2e123]
+                  - row [ref=f2e124]:
+                    - cell [ref=f2e125]:
+                      - generic "商品图片暂未接入" [ref=f2e127]: 图片待接入
+                    - cell "TEST-20cm" [ref=f2e132]
+                    - cell "24" [ref=f2e133]
+                    - cell "pcs" [ref=f2e134]
+                    - cell "¥ 1.00" [ref=f2e135]
+                    - cell "10 箱" [ref=f2e137]:
+                      - generic [ref=f2e138]:
+                        - strong [ref=f2e139]: "10"
+                        - generic [ref=f2e140]: 箱
+                    - cell "分类功能浏览器验收测试" [ref=f2e141]
+                    - cell [ref=f2e143]:
+                      - generic [ref=f2e144]:
+                        - button "为尺寸 TEST-20cm 的商品入库" [ref=f2e146] [cursor=pointer]:
+                          - generic [ref=f2e147]: 入库
+                        - button "为尺寸 TEST-20cm 的商品出库" [ref=f2e149] [cursor=pointer]:
+                          - generic [ref=f2e150]: 出库
+                        - button "编辑尺寸 TEST-20cm 的商品" [ref=f2e152] [cursor=pointer]:
+                          - generic [ref=f2e153]: 编辑
+                  - row [ref=f2e154]:
+                    - cell [ref=f2e155]:
+                      - generic "商品图片暂未接入" [ref=f2e157]: 图片待接入
+                    - cell "阶段一验收样品 18 cm（PATCH）" [ref=f2e162]
+                    - cell "24" [ref=f2e163]
+                    - cell "set" [ref=f2e164]
+                    - cell "¥ 3.40" [ref=f2e165]
+                    - cell "4 箱" [ref=f2e167]:
+                      - generic [ref=f2e168]:
+                        - strong [ref=f2e169]: "4"
+                        - generic [ref=f2e170]: 箱
+                    - cell "PATCH 持久化已验证" [ref=f2e171]
+                    - cell [ref=f2e173]:
+                      - generic [ref=f2e174]:
+                        - button "为尺寸 阶段一验收样品 18 cm（PATCH） 的商品入库" [ref=f2e176] [cursor=pointer]:
+                          - generic [ref=f2e177]: 入库
+                        - button "为尺寸 阶段一验收样品 18 cm（PATCH） 的商品出库" [ref=f2e179] [cursor=pointer]:
+                          - generic [ref=f2e180]: 出库
+                        - button "编辑尺寸 阶段一验收样品 18 cm（PATCH） 的商品" [ref=f2e182] [cursor=pointer]:
+                          - generic [ref=f2e183]: 编辑
+              - list [ref=f2e184]:
+                - listitem [ref=f2e185]: 1-2 条，共 2 条
+                - listitem "上一页" [ref=f2e186]:
+                  - button [disabled] [ref=f2e187]:
+                    - img "left" [ref=f2e188]
+                - listitem "1" [ref=f2e191] [cursor=pointer]
+                - listitem "下一页" [ref=f2e193]:
+                  - button [disabled] [ref=f2e194]:
+                    - img "right" [ref=f2e195]
+                - listitem [ref=f2e198]:
+                  - generic [ref=f2e199]:
+                    - generic "20 条/页" [ref=f2e200]:
+                      - text: 20 条/页
+                      - combobox "页码" [ref=f2e201]
+                    - img "down" [ref=f2e203]
+  - button "Open Next.js Dev Tools" [ref=f2e82] [cursor=pointer]
+  - alert [ref=f2e206]
+  - menu [ref=f2e210]:
+    - menuitemcheckbox "全部商品" [checked] [ref=f2e211] [cursor=pointer]
+    - menuitemcheckbox "厨房用品 right" [ref=f2e213] [cursor=pointer]:
+      - generic [ref=f2e214]: 厨房用品
+      - img "right" [ref=f2e216]
+    - menuitemcheckbox "圣诞系列 right" [ref=f2e219] [cursor=pointer]:
+      - generic [ref=f2e220]: 圣诞系列
+      - img "right" [ref=f2e222]

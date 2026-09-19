@@ -1,0 +1,111 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e63] [cursor=pointer]
+  - alert [ref=e82]: 商品库存
+  - generic [ref=e391]:
+    - complementary [ref=e392]:
+      - generic [ref=e393]:
+        - generic [ref=e399]:
+          - strong [ref=e400]: 商品库存
+          - generic [ref=e401]: 家庭库存工作台
+        - menu [ref=e402]:
+          - menuitem [ref=e403] [cursor=pointer]:
+            - img "appstore" [ref=e404]
+            - link "商品库存" [ref=e408]:
+              - /url: /
+          - menuitem [ref=e409] [cursor=pointer]:
+            - img "tags" [ref=e410]
+            - link "分类管理" [ref=e414]:
+              - /url: /categories
+        - generic [ref=e415]: 商品与分类分开管理
+    - generic [ref=e416]:
+      - banner [ref=e417]:
+        - generic [ref=e418]:
+          - generic [ref=e419]: 系统功能
+          - generic [aria-hidden] [ref=e420]: /
+          - strong [ref=e421]: 商品库存
+        - generic [ref=e422]:
+          - generic [ref=e423]: SQLite 商品数据
+          - generic [ref=e424]: 入库 / 出库仍为页面原型
+      - main [ref=e425]:
+        - generic [ref=e426]:
+          - generic [ref=e427]:
+            - heading "商品库存" [level=1] [ref=e428]
+            - button "plus 新增商品" [ref=e429] [cursor=pointer]:
+              - img "plus" [ref=e431]
+              - generic [ref=e435]: 新增商品
+          - generic "商品分类与搜索" [ref=e436]:
+            - generic [ref=e437]:
+              - generic "厨房用品 / 盘子" [ref=e583]:
+                - text: 厨房用品 / 盘子
+                - combobox "选择商品分类" [ref=e439]
+              - img "down" [ref=e584]
+              - button "Clear" [ref=e444] [cursor=pointer]:
+                - img "close-circle" [ref=e445]
+            - textbox "搜索商品" [ref=e453]:
+              - /placeholder: 搜索尺寸或备注
+            - generic [ref=e455]: 共 1 个商品
+          - region "商品库存列表" [ref=e456]:
+            - generic [ref=e458]:
+              - generic [ref=e459]: 当前分类
+              - strong [ref=e460]: 厨房用品 / 盘子
+            - generic [ref=e463]:
+              - table [ref=e467]:
+                - rowgroup [ref=e477]:
+                  - row [ref=e478]:
+                    - columnheader "商品图片" [ref=e479]
+                    - columnheader "尺寸" [ref=e480]
+                    - columnheader "装箱数" [ref=e481]
+                    - columnheader "单位" [ref=e482]
+                    - columnheader "单价" [ref=e483]
+                    - columnheader "当前箱数" [ref=e484]
+                    - columnheader "备注" [ref=e485]
+                    - columnheader "操作" [ref=e486]
+                - rowgroup [ref=e487]:
+                  - row [aria-hidden] [ref=e488]:
+                    - cell [ref=e489]
+                    - cell [ref=e490]
+                    - cell [ref=e491]
+                    - cell [ref=e492]
+                    - cell [ref=e493]
+                    - cell [ref=e494]
+                    - cell [ref=e495]
+                    - cell [ref=e496]
+                  - row [ref=e737]:
+                    - cell [ref=e738]:
+                      - generic "商品图片暂未接入" [ref=e740]: 图片待接入
+                    - cell "TEST-20cm" [ref=e745]
+                    - cell "24" [ref=e746]
+                    - cell "pcs" [ref=e747]
+                    - cell "¥ 1.00" [ref=e748]
+                    - cell "10 箱" [ref=e750]:
+                      - generic [ref=e751]:
+                        - strong [ref=e752]: "10"
+                        - generic [ref=e753]: 箱
+                    - cell "分类功能浏览器验收测试" [ref=e754]
+                    - cell [ref=e756]:
+                      - generic [ref=e757]:
+                        - button "为尺寸 TEST-20cm 的商品入库" [ref=e759] [cursor=pointer]:
+                          - generic [ref=e760]: 入库
+                        - button "为尺寸 TEST-20cm 的商品出库" [ref=e762] [cursor=pointer]:
+                          - generic [ref=e763]: 出库
+                        - button "编辑尺寸 TEST-20cm 的商品" [ref=e765] [cursor=pointer]:
+                          - generic [ref=e766]: 编辑
+              - list [ref=e767]:
+                - listitem [ref=e768]: 1-1 条，共 1 条
+                - listitem "上一页" [ref=e769]:
+                  - button [disabled] [ref=e770]:
+                    - img "left" [ref=e771]
+                - listitem "1" [ref=e774] [cursor=pointer]
+                - listitem "下一页" [ref=e776]:
+                  - button [disabled] [ref=e777]:
+                    - img "right" [ref=e778]
+                - listitem [ref=e781]:
+                  - generic [ref=e782]:
+                    - generic "20 条/页" [ref=e783]:
+                      - text: 20 条/页
+                      - combobox "页码" [ref=e784]
+                    - img "down" [ref=e786]
+  - alert [ref=e789]:
+    - generic [ref=e790]:
+      - img "check-circle" [ref=e792]
+      - generic [ref=e795]: 商品已保存到数据库

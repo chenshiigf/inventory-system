@@ -1,0 +1,76 @@
+- generic [active] [ref=f2e1]:
+  - button "Open Next.js Dev Tools" [ref=f2e82] [cursor=pointer]
+  - alert [ref=f2e206]: 分类管理
+  - generic [ref=f2e301]:
+    - complementary [ref=f2e302]:
+      - generic [ref=f2e303]:
+        - generic [ref=f2e309]:
+          - strong [ref=f2e310]: 商品库存
+          - generic [ref=f2e311]: 家庭库存工作台
+        - menu [ref=f2e312]:
+          - menuitem [ref=f2e313] [cursor=pointer]:
+            - img "appstore" [ref=f2e314]
+            - link "商品库存" [ref=f2e318]:
+              - /url: /
+          - menuitem [ref=f2e319] [cursor=pointer]:
+            - img "tags" [ref=f2e320]
+            - link "分类管理" [ref=f2e324]:
+              - /url: /categories
+        - generic [ref=f2e325]: 商品与分类分开管理
+    - generic [ref=f2e326]:
+      - banner [ref=f2e327]:
+        - generic [ref=f2e328]:
+          - generic [ref=f2e329]: 系统功能
+          - generic [aria-hidden] [ref=f2e330]: /
+          - strong [ref=f2e331]: 分类管理
+        - generic [ref=f2e332]:
+          - generic [ref=f2e333]: SQLite 商品数据
+          - generic [ref=f2e334]: 入库 / 出库仍为页面原型
+      - main [ref=f2e335]:
+        - generic [ref=f2e336]:
+          - generic [ref=f2e337]:
+            - generic [ref=f2e338]:
+              - heading "分类管理" [level=1] [ref=f2e339]
+              - paragraph [ref=f2e340]: 一级分类 2 个 · 二级分类 2 个
+            - button "plus 新增一级分类" [ref=f2e341] [cursor=pointer]:
+              - img "plus" [ref=f2e343]
+              - generic [ref=f2e347]: 新增一级分类
+          - generic [ref=f2e348]:
+            - region "一级分类 厨房用品" [ref=f2e349]:
+              - generic [ref=f2e350]:
+                - generic [ref=f2e351]:
+                  - generic [ref=f2e352]: 一级分类
+                  - strong [ref=f2e354]: 厨房用品
+                  - generic [ref=f2e355]: 1 个小类
+                - generic [ref=f2e356]:
+                  - button "编辑一级分类 厨房用品" [ref=f2e358] [cursor=pointer]:
+                    - img "edit" [ref=f2e360]
+                    - generic [ref=f2e363]: 编辑
+                  - button "在厨房用品下新增二级分类" [ref=f2e365] [cursor=pointer]:
+                    - img "plus" [ref=f2e367]
+                    - generic [ref=f2e371]: 新增小类
+              - generic [ref=f2e373]:
+                - generic [aria-hidden] [ref=f2e374]: ↳
+                - generic [ref=f2e375]: 盘子
+                - button "编辑二级分类 厨房用品 / 盘子" [ref=f2e376] [cursor=pointer]:
+                  - img "edit" [ref=f2e378]
+                  - generic [ref=f2e381]: 编辑
+            - region "一级分类 圣诞系列" [ref=f2e382]:
+              - generic [ref=f2e383]:
+                - generic [ref=f2e384]:
+                  - generic [ref=f2e385]: 一级分类
+                  - strong [ref=f2e387]: 圣诞系列
+                  - generic [ref=f2e388]: 1 个小类
+                - generic [ref=f2e389]:
+                  - button "编辑一级分类 圣诞系列" [ref=f2e391] [cursor=pointer]:
+                    - img "edit" [ref=f2e393]
+                    - generic [ref=f2e396]: 编辑
+                  - button "在圣诞系列下新增二级分类" [ref=f2e398] [cursor=pointer]:
+                    - img "plus" [ref=f2e400]
+                    - generic [ref=f2e404]: 新增小类
+              - generic [ref=f2e406]:
+                - generic [aria-hidden] [ref=f2e407]: ↳
+                - generic [ref=f2e408]: 盘子
+                - button "编辑二级分类 圣诞系列 / 盘子" [ref=f2e409] [cursor=pointer]:
+                  - img "edit" [ref=f2e411]
+                  - generic [ref=f2e414]: 编辑

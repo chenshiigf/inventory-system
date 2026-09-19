@@ -21,6 +21,45 @@ ProductPrice = Annotated[
     Decimal,
     Field(ge=Decimal("0"), max_digits=12, decimal_places=2),
 ]
+CategoryId = Annotated[int, Field(gt=0, strict=True)]
+CategoryName = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=100, strip_whitespace=True),
+]
+CategorySortOrder = Annotated[int, Field(ge=0, strict=True)]
+
+
+class CategoryCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: CategoryName
+    parent_id: CategoryId | None = None
+    sort_order: CategorySortOrder = 0
+
+
+class CategoryUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: CategoryName
+
+
+class CategoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    parent_id: int | None
+    sort_order: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class CategoryTreeNode(BaseModel):
+    id: int
+    name: str
+    parent_id: int | None
+    sort_order: int
+    children: list[CategoryTreeNode] = Field(default_factory=list)
 
 
 def validate_image_path(value: str | None) -> str | None:
@@ -45,6 +84,7 @@ def validate_image_path(value: str | None) -> str | None:
 class ProductCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    category_id: CategoryId | None = None
     image_path: str | None = Field(default=None, max_length=500)
     size: ProductSize = ""
     packing_qty: PositiveInt
@@ -74,6 +114,7 @@ class ProductCreate(BaseModel):
 class ProductUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    category_id: CategoryId | None = None
     image_path: str | None = Field(default=None, max_length=500)
     size: ProductSize | None = None
     packing_qty: PositiveInt | None = None
@@ -87,7 +128,7 @@ class ProductUpdate(BaseModel):
         if not self.model_fields_set:
             raise ValueError("At least one product field must be provided")
 
-        nullable_fields = {"image_path", "remark"}
+        nullable_fields = {"category_id", "image_path", "remark"}
         for field_name in self.model_fields_set - nullable_fields:
             if getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
@@ -116,6 +157,7 @@ class ProductRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    category_id: int | None
     image_path: str | None
     size: str
     packing_qty: int

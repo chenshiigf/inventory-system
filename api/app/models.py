@@ -1,7 +1,15 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, DateTime, Integer, Numeric, String, Text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -10,6 +18,28 @@ from app.database import Base
 def utc_now() -> datetime:
     # SQLite stores these as UTC values without a timezone suffix.
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class Category(Base):
+    __tablename__ = "categories"
+    __table_args__ = (
+        CheckConstraint("sort_order >= 0", name="ck_categories_sort_order_nonnegative"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", name="fk_categories_parent_id_categories"),
+        nullable=True,
+        index=True,
+    )
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), nullable=False, default=utc_now, onupdate=utc_now
+    )
 
 
 class Product(Base):
@@ -22,6 +52,11 @@ class Product(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categories.id", name="fk_products_category_id_categories"),
+        nullable=True,
+        index=True,
+    )
     image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     size: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     packing_qty: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -6,7 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Product
+from app.models import Category, Product
 from app.schemas import ProductCreate, ProductListRead, ProductRead, ProductUpdate
 
 
@@ -19,16 +19,36 @@ def list_products(
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     search: Annotated[str | None, Query(max_length=100)] = None,
+    category_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> ProductListRead:
     statement = select(Product)
     count_statement = select(func.count(Product.id))
+    filters = []
 
     normalized_search = search.strip() if search else ""
     if normalized_search:
         pattern = f"%{normalized_search}%"
-        filters = or_(Product.size.ilike(pattern), Product.remark.ilike(pattern))
-        statement = statement.where(filters)
-        count_statement = count_statement.where(filters)
+        filters.append(or_(Product.size.ilike(pattern), Product.remark.ilike(pattern)))
+
+    if category_id is not None:
+        category = db.get(Category, category_id)
+        if category is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Category not found",
+            )
+
+        if category.parent_id is None:
+            child_ids = db.scalars(
+                select(Category.id).where(Category.parent_id == category.id)
+            ).all()
+            filters.append(Product.category_id.in_([category.id, *child_ids]))
+        else:
+            filters.append(Product.category_id == category.id)
+
+    if filters:
+        statement = statement.where(*filters)
+        count_statement = count_statement.where(*filters)
 
     total = db.scalar(count_statement) or 0
     items = db.scalars(
@@ -55,6 +75,7 @@ def create_product(
     payload: ProductCreate,
     db: Annotated[Session, Depends(get_db)],
 ) -> Product:
+    _validate_product_category(db, payload.category_id)
     product = Product(**payload.model_dump())
     db.add(product)
     db.commit()
@@ -72,10 +93,31 @@ def update_product(
     if product is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
 
-    for field_name, value in payload.model_dump(exclude_unset=True).items():
+    updates = payload.model_dump(exclude_unset=True)
+    if "category_id" in updates:
+        _validate_product_category(db, updates["category_id"])
+
+    for field_name, value in updates.items():
         setattr(product, field_name, value)
     product.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     db.commit()
     db.refresh(product)
     return product
+
+
+def _validate_product_category(db: Session, category_id: int | None) -> None:
+    if category_id is None:
+        return
+
+    category = db.get(Category, category_id)
+    if category is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="category_id does not reference an existing category",
+        )
+    if category.parent_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Products must be assigned to a second-level category",
+        )

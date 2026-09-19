@@ -204,9 +204,10 @@ textarea {
   padding: 18px 28px 32px;
 }
 
-.inventory-page {
+.inventory-page,
+.categories-page {
   min-width: 0;
-  max-width: 1200px;
+  max-width: 1360px;
   margin-inline: auto;
 }
 
@@ -307,8 +308,8 @@ textarea {
 }
 
 .inventory-table .ant-table-container table {
-  width: 1030px !important;
-  min-width: 1030px !important;
+  width: 100% !important;
+  min-width: 100% !important;
 }
 
 .inventory-table .ant-table-thead > tr > th {
@@ -480,6 +481,7 @@ textarea {
 }
 
 .inventory-table .ant-pagination {
+  width: 100%;
   margin: 0;
   padding: 14px 16px;
 }
@@ -614,12 +616,6 @@ textarea {
 .stock-prototype-note {
   margin-block: 12px 18px;
   font-size: 12px;
-}
-
-.categories-page {
-  min-width: 0;
-  max-width: 1000px;
-  margin-inline: auto;
 }
 
 .categories-summary {

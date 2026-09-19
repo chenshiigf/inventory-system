@@ -119,7 +119,6 @@ export default function ProductTable({
       title: "备注",
       dataIndex: "remark",
       key: "remark",
-      width: 210,
       render: (value: string | null) => {
         const note = value?.trim() ?? "";
         return note ? (
@@ -174,7 +173,6 @@ export default function ProductTable({
       dataSource={products}
       loading={loading}
       tableLayout="fixed"
-      scroll={{ x: 1030 }}
       pagination={getPaginationConfig(
         currentPage,
         pageSize,

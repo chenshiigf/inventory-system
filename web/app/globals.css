@@ -239,9 +239,14 @@ textarea {
   margin-bottom: 12px;
 }
 
+.inventory-warehouse-picker {
+  width: 168px;
+  flex: 0 0 168px;
+}
+
 .inventory-category-picker {
-  width: 286px;
-  flex: 0 0 286px;
+  width: 258px;
+  flex: 0 0 258px;
 }
 
 .inventory-search {
@@ -738,6 +743,18 @@ textarea {
   .inventory-search {
     max-width: none;
   }
+
+  .inventory-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .inventory-warehouse-picker {
+    flex: 1 1 180px;
+  }
+
+  .inventory-category-picker {
+    flex: 1 1 258px;
+  }
 }
 
 @media (max-width: 760px) {
@@ -771,6 +788,11 @@ textarea {
   }
 
   .inventory-category-picker {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .inventory-warehouse-picker {
     width: 100%;
     flex: 1 1 100%;
   }

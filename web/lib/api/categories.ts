@@ -6,8 +6,16 @@ import type {
   CategoryUpdatePayload,
 } from "@/types/inventory";
 
-export function listCategories(signal?: AbortSignal): Promise<CategoryTreeNode[]> {
-  return apiRequest<CategoryTreeNode[]>("/api/categories", {
+export function listCategories(
+  signal?: AbortSignal,
+  warehouseId?: number,
+): Promise<CategoryTreeNode[]> {
+  const query = new URLSearchParams();
+  if (warehouseId !== undefined) {
+    query.set("warehouse_id", String(warehouseId));
+  }
+  const search = query.toString();
+  return apiRequest<CategoryTreeNode[]>(`/api/categories${search ? `?${search}` : ""}`, {
     method: "GET",
     signal,
   });

@@ -6,7 +6,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import Category, Product
+from app.models import Category, Product, Warehouse
 from app.schemas import ProductCreate, ProductListRead, ProductRead, ProductUpdate
 
 
@@ -20,6 +20,7 @@ def list_products(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     search: Annotated[str | None, Query(max_length=100)] = None,
     category_id: Annotated[int | None, Query(ge=1)] = None,
+    warehouse_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> ProductListRead:
     statement = select(Product)
     count_statement = select(func.count(Product.id))
@@ -29,6 +30,10 @@ def list_products(
     if normalized_search:
         pattern = f"%{normalized_search}%"
         filters.append(or_(Product.size.ilike(pattern), Product.remark.ilike(pattern)))
+
+    if warehouse_id is not None:
+        _validate_product_warehouse(db, warehouse_id)
+        filters.append(Product.warehouse_id == warehouse_id)
 
     if category_id is not None:
         category = db.get(Category, category_id)
@@ -76,6 +81,7 @@ def create_product(
     db: Annotated[Session, Depends(get_db)],
 ) -> Product:
     _validate_product_category(db, payload.category_id)
+    _validate_product_warehouse(db, payload.warehouse_id)
     product = Product(**payload.model_dump())
     db.add(product)
     db.commit()
@@ -96,6 +102,8 @@ def update_product(
     updates = payload.model_dump(exclude_unset=True)
     if "category_id" in updates:
         _validate_product_category(db, updates["category_id"])
+    if "warehouse_id" in updates:
+        _validate_product_warehouse(db, updates["warehouse_id"])
 
     for field_name, value in updates.items():
         setattr(product, field_name, value)
@@ -120,4 +128,15 @@ def _validate_product_category(db: Session, category_id: int | None) -> None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Products must be assigned to a second-level category",
+        )
+
+
+def _validate_product_warehouse(db: Session, warehouse_id: int | None) -> None:
+    if warehouse_id is None:
+        return
+
+    if db.get(Warehouse, warehouse_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="warehouse_id does not reference an existing warehouse",
         )

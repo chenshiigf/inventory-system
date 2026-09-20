@@ -17,6 +17,7 @@ import type {
   InventoryCategoryOption,
   InventoryProduct,
   ProductEditorFormValues,
+  WarehouseRead,
 } from "@/types/inventory";
 import {
   getCategoryPath,
@@ -27,6 +28,8 @@ import {
 interface ProductEditorModalProps {
   product?: InventoryProduct;
   categories: CategoryTreeNode[];
+  warehouses: WarehouseRead[];
+  defaultWarehouseId?: number;
   onCancel: () => void;
   onSave: (values: ProductEditorFormValues) => Promise<void>;
 }
@@ -38,6 +41,8 @@ function getErrorMessage(error: unknown): string {
 export default function ProductEditorModal({
   product,
   categories,
+  warehouses,
+  defaultWarehouseId,
   onCancel,
   onSave,
 }: ProductEditorModalProps) {
@@ -103,6 +108,14 @@ export default function ProductEditorModal({
             title="该商品目前未分类，请选择一个二级分类后保存。"
           />
         )}
+        {product && product.warehouseId === null && (
+          <Alert
+            className="product-category-note"
+            type="warning"
+            showIcon
+            title="该商品目前未选择仓库，请选择所属仓库后保存。"
+          />
+        )}
         {!hasCategories && (
           <Alert
             className="product-category-note"
@@ -119,6 +132,7 @@ export default function ProductEditorModal({
             product
               ? {
                   categoryPath,
+                  warehouseId: product.warehouseId ?? undefined,
                   size: product.size,
                   packingQty: product.packingQty,
                   unit: product.unit,
@@ -128,6 +142,7 @@ export default function ProductEditorModal({
                 }
               : {
                   categoryPath: [],
+                  warehouseId: defaultWarehouseId,
                   size: "",
                   packingQty: 1,
                   unit: "pcs",
@@ -140,6 +155,23 @@ export default function ProductEditorModal({
           requiredMark={false}
         >
           <div className="form-grid">
+            <Form.Item
+              className="form-item-full"
+              name="warehouseId"
+              label="所属仓库"
+              rules={[{ required: true, message: "请选择所属仓库" }]}
+            >
+              <Select
+                aria-label="商品所属仓库"
+                placeholder={
+                  product?.warehouseId === null ? "未选择仓库" : "请选择仓库"
+                }
+                options={warehouses.map((warehouse) => ({
+                  label: warehouse.name,
+                  value: warehouse.id,
+                }))}
+              />
+            </Form.Item>
             <Form.Item
               className="form-item-full"
               name="categoryPath"

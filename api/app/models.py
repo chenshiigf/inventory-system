@@ -9,6 +9,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,6 +43,24 @@ class Category(Base):
     )
 
 
+class Warehouse(Base):
+    __tablename__ = "warehouses"
+    __table_args__ = (
+        CheckConstraint("sort_order >= 0", name="ck_warehouses_sort_order_nonnegative"),
+        UniqueConstraint("name", name="uq_warehouses_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), nullable=False, default=utc_now, onupdate=utc_now
+    )
+
+
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (
@@ -54,6 +73,11 @@ class Product(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     category_id: Mapped[int | None] = mapped_column(
         ForeignKey("categories.id", name="fk_products_category_id_categories"),
+        nullable=True,
+        index=True,
+    )
+    warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey("warehouses.id", name="fk_products_warehouse_id_warehouses"),
         nullable=True,
         index=True,
     )

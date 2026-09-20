@@ -11,6 +11,7 @@ interface ProductListParams {
   pageSize: number;
   search: string;
   categoryId?: number;
+  warehouseId?: number;
 }
 
 export function listProducts(
@@ -26,6 +27,9 @@ export function listProducts(
   }
   if (params.categoryId !== undefined) {
     query.set("category_id", String(params.categoryId));
+  }
+  if (params.warehouseId !== undefined) {
+    query.set("warehouse_id", String(params.warehouseId));
   }
   return apiRequest<ProductListResponse>(`/api/products?${query.toString()}`, {
     method: "GET",

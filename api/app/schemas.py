@@ -22,6 +22,7 @@ ProductPrice = Annotated[
     Field(ge=Decimal("0"), max_digits=12, decimal_places=2),
 ]
 CategoryId = Annotated[int, Field(gt=0, strict=True)]
+WarehouseId = Annotated[int, Field(gt=0, strict=True)]
 CategoryName = Annotated[
     str,
     StringConstraints(min_length=1, max_length=100, strip_whitespace=True),
@@ -62,6 +63,14 @@ class CategoryTreeNode(BaseModel):
     children: list[CategoryTreeNode] = Field(default_factory=list)
 
 
+class WarehouseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    sort_order: int
+
+
 def validate_image_path(value: str | None) -> str | None:
     if value is None:
         return None
@@ -85,6 +94,7 @@ class ProductCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     category_id: CategoryId | None = None
+    warehouse_id: WarehouseId | None = None
     image_path: str | None = Field(default=None, max_length=500)
     size: ProductSize = ""
     packing_qty: PositiveInt
@@ -115,6 +125,7 @@ class ProductUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     category_id: CategoryId | None = None
+    warehouse_id: WarehouseId | None = None
     image_path: str | None = Field(default=None, max_length=500)
     size: ProductSize | None = None
     packing_qty: PositiveInt | None = None
@@ -128,7 +139,7 @@ class ProductUpdate(BaseModel):
         if not self.model_fields_set:
             raise ValueError("At least one product field must be provided")
 
-        nullable_fields = {"category_id", "image_path", "remark"}
+        nullable_fields = {"category_id", "warehouse_id", "image_path", "remark"}
         for field_name in self.model_fields_set - nullable_fields:
             if getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
@@ -158,6 +169,7 @@ class ProductRead(BaseModel):
 
     id: int
     category_id: int | None
+    warehouse_id: int | None
     image_path: str | None
     size: str
     packing_qty: int

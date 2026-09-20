@@ -32,9 +32,18 @@ export interface CategoryUpdatePayload {
   name: string;
 }
 
+export interface WarehouseRead {
+  id: number;
+  name: string;
+  sort_order: number;
+}
+
+export type WarehouseSelection = "all" | number;
+
 export interface ProductApiRecord {
   id: number;
   category_id: number | null;
+  warehouse_id: number | null;
   image_path: string | null;
   size: string;
   packing_qty: number;
@@ -55,6 +64,7 @@ export interface ProductListResponse {
 
 export interface ProductCreatePayload {
   category_id: number;
+  warehouse_id: number;
   image_path: string | null;
   size: string;
   packing_qty: number;
@@ -69,6 +79,7 @@ export type ProductUpdatePayload = Partial<ProductCreatePayload>;
 export interface InventoryProduct {
   id: number;
   categoryId: number | null;
+  warehouseId: number | null;
   imagePath: string | null;
   size: string;
   packingQty: number;
@@ -87,6 +98,7 @@ export interface StockMovementValues {
 
 export interface ProductEditorFormValues {
   categoryPath: number[];
+  warehouseId: number;
   size: string;
   packingQty: number;
   unit: ProductUnit;

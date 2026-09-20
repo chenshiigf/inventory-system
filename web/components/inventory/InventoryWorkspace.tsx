@@ -13,6 +13,7 @@ import {
   listProducts,
   updateProduct as updateProductRequest,
 } from "@/lib/api/products";
+import { listWarehouses } from "@/lib/api/warehouses";
 import {
   getCategoryLabel,
   hasSecondLevelCategories,
@@ -28,6 +29,8 @@ import type {
   ProductUpdatePayload,
   StockMovementDirection,
   StockMovementValues,
+  WarehouseRead,
+  WarehouseSelection,
 } from "@/types/inventory";
 
 interface ProductEditorState {
@@ -43,6 +46,7 @@ function toInventoryProduct(product: ProductApiRecord): InventoryProduct {
   return {
     id: product.id,
     categoryId: product.category_id,
+    warehouseId: product.warehouse_id,
     imagePath: product.image_path,
     size: product.size,
     packingQty: product.packing_qty,
@@ -59,9 +63,18 @@ function getErrorMessage(error: unknown): string {
 
 export default function InventoryWorkspace() {
   const [categories, setCategories] = useState<CategoryTreeNode[]>([]);
+  const [filterCategories, setFilterCategories] = useState<CategoryTreeNode[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
   const [categoriesError, setCategoriesError] = useState<string | null>(null);
+  const [filterCategoriesLoading, setFilterCategoriesLoading] = useState(true);
+  const [filterCategoriesError, setFilterCategoriesError] = useState<string | null>(null);
   const [categoriesReloadCounter, setCategoriesReloadCounter] = useState(0);
+  const [filterCategoriesReloadCounter, setFilterCategoriesReloadCounter] =
+    useState(0);
+  const [warehouses, setWarehouses] = useState<WarehouseRead[]>([]);
+  const [warehousesLoading, setWarehousesLoading] = useState(true);
+  const [warehousesError, setWarehousesError] = useState<string | null>(null);
+  const [warehousesReloadCounter, setWarehousesReloadCounter] = useState(0);
   const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [total, setTotal] = useState(0);
   const [completedRequestKey, setCompletedRequestKey] = useState<string | null>(
@@ -72,6 +85,7 @@ export default function InventoryWorkspace() {
     message: string;
   } | null>(null);
   const [reloadCounter, setReloadCounter] = useState(0);
+  const [warehouseValue, setWarehouseValue] = useState<WarehouseSelection>("all");
   const [categoryValue, setCategoryValue] = useState<CategorySelection>(["all"]);
   const [searchValue, setSearchValue] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -82,16 +96,25 @@ export default function InventoryWorkspace() {
   const [stockMovement, setStockMovement] =
     useState<StockMovementState | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
+  const warehouseId =
+    typeof warehouseValue === "number" ? warehouseValue : undefined;
   const selectedCategory = categoryValue[categoryValue.length - 1];
   const categoryId =
     typeof selectedCategory === "number" ? selectedCategory : undefined;
   const categoryOptions = useMemo(
-    () => toCategoryOptions(categories, true),
-    [categories],
+    () => toCategoryOptions(filterCategories, true),
+    [filterCategories],
   );
   const hasCategories = hasSecondLevelCategories(categories);
-  const currentCategoryLabel = getCategoryLabel(categories, categoryValue);
-  const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${categoryId ?? "all"}`;
+  const categoryServiceError = categoriesError ?? filterCategoriesError;
+  const currentCategoryLabel = getCategoryLabel(filterCategories, categoryValue);
+  const selectedWarehouseName =
+    warehouseValue === "all"
+      ? "全部仓库"
+      : warehouses.find((warehouse) => warehouse.id === warehouseValue)?.name ??
+        "仓库";
+  const currentRangeLabel = `${selectedWarehouseName} / ${currentCategoryLabel}`;
+  const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${warehouseId ?? "all"}:${categoryId ?? "all"}`;
   const loading = completedRequestKey !== requestKey;
   const visibleLoadError =
     loadError?.requestKey === requestKey ? loadError.message : null;
@@ -124,8 +147,64 @@ export default function InventoryWorkspace() {
   useEffect(() => {
     const controller = new AbortController();
 
+    void listCategories(controller.signal, warehouseId)
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setFilterCategories(result);
+          setFilterCategoriesError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setFilterCategories([]);
+          setFilterCategoriesError(getErrorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setFilterCategoriesLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [filterCategoriesReloadCounter, warehouseId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void listWarehouses(controller.signal)
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setWarehouses(result);
+          setWarehousesError(null);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setWarehouses([]);
+          setWarehousesError(getErrorMessage(error));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setWarehousesLoading(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [warehousesReloadCounter]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
     void listProducts(
-      { page: currentPage, pageSize, search: searchValue, categoryId },
+      {
+        page: currentPage,
+        pageSize,
+        search: searchValue,
+        categoryId,
+        warehouseId,
+      },
       controller.signal,
     )
       .then((response) => {
@@ -151,7 +230,15 @@ export default function InventoryWorkspace() {
       });
 
     return () => controller.abort();
-  }, [categoryId, currentPage, pageSize, reloadCounter, requestKey, searchValue]);
+  }, [
+    categoryId,
+    currentPage,
+    pageSize,
+    reloadCounter,
+    requestKey,
+    searchValue,
+    warehouseId,
+  ]);
 
   const activeMovementProduct = stockMovement
     ? products.find((product) => product.id === stockMovement.product.id)
@@ -160,6 +247,14 @@ export default function InventoryWorkspace() {
   function handleCategoryChange(value: CategorySelection) {
     setCategoryValue(value.length > 0 ? value : ["all"]);
     setCurrentPage(1);
+  }
+
+  function handleWarehouseChange(value: WarehouseSelection) {
+    setWarehouseValue(value);
+    setCategoryValue(["all"]);
+    setCurrentPage(1);
+    setFilterCategoriesLoading(true);
+    setFilterCategoriesError(null);
   }
 
   function handleSearchChange(value: string) {
@@ -177,9 +272,13 @@ export default function InventoryWorkspace() {
     if (!categoryId) {
       throw new Error("请选择一个二级分类后保存商品。");
     }
+    if (!values.warehouseId) {
+      throw new Error("请选择所属仓库后保存商品。");
+    }
 
     const editableFields: Omit<ProductCreatePayload, "image_path"> = {
       category_id: categoryId,
+      warehouse_id: values.warehouseId,
       size: values.size.trim(),
       packing_qty: values.packingQty,
       unit: values.unit,
@@ -201,8 +300,12 @@ export default function InventoryWorkspace() {
 
     setProductEditor(null);
     setSearchValue("");
+    setCategoryValue(["all"]);
     setCurrentPage(1);
+    setFilterCategoriesLoading(true);
+    setFilterCategoriesError(null);
     setReloadCounter((value) => value + 1);
+    setFilterCategoriesReloadCounter((value) => value + 1);
     messageApi.success(
       productEditor?.product ? "商品信息已保存到数据库" : "商品已保存到数据库",
     );
@@ -240,25 +343,28 @@ export default function InventoryWorkspace() {
             className="add-product-button"
             type="primary"
             icon={<PlusOutlined />}
+            disabled={
+              warehousesLoading || Boolean(warehousesError) || warehouses.length === 0
+            }
             onClick={() => setProductEditor({})}
           >
             新增商品
           </Button>
         </div>
 
-        {categoriesError && (
+        {warehousesError && (
           <Alert
             className="inventory-load-error"
             type="error"
             showIcon
-            title="分类服务暂不可用"
-            description={categoriesError}
+            title="仓库服务暂不可用"
+            description={warehousesError}
             action={
               <Button
                 size="small"
                 onClick={() => {
-                  setCategoriesLoading(true);
-                  setCategoriesReloadCounter((value) => value + 1);
+                  setWarehousesLoading(true);
+                  setWarehousesReloadCounter((value) => value + 1);
                 }}
               >
                 重试
@@ -266,7 +372,43 @@ export default function InventoryWorkspace() {
             }
           />
         )}
-        {!categoriesLoading && !categoriesError && !hasCategories && (
+        {!warehousesLoading && !warehousesError && warehouses.length === 0 && (
+          <Alert
+            className="inventory-load-error"
+            type="warning"
+            showIcon
+            title="仓库列表为空，请先运行开发仓库初始化命令。"
+          />
+        )}
+
+        {categoryServiceError && (
+          <Alert
+            className="inventory-load-error"
+            type="error"
+            showIcon
+            title="分类服务暂不可用"
+            description={categoryServiceError}
+            action={
+              <Button
+                size="small"
+                onClick={() => {
+                  setCategoriesLoading(true);
+                  setFilterCategoriesLoading(true);
+                  setCategoriesError(null);
+                  setFilterCategoriesError(null);
+                  setCategoriesReloadCounter((value) => value + 1);
+                  setFilterCategoriesReloadCounter((value) => value + 1);
+                }}
+              >
+                重试
+              </Button>
+            }
+          />
+        )}
+        {!categoriesLoading &&
+          !categoriesError &&
+          !filterCategoriesError &&
+          !hasCategories && (
           <Alert
             className="inventory-load-error"
             type="info"
@@ -276,13 +418,24 @@ export default function InventoryWorkspace() {
         )}
 
         <InventoryToolbar
+          warehouses={warehouses}
+          warehouseValue={warehouseValue}
+          onWarehouseChange={handleWarehouseChange}
+          warehouseDisabled={
+            warehousesLoading || Boolean(warehousesError) || warehouses.length === 0
+          }
           categoryOptions={categoryOptions}
           categoryValue={categoryValue}
           onCategoryChange={handleCategoryChange}
           searchValue={searchValue}
           onSearchChange={handleSearchChange}
           resultCount={total}
-          categoryDisabled={categoriesLoading || Boolean(categoriesError)}
+          categoryDisabled={
+            categoriesLoading ||
+            filterCategoriesLoading ||
+            Boolean(categoriesError) ||
+            Boolean(filterCategoriesError)
+          }
         />
 
         {visibleLoadError && (
@@ -306,8 +459,8 @@ export default function InventoryWorkspace() {
         <section className="inventory-panel" aria-label="商品库存列表">
           <div className="inventory-panel-heading">
             <div className="category-context">
-              <span className="category-context-label">当前分类</span>
-              <strong className="category-path">{currentCategoryLabel}</strong>
+              <span className="category-context-label">当前范围</span>
+              <strong className="category-path">{currentRangeLabel}</strong>
             </div>
           </div>
           <ProductTable
@@ -332,6 +485,8 @@ export default function InventoryWorkspace() {
         <ProductEditorModal
           product={productEditor.product}
           categories={categories}
+          warehouses={warehouses}
+          defaultWarehouseId={productEditor.product ? undefined : warehouseId}
           onCancel={() => setProductEditor(null)}
           onSave={saveProduct}
         />

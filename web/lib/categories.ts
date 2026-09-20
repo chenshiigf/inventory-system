@@ -17,7 +17,7 @@ export function toCategoryOptions(
   includeAll = false,
 ): InventoryCategoryOption[] {
   return [
-    ...(includeAll ? [{ value: "all", label: "全部商品" }] : []),
+    ...(includeAll ? [{ value: "all", label: "全部分类" }] : []),
     ...categories.map(toCategoryOption),
   ];
 }
@@ -49,7 +49,7 @@ export function getCategoryLabel(
 ): string {
   const id = selection[selection.length - 1];
   if (typeof id !== "number") {
-    return "全部商品";
+    return "全部分类";
   }
 
   for (const parent of categories) {
@@ -62,7 +62,7 @@ export function getCategoryLabel(
     }
   }
 
-  return "全部商品";
+  return "全部分类";
 }
 
 export function hasSecondLevelCategories(categories: CategoryTreeNode[]): boolean {

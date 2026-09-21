@@ -51,6 +51,7 @@ class CategoryRead(BaseModel):
     name: str
     parent_id: int | None
     sort_order: int
+    code: str
     created_at: datetime
     updated_at: datetime
 
@@ -60,6 +61,7 @@ class CategoryTreeNode(BaseModel):
     name: str
     parent_id: int | None
     sort_order: int
+    code: str
     children: list[CategoryTreeNode] = Field(default_factory=list)
 
 
@@ -96,6 +98,7 @@ class ProductCreate(BaseModel):
     category_id: CategoryId | None = None
     warehouse_id: WarehouseId | None = None
     image_path: str | None = Field(default=None, max_length=500)
+    thumbnail_path: str | None = Field(default=None, max_length=500)
     size: ProductSize = ""
     packing_qty: PositiveInt
     unit: ProductUnit
@@ -103,9 +106,9 @@ class ProductCreate(BaseModel):
     carton_count: NonNegativeInt = 0
     remark: str | None = Field(default=None, max_length=2000)
 
-    @field_validator("image_path")
+    @field_validator("image_path", "thumbnail_path")
     @classmethod
-    def image_path_is_relative(cls, value: str | None) -> str | None:
+    def image_paths_are_relative(cls, value: str | None) -> str | None:
         return validate_image_path(value)
 
     @field_validator("size")
@@ -127,6 +130,7 @@ class ProductUpdate(BaseModel):
     category_id: CategoryId | None = None
     warehouse_id: WarehouseId | None = None
     image_path: str | None = Field(default=None, max_length=500)
+    thumbnail_path: str | None = Field(default=None, max_length=500)
     size: ProductSize | None = None
     packing_qty: PositiveInt | None = None
     unit: ProductUnit | None = None
@@ -139,16 +143,22 @@ class ProductUpdate(BaseModel):
         if not self.model_fields_set:
             raise ValueError("At least one product field must be provided")
 
-        nullable_fields = {"category_id", "warehouse_id", "image_path", "remark"}
+        nullable_fields = {
+            "category_id",
+            "warehouse_id",
+            "image_path",
+            "thumbnail_path",
+            "remark",
+        }
         for field_name in self.model_fields_set - nullable_fields:
             if getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
 
         return self
 
-    @field_validator("image_path")
+    @field_validator("image_path", "thumbnail_path")
     @classmethod
-    def image_path_is_relative(cls, value: str | None) -> str | None:
+    def image_paths_are_relative(cls, value: str | None) -> str | None:
         return validate_image_path(value)
 
     @field_validator("size")
@@ -170,7 +180,9 @@ class ProductRead(BaseModel):
     id: int
     category_id: int | None
     warehouse_id: int | None
+    product_code: str | None
     image_path: str | None
+    thumbnail_path: str | None
     size: str
     packing_qty: int
     unit: ProductUnit
@@ -186,3 +198,10 @@ class ProductListRead(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ProductImageUploadRead(BaseModel):
+    image_path: str
+    thumbnail_path: str
+    image_url: str
+    thumbnail_url: str

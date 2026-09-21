@@ -308,6 +308,25 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+.product-code-value,
+.product-code-empty {
+  display: block;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.product-code-value {
+  color: #40516d;
+  font-variant-numeric: tabular-nums;
+}
+
+.product-code-empty {
+  color: #a0a8b5;
+}
+
 .inventory-table .ant-table {
   color: #293242;
 }
@@ -381,11 +400,17 @@ textarea {
   height: 82px;
 }
 
+.product-image-popover-trigger {
+  display: inline-flex;
+  vertical-align: top;
+}
+
 .product-image-frame .ant-image-img {
   display: block;
   width: 100% !important;
   height: 100% !important;
   object-fit: contain;
+  background: #fff;
 }
 
 .product-image-frame .ant-image-cover {
@@ -413,6 +438,15 @@ textarea {
   background: #f8f9fb;
   border: 1px solid #e8ebf0;
   border-radius: 5px;
+}
+
+.product-quick-preview .ant-image,
+.product-quick-preview .ant-image-img {
+  display: block;
+  width: 300px !important;
+  height: 220px !important;
+  object-fit: contain;
+  background: #fff;
 }
 
 .product-quick-preview .ant-image {
@@ -595,9 +629,11 @@ textarea {
 
 .product-image-editor-preview .ant-image,
 .product-image-editor-preview .ant-image-img {
+  display: block;
   width: 90px;
   height: 90px;
   object-fit: contain;
+  background: #fff;
 }
 
 .product-image-editor-controls {
@@ -606,10 +642,6 @@ textarea {
   flex-direction: column;
   align-items: flex-start;
   gap: 8px;
-}
-
-.product-image-editor-controls .ant-upload-list {
-  max-width: 360px;
 }
 
 .product-image-help {
@@ -681,6 +713,19 @@ textarea {
   background: #eef2fa;
   border-radius: 4px;
   font-size: 11px;
+}
+
+.category-code-badge {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  color: #536480;
+  background: #f0f3f8;
+  border: 1px solid #e7ebf2;
+  border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
 }
 
 .category-child-count {

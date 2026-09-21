@@ -1,8 +1,8 @@
 "use client";
 
-import { PictureOutlined } from "@ant-design/icons";
 import { Button, Space, Table, Tooltip } from "antd";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
+import ProductImage from "@/components/inventory/ProductImage";
 import type { InventoryProduct } from "@/types/inventory";
 
 interface ProductTableProps {
@@ -50,20 +50,36 @@ export default function ProductTable({
 }: ProductTableProps) {
   const columns: ColumnsType<InventoryProduct> = [
     {
+      title: "商品编号",
+      dataIndex: "productCode",
+      key: "productCode",
+      width: 120,
+      render: (value: string | null) => (
+        <span
+          className={value ? "product-code-value" : "product-code-empty"}
+          title={value ?? undefined}
+        >
+          {value ?? "—"}
+        </span>
+      ),
+    },
+    {
       title: "商品图片",
       dataIndex: "imagePath",
       key: "image",
       width: 120,
       render: (_imagePath, product) => (
         <div className="product-image-frame">
-          <span
-            className="product-image-empty"
-            title={product.imagePath ?? "本阶段暂未接入图片上传"}
-            aria-label="商品图片暂未接入"
-          >
-            <PictureOutlined aria-hidden="true" />
-            <span>图片待接入</span>
-          </span>
+          <ProductImage
+            key={`${product.id}:${product.imagePath ?? ""}:${product.thumbnailPath ?? ""}`}
+            imagePath={product.imagePath}
+            thumbnailPath={product.thumbnailPath}
+            alt={`${product.productCode ?? (product.size || "商品")}商品图片`}
+            width={108}
+            height={82}
+            loading="lazy"
+            hoverPreview
+          />
         </div>
       ),
     },

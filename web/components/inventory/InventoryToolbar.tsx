@@ -72,7 +72,7 @@ export default function InventoryToolbar({
         allowClear
         maxLength={100}
         prefix={<SearchOutlined aria-hidden="true" />}
-        placeholder="搜索尺寸或备注"
+        placeholder="搜索编号、尺寸或备注"
         aria-label="搜索商品"
         value={searchValue}
         onChange={(event) => onSearchChange(event.target.value)}

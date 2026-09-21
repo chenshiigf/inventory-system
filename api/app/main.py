@@ -1,21 +1,52 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import Response
+from starlette.types import Scope
 
+from app.database import DATA_DIR
 from app.routers.categories import router as categories_router
+from app.routers.product_images import router as product_images_router
 from app.routers.products import router as products_router
 from app.routers.warehouses import router as warehouses_router
+from starlette.staticfiles import StaticFiles
 
 
-app = FastAPI(title="Inventory System API", version="0.1.0")
+class CachedStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        response = await super().get_response(path, scope)
+        if response.status_code in {200, 304}:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3002"],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PATCH"],
-    allow_headers=["Content-Type"],
-)
 
-app.include_router(products_router)
-app.include_router(categories_router)
-app.include_router(warehouses_router)
+def create_app(*, uploads_directory: Path | None = None) -> FastAPI:
+    uploads_root = (uploads_directory or DATA_DIR / "uploads").resolve()
+    product_image_directory = uploads_root / "products"
+    product_image_directory.mkdir(parents=True, exist_ok=True)
+
+    application = FastAPI(title="Inventory System API", version="0.1.0")
+    application.state.uploads_directory = uploads_root
+    application.state.product_image_directory = product_image_directory
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:3002"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PATCH"],
+        allow_headers=["Content-Type"],
+    )
+
+    application.include_router(products_router)
+    application.include_router(product_images_router)
+    application.include_router(categories_router)
+    application.include_router(warehouses_router)
+    application.mount(
+        "/uploads",
+        CachedStaticFiles(directory=str(uploads_root)),
+        name="uploads",
+    )
+    return application
+
+
+app = create_app()

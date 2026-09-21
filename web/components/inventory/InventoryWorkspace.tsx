@@ -45,9 +45,11 @@ interface StockMovementState {
 function toInventoryProduct(product: ProductApiRecord): InventoryProduct {
   return {
     id: product.id,
+    productCode: product.product_code,
     categoryId: product.category_id,
     warehouseId: product.warehouse_id,
     imagePath: product.image_path,
+    thumbnailPath: product.thumbnail_path,
     size: product.size,
     packingQty: product.packing_qty,
     unit: product.unit,
@@ -276,9 +278,11 @@ export default function InventoryWorkspace() {
       throw new Error("请选择所属仓库后保存商品。");
     }
 
-    const editableFields: Omit<ProductCreatePayload, "image_path"> = {
+    const editableFields: ProductCreatePayload = {
       category_id: categoryId,
       warehouse_id: values.warehouseId,
+      image_path: values.imagePath,
+      thumbnail_path: values.thumbnailPath,
       size: values.size.trim(),
       packing_qty: values.packingQty,
       unit: values.unit,
@@ -291,11 +295,7 @@ export default function InventoryWorkspace() {
       const updatePayload: ProductUpdatePayload = editableFields;
       await updateProductRequest(productEditor.product.id, updatePayload);
     } else {
-      const createPayload: ProductCreatePayload = {
-        image_path: null,
-        ...editableFields,
-      };
-      await createProductRequest(createPayload);
+      await createProductRequest(editableFields);
     }
 
     setProductEditor(null);

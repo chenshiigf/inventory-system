@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import begin_write_transaction, get_db
 from app.models import Category, Product, Warehouse
+from app.product_codes import next_category_code
 from app.schemas import CategoryCreate, CategoryRead, CategoryTreeNode, CategoryUpdate
 
 
@@ -57,6 +58,7 @@ def list_categories(
             name=category.name,
             parent_id=category.parent_id,
             sort_order=category.sort_order,
+            code=category.code,
             children=[],
         )
         for category in categories
@@ -79,6 +81,7 @@ def create_category(
     payload: CategoryCreate,
     db: Annotated[Session, Depends(get_db)],
 ) -> Category:
+    begin_write_transaction(db)
     _validate_parent(db, payload.parent_id)
     _ensure_name_is_available(db, payload.name, payload.parent_id)
 
@@ -86,6 +89,8 @@ def create_category(
         name=payload.name,
         parent_id=payload.parent_id,
         sort_order=payload.sort_order,
+        code=next_category_code(db, payload.parent_id),
+        next_product_sequence=1 if payload.parent_id is not None else None,
     )
     db.add(category)
     db.commit()

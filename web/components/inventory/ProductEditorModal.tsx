@@ -1,16 +1,19 @@
 "use client";
 
-import { PictureOutlined } from "@ant-design/icons";
+import { PictureOutlined, UploadOutlined } from "@ant-design/icons";
 import {
   Alert,
   Cascader,
+  Button,
   Form,
   Input,
   InputNumber,
   message,
   Modal,
   Select,
+  Upload,
 } from "antd";
+import type { UploadProps } from "antd";
 import { useState } from "react";
 import type {
   CategoryTreeNode,
@@ -24,6 +27,11 @@ import {
   hasSecondLevelCategories,
   toCategoryOptions,
 } from "@/lib/categories";
+import {
+  MAX_PRODUCT_IMAGE_BYTES,
+  uploadProductImage,
+} from "@/lib/api/product-images";
+import ProductImage from "@/components/inventory/ProductImage";
 
 interface ProductEditorModalProps {
   product?: InventoryProduct;
@@ -48,11 +56,58 @@ export default function ProductEditorModal({
 }: ProductEditorModalProps) {
   const [form] = Form.useForm<ProductEditorFormValues>();
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [imagePath, setImagePath] = useState(product?.imagePath ?? null);
   const [messageApi, messageContextHolder] = message.useMessage();
   const title = product ? "编辑商品" : "新增商品";
   const categoryOptions: InventoryCategoryOption[] = toCategoryOptions(categories);
   const categoryPath = getCategoryPath(categories, product?.categoryId ?? null);
   const hasCategories = hasSecondLevelCategories(categories);
+
+  const beforeUpload: UploadProps["beforeUpload"] = (file) => {
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    const allowedExtensions = new Set(["jpg", "jpeg", "png", "webp"]);
+    const allowedMimeTypes = new Set([
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ]);
+
+    if (
+      !extension ||
+      !allowedExtensions.has(extension) ||
+      (file.type !== "" && !allowedMimeTypes.has(file.type))
+    ) {
+      messageApi.error("仅支持 JPG、PNG、WEBP 格式的图片。");
+      return Upload.LIST_IGNORE;
+    }
+    if (file.size > MAX_PRODUCT_IMAGE_BYTES) {
+      messageApi.error("图片不能超过 10MB。");
+      return Upload.LIST_IGNORE;
+    }
+    return true;
+  };
+
+  const customRequest: UploadProps["customRequest"] = async (options) => {
+    setUploading(true);
+    try {
+      const result = await uploadProductImage(options.file as File);
+      setImagePath(result.image_path);
+      form.setFieldsValue({
+        imagePath: result.image_path,
+        thumbnailPath: result.thumbnail_path,
+      });
+      options.onSuccess?.(result);
+      messageApi.success("商品图片已上传并完成处理");
+    } catch (error) {
+      const uploadError =
+        error instanceof Error ? error : new Error("图片上传失败，请重试。");
+      options.onError?.(uploadError);
+      messageApi.error(uploadError.message || "图片上传失败，请重试。");
+    } finally {
+      setUploading(false);
+    }
+  };
 
   async function handleSave(values: ProductEditorFormValues) {
     setSaving(true);
@@ -78,28 +133,14 @@ export default function ProductEditorModal({
         width={650}
         okText="保存"
         cancelText="取消"
-        okButtonProps={{ loading: saving }}
+        okButtonProps={{ loading: saving || uploading, disabled: uploading }}
+        cancelButtonProps={{ disabled: uploading }}
+        closable={!uploading}
+        mask={{ closable: !uploading }}
         onCancel={onCancel}
         onOk={() => form.submit()}
         destroyOnHidden
       >
-        <Alert
-          className="product-image-phase-note"
-          type="info"
-          showIcon
-          title={
-            product
-              ? "本阶段暂不接入图片上传；商品图片路径不会被修改。"
-              : "本阶段暂不接入图片上传；新增商品的图片路径为空。"
-          }
-        />
-        <div className="product-image-editor">
-          <div className="product-image-editor-preview">
-            <PictureOutlined style={{ fontSize: 26 }} />
-          </div>
-          <span className="product-image-help">图片上传将在后续阶段接入。</span>
-        </div>
-
         {product && product.categoryId === null && (
           <Alert
             className="product-category-note"
@@ -133,6 +174,8 @@ export default function ProductEditorModal({
               ? {
                   categoryPath,
                   warehouseId: product.warehouseId ?? undefined,
+                  imagePath: product.imagePath,
+                  thumbnailPath: product.thumbnailPath,
                   size: product.size,
                   packingQty: product.packingQty,
                   unit: product.unit,
@@ -143,6 +186,8 @@ export default function ProductEditorModal({
               : {
                   categoryPath: [],
                   warehouseId: defaultWarehouseId,
+                  imagePath: null,
+                  thumbnailPath: null,
                   size: "",
                   packingQty: 1,
                   unit: "pcs",
@@ -154,6 +199,63 @@ export default function ProductEditorModal({
           onFinish={handleSave}
           requiredMark={false}
         >
+          <Form.Item name="imagePath" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item name="thumbnailPath" hidden>
+            <Input />
+          </Form.Item>
+          <Form.Item label="商品图片" className="form-item-full">
+            <div className="product-image-editor">
+              <div className="product-image-editor-preview">
+                {imagePath ? (
+                  <ProductImage
+                    key={imagePath}
+                    imagePath={imagePath}
+                    alt="商品图片预览"
+                    width={90}
+                    height={90}
+                    loading="eager"
+                  />
+                ) : (
+                  <span className="product-image-empty" aria-label="暂无图片">
+                    <PictureOutlined aria-hidden="true" />
+                    <span>暂无图片</span>
+                  </span>
+                )}
+              </div>
+              <div className="product-image-editor-controls">
+                <Upload
+                  accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                  maxCount={1}
+                  showUploadList={false}
+                  disabled={uploading}
+                  beforeUpload={beforeUpload}
+                  customRequest={customRequest}
+                >
+                  <Button
+                    icon={<UploadOutlined />}
+                    loading={uploading}
+                    disabled={uploading}
+                  >
+                    {imagePath ? "更换图片" : "上传图片"}
+                  </Button>
+                </Upload>
+                <span className="product-image-help">
+                  支持 JPG、PNG、WEBP，单张不超过 10MB。上传后自动生成主图和缩略图。
+                </span>
+              </div>
+            </div>
+          </Form.Item>
+          {product && (
+            <Form.Item label="商品编号" className="form-item-full">
+              <Input
+                value={product.productCode ?? "未分配"}
+                readOnly
+                aria-label="只读商品编号"
+              />
+            </Form.Item>
+          )}
           <div className="form-grid">
             <Form.Item
               className="form-item-full"

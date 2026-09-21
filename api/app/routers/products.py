@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.database import get_db
+from app.database import begin_write_transaction, get_db
 from app.models import Category, Product, Warehouse
+from app.product_codes import allocate_product_code
 from app.schemas import ProductCreate, ProductListRead, ProductRead, ProductUpdate
 
 
@@ -29,7 +30,13 @@ def list_products(
     normalized_search = search.strip() if search else ""
     if normalized_search:
         pattern = f"%{normalized_search}%"
-        filters.append(or_(Product.size.ilike(pattern), Product.remark.ilike(pattern)))
+        filters.append(
+            or_(
+                Product.product_code.ilike(pattern),
+                Product.size.ilike(pattern),
+                Product.remark.ilike(pattern),
+            )
+        )
 
     if warehouse_id is not None:
         _validate_product_warehouse(db, warehouse_id)
@@ -80,9 +87,19 @@ def create_product(
     payload: ProductCreate,
     db: Annotated[Session, Depends(get_db)],
 ) -> Product:
+    begin_write_transaction(db)
     _validate_product_category(db, payload.category_id)
     _validate_product_warehouse(db, payload.warehouse_id)
     product = Product(**payload.model_dump())
+    if payload.category_id is not None:
+        try:
+            product.product_code = allocate_product_code(db, payload.category_id)
+        except ValueError as error:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=str(error),
+            ) from error
     db.add(product)
     db.commit()
     db.refresh(product)

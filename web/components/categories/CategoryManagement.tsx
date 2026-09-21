@@ -274,6 +274,12 @@ export default function CategoryManagement() {
                   <div className="category-group-title">
                     <span className="category-level-label">一级分类</span>
                     <Typography.Text strong>{category.name}</Typography.Text>
+                    <span
+                      className="category-code-badge"
+                      title={`一级分类编号 ${category.code}`}
+                    >
+                      {category.code}
+                    </span>
                     <span className="category-child-count">
                       {category.children.length} 个小类
                     </span>
@@ -308,6 +314,12 @@ export default function CategoryManagement() {
                           ↳
                         </span>
                         <span className="category-child-name">{child.name}</span>
+                        <span
+                          className="category-code-badge"
+                          title={`二级分类编号 ${child.code}`}
+                        >
+                          {child.code}
+                        </span>
                         <Button
                           type="text"
                           size="small"

@@ -28,8 +28,9 @@ import {
   previewProductImport,
 } from "@/lib/api/product-import";
 import type {
+  ProductImportPreviewPackaging,
+  ProductImportPreviewProduct,
   ProductImportPreviewResponse,
-  ProductImportPreviewRow,
   ProductImportRowStatus,
 } from "@/lib/api/product-import";
 
@@ -62,7 +63,7 @@ function statusLabel(status: ProductImportRowStatus): string {
     return "可导入";
   }
   if (status === "warning") {
-    return "有警告";
+    return "待确认";
   }
   return "有错误";
 }
@@ -72,9 +73,20 @@ function statusColor(status: ProductImportRowStatus): string {
     return "success";
   }
   if (status === "warning") {
-    return "warning";
+    return "processing";
   }
   return "error";
+}
+
+function formatPackaging(
+  packingQty: number | null,
+  cartonCount: number | null,
+  unit: string,
+): string {
+  const quantity =
+    packingQty === null ? "装箱数待确认" : `${packingQty} ${unit || "—"}/箱`;
+  const cartons = cartonCount === null ? "箱数待确认" : `${cartonCount}箱`;
+  return `${quantity} × ${cartons}`;
 }
 
 interface UploadedFileInfo {
@@ -108,7 +120,7 @@ export default function ProductImportWorkspace() {
     try {
       const result = await previewProductImport(file);
       setPreview(result);
-      messageApi.success("Excel 已上传，数据预览完成");
+      messageApi.success("Excel 已上传，商品级预览完成");
     } catch (error) {
       setPreview(null);
       setLoadError(
@@ -135,22 +147,24 @@ export default function ProductImportWorkspace() {
     },
   };
 
-  const columns = useMemo<TableColumnsType<ProductImportPreviewRow>>(
+  const columns = useMemo<TableColumnsType<ProductImportPreviewProduct>>(
     () => [
       {
         title: "Excel行",
-        dataIndex: "excel_row",
-        key: "excel_row",
-        width: 78,
+        dataIndex: "excel_rows",
+        key: "excel_rows",
+        width: 92,
         fixed: "left",
-        render: (value: number) => <span className="import-row-number">{value}</span>,
+        render: (rows: number[]) => (
+          <span className="import-row-number">{rows.join("、")}</span>
+        ),
       },
       {
         title: "图片",
         dataIndex: "image_preview_url",
         key: "image_preview_url",
-        width: 82,
-        render: (value: string | null, row) => {
+        width: 122,
+        render: (value: string | null, product) => {
           const imageUrl = getImportPreviewImageUrl(value);
           if (!imageUrl) {
             return (
@@ -161,35 +175,45 @@ export default function ProductImportWorkspace() {
             );
           }
           return (
-            <span className="import-image-frame">
-              <Image
-                src={imageUrl}
-                alt={`第${row.excel_row}行商品图片`}
-                width={56}
-                height={56}
-                preview
-              />
-            </span>
+            <div className="import-image-cell">
+              <span className="import-image-frame">
+                <Image
+                  src={imageUrl}
+                  alt={`${product.product_group ?? "商品"}预览图`}
+                  width={56}
+                  height={56}
+                  preview
+                />
+              </span>
+              {product.shared_image && (
+                <span className="import-shared-image">共用图片</span>
+              )}
+            </div>
           );
         },
+      },
+      {
+        title: "商品组",
+        dataIndex: "product_group",
+        key: "product_group",
+        width: 110,
+        render: displayValue,
       },
       {
         title: "仓库",
         dataIndex: "warehouse",
         key: "warehouse",
-        width: 110,
+        width: 100,
       },
       {
-        title: "一级分类",
-        dataIndex: "category_level_1",
-        key: "category_level_1",
-        width: 120,
-      },
-      {
-        title: "二级分类",
-        dataIndex: "category_level_2",
-        key: "category_level_2",
-        width: 120,
+        title: "分类",
+        key: "category",
+        width: 160,
+        render: (_value, product) => (
+          <span>
+            {product.category_level_1} / {product.category_level_2}
+          </span>
+        ),
       },
       {
         title: "产品尺寸",
@@ -199,19 +223,41 @@ export default function ProductImportWorkspace() {
         render: displayValue,
       },
       {
-        title: "装箱数",
-        dataIndex: "packing_qty",
-        key: "packing_qty",
-        width: 90,
-        align: "right",
-        render: displayValue,
+        title: "包装规格",
+        dataIndex: "packagings",
+        key: "packagings",
+        width: 225,
+        render: (
+          packagings: ProductImportPreviewPackaging[],
+          product: ProductImportPreviewProduct,
+        ) => (
+          <div className="import-packaging-list">
+            {packagings.map((packaging) => (
+              <div
+                className="import-packaging-line"
+                key={`${packaging.excel_row}-${packaging.packing_qty ?? "blank"}`}
+              >
+                <span className="import-packaging-row">
+                  第{packaging.excel_row}行
+                </span>
+                <span>
+                  {formatPackaging(
+                    packaging.packing_qty,
+                    packaging.carton_count,
+                    product.unit,
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+        ),
       },
       {
-        title: "单位",
-        dataIndex: "unit",
-        key: "unit",
-        width: 80,
-        render: displayValue,
+        title: "总箱数",
+        dataIndex: "total_carton_count",
+        key: "total_carton_count",
+        width: 88,
+        align: "right",
       },
       {
         title: "单价",
@@ -222,26 +268,18 @@ export default function ProductImportWorkspace() {
         render: displayValue,
       },
       {
-        title: "当前箱数",
-        dataIndex: "carton_count",
-        key: "carton_count",
-        width: 100,
-        align: "right",
-        render: displayValue,
-      },
-      {
         title: "备注",
         dataIndex: "remark",
         key: "remark",
-        width: 160,
+        width: 190,
         render: displayValue,
       },
       {
         title: "原系统编号",
-        dataIndex: "source_code",
-        key: "source_code",
-        width: 120,
-        render: displayValue,
+        dataIndex: "source_codes",
+        key: "source_codes",
+        width: 140,
+        render: (sourceCodes: string[]) => displayValue(sourceCodes.join("、")),
       },
       {
         title: "状态",
@@ -254,10 +292,10 @@ export default function ProductImportWorkspace() {
         ),
       },
       {
-        title: "错误信息",
+        title: "信息",
         dataIndex: "messages",
         key: "messages",
-        width: 250,
+        width: 280,
         fixed: "right",
         render: (messages: string[]) => (
           <div className="import-message-list">
@@ -277,7 +315,7 @@ export default function ProductImportWorkspace() {
           <div>
             <Typography.Title level={1}>批量导入商品</Typography.Title>
             <p className="product-import-subtitle">
-              按照标准模板上传 Excel，预览并检查数据。
+              按表头读取 Excel，先查看合并后的商品与包装结构。
             </p>
           </div>
           <Button
@@ -312,11 +350,14 @@ export default function ProductImportWorkspace() {
         )}
 
         {!preview ? (
-          <section className="product-import-upload-panel" aria-label="上传商品导入 Excel">
+          <section
+            className="product-import-upload-panel"
+            aria-label="上传商品导入 Excel"
+          >
             <div className="product-import-section-label">第一步</div>
             <Typography.Title level={2}>上传整理好的 Excel</Typography.Title>
             <p className="product-import-panel-description">
-              只读取工作表“商品导入”的前 20 条非空商品行；本阶段不会修改库存数据库。
+              按表头名称读取“商品导入”工作表；列顺序可以调整，也可以保留历史列。本阶段只预览，不写入库存数据库。
             </p>
             <Upload.Dragger {...uploadProps} disabled={uploading}>
               <p className="ant-upload-drag-icon">
@@ -326,13 +367,25 @@ export default function ProductImportWorkspace() {
                 {uploading ? "正在读取 Excel…" : "点击选择或将 .xlsx 文件拖到这里"}
               </p>
               <p className="ant-upload-hint">
-                文件大小不超过 100MB，图片请直接插入对应商品行的 D 列附近。
+                文件大小不超过 100MB；图片按“产品图片”表头识别，不依赖固定列位。
               </p>
             </Upload.Dragger>
             <div className="product-import-upload-notes">
-              <span>固定工作表：商品导入</span>
-              <span>固定列数：11 列</span>
-              <span>图片：每行最多 1 张</span>
+              <span>工作表：商品导入</span>
+              <span>识别：表头名称</span>
+              <span>范围：前 20 条非空数据行</span>
+              <span>公式：读取已保存的计算结果</span>
+            </div>
+            <div className="product-import-rule-notes">
+              <p>
+                普通商品的“商品组”留空；同一商品有多个装箱规格时，请给相关行填写相同商品组。
+              </p>
+              <p>
+                一张图片可以被多个商品共用，共用图片不会自动合并商品；同一商品组只能保留一张主图。
+              </p>
+              <p>
+                “当前箱数”也接受历史表头“结余箱数”；公式单元格必须保存有最新计算结果。
+              </p>
             </div>
           </section>
         ) : (
@@ -345,7 +398,9 @@ export default function ProductImportWorkspace() {
                 <strong>{fileInfo?.name ?? preview.file_name}</strong>
                 <span>
                   {fileInfo ? formatFileSize(fileInfo.size) : "Excel 文件"}
-                  {fileInfo ? ` · 上传于 ${formatUploadTime(fileInfo.lastModified)}` : ""}
+                  {fileInfo
+                    ? ` · 上传于 ${formatUploadTime(fileInfo.lastModified)}`
+                    : ""}
                 </span>
               </div>
               <Button icon={<ReloadOutlined />} onClick={resetPreview}>
@@ -355,15 +410,19 @@ export default function ProductImportWorkspace() {
 
             <div className="product-import-stat-grid" aria-label="导入预览统计">
               <div className="product-import-stat-card">
-                <span>总行数</span>
-                <strong>{preview.total_rows}</strong>
+                <span>Excel数据行</span>
+                <strong>{preview.source_row_count}</strong>
+              </div>
+              <div className="product-import-stat-card is-products">
+                <span>预计商品数</span>
+                <strong>{preview.product_count}</strong>
               </div>
               <div className="product-import-stat-card is-valid">
                 <span>可导入</span>
                 <strong>{preview.valid_count}</strong>
               </div>
               <div className="product-import-stat-card is-warning">
-                <span>有警告</span>
+                <span>待确认</span>
                 <strong>{preview.warning_count}</strong>
               </div>
               <div className="product-import-stat-card is-error">
@@ -375,18 +434,20 @@ export default function ProductImportWorkspace() {
             <section className="product-import-table-panel" aria-label="商品导入预览表">
               <div className="product-import-table-heading">
                 <div>
-                  <Typography.Title level={2}>数据预览</Typography.Title>
-                  <p>“可导入”仅表示通过当前校验，并不代表已经写入数据库。</p>
+                  <Typography.Title level={2}>商品级数据预览</Typography.Title>
+                  <p>“可导入”表示通过当前校验，不代表已经写入数据库。</p>
                 </div>
-                <span className="product-import-limit-note">最多预览前 20 条非空商品行</span>
+                <span className="product-import-limit-note">
+                  最多预览前 20 条非空 Excel 数据行
+                </span>
               </div>
-              <Table<ProductImportPreviewRow>
+              <Table<ProductImportPreviewProduct>
                 className="product-import-table"
-                rowKey="excel_row"
+                rowKey="preview_id"
                 columns={columns}
-                dataSource={preview.rows}
+                dataSource={preview.products}
                 pagination={false}
-                scroll={{ x: 1650 }}
+                scroll={{ x: 2050 }}
                 size="middle"
               />
             </section>
@@ -404,7 +465,7 @@ export default function ProductImportWorkspace() {
                       type="primary"
                       disabled
                     >
-                      确认导入 {preview.valid_count} 条
+                      确认导入 {preview.valid_count} 个商品
                     </Button>
                   </span>
                 </Tooltip>

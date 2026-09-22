@@ -10,6 +10,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 from .schemas import (
     FIELD_ALIASES,
     REQUIRED_IMPORT_FIELDS,
+    normalize_header,
 )
 
 
@@ -64,7 +65,7 @@ def _canonical_header_map() -> dict[str, str]:
 
 
 def build_header_map(worksheet) -> dict[str, int]:
-    """Map trimmed known headers to canonical field names.
+    """Map normalized known headers to canonical field names.
 
     Unknown columns are deliberately absent from the result.  This is the
     boundary that prevents historical columns from affecting Preview parsing.
@@ -73,7 +74,7 @@ def build_header_map(worksheet) -> dict[str, int]:
     alias_to_field = _canonical_header_map()
     stock_matches: list[tuple[int, str]] = []
     for column_index in range(1, worksheet.max_column + 1):
-        header = _text(worksheet.cell(row=1, column=column_index).value)
+        header = normalize_header(worksheet.cell(row=1, column=column_index).value)
         if header in FIELD_ALIASES["carton_count"]:
             stock_matches.append((column_index, header))
 
@@ -89,7 +90,8 @@ def build_header_map(worksheet) -> dict[str, int]:
     header_map: dict[str, int] = {}
     header_names: dict[str, str] = {}
     for column_index in range(1, worksheet.max_column + 1):
-        header = _text(worksheet.cell(row=1, column=column_index).value)
+        cell_value = worksheet.cell(row=1, column=column_index).value
+        header = normalize_header(cell_value)
         if not header:
             continue
         field = alias_to_field.get(header)
@@ -101,7 +103,7 @@ def build_header_map(worksheet) -> dict[str, int]:
                 f"发现重复字段表头：{first_header}、{header}，请保留其中一个。"
             )
         header_map[field] = column_index
-        header_names[field] = header
+        header_names[field] = _display_header(cell_value)
 
     for field in REQUIRED_IMPORT_FIELDS:
         if field not in header_map:
@@ -260,6 +262,60 @@ def _read_embedded_images(
     return images_by_row
 
 
+def _worksheet_has_content(worksheet) -> bool:
+    if getattr(worksheet, "_images", None):
+        return True
+    return any(
+        not _is_blank(cell.value)
+        for row in worksheet.iter_rows()
+        for cell in row
+    )
+
+
+def _select_import_sheet(formula_workbook, value_workbook):
+    nonempty_sheet_names = [
+        sheet_name
+        for sheet_name in formula_workbook.sheetnames
+        if _worksheet_has_content(formula_workbook[sheet_name])
+    ]
+    candidates: list[tuple[str, dict[str, int]]] = []
+    errors: dict[str, ProductImportWorkbookError] = {}
+    for sheet_name in nonempty_sheet_names:
+        worksheet = formula_workbook[sheet_name]
+        try:
+            candidates.append((sheet_name, build_header_map(worksheet)))
+        except ProductImportWorkbookError as error:
+            errors[sheet_name] = error
+
+    if len(candidates) > 1:
+        names = "、".join(sheet_name for sheet_name, _header_map in candidates)
+        raise ProductImportWorkbookError(
+            f"发现多个可导入工作表：{names}，请只保留一个。"
+        )
+    if len(candidates) == 1:
+        sheet_name, header_map = candidates[0]
+        return (
+            formula_workbook[sheet_name],
+            value_workbook[sheet_name],
+            header_map,
+        )
+
+    # Duplicate known headers describe an identifiable sheet with an internal
+    # conflict, so keep that actionable diagnostic.  Missing required headers
+    # mean the sheet does not satisfy the import contract and use the uniform
+    # sheet-level diagnostic below.
+    if len(nonempty_sheet_names) == 1:
+        sheet_name = nonempty_sheet_names[0]
+        error = errors.get(sheet_name)
+        if error is not None and (
+            str(error).startswith("同时发现")
+            or str(error).startswith("发现重复字段表头")
+        ):
+            raise error
+
+    raise ProductImportWorkbookError("未找到可识别的商品数据工作表。")
+
+
 def read_import_workbook(data: bytes) -> list[RawImportRow]:
     try:
         formula_workbook = load_workbook(BytesIO(data), read_only=False, data_only=False)
@@ -270,14 +326,10 @@ def read_import_workbook(data: bytes) -> list[RawImportRow]:
         ) from error
 
     try:
-        if IMPORT_SHEET_NAME not in formula_workbook.sheetnames:
-            raise ProductImportWorkbookError(f"未找到工作表：{IMPORT_SHEET_NAME}")
-        if IMPORT_SHEET_NAME not in value_workbook.sheetnames:
-            raise ProductImportWorkbookError(f"未找到工作表：{IMPORT_SHEET_NAME}")
-
-        formula_sheet = formula_workbook[IMPORT_SHEET_NAME]
-        value_sheet = value_workbook[IMPORT_SHEET_NAME]
-        header_map = build_header_map(formula_sheet)
+        formula_sheet, value_sheet, header_map = _select_import_sheet(
+            formula_workbook,
+            value_workbook,
+        )
         image_rows = _read_embedded_images(
             formula_sheet,
             image_column_index=header_map["image"],

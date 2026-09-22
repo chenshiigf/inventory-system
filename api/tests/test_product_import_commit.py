@@ -35,6 +35,14 @@ def preview_payload(client: TestClient, data: bytes) -> dict:
     return response.json()
 
 
+def single_image_workbook(rows: list[dict[str, object] | None], **kwargs) -> bytes:
+    return workbook_bytes(
+        rows,
+        images={2: [image_bytes((90, 120, 160))]},
+        **kwargs,
+    )
+
+
 def formal_image_files(uploads_directory: Path) -> tuple[list[Path], list[Path]]:
     return (
         sorted((uploads_directory / "products" / "main").glob("*.webp")),
@@ -60,7 +68,7 @@ def test_preview_session_saves_source_hash_and_server_snapshot(import_context) -
 def test_commit_creates_single_packaging_product_and_batch(import_context) -> None:
     client, session_factory, _application, _uploads, preview_directory = import_context
     ids = seed_reference_data(session_factory)
-    data = workbook_bytes([valid_row(carton_count=8)])
+    data = single_image_workbook([valid_row(carton_count=8)])
     preview_data = preview_payload(client, data)
 
     response = commit(client, preview_data["preview_session_id"])
@@ -87,7 +95,7 @@ def test_commit_merges_group_into_one_product_with_multiple_packagings(
 ) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
-    data = workbook_bytes(
+    data = single_image_workbook(
         [
             valid_row(product_group="A001", packing_qty=240, carton_count=21),
             {
@@ -123,7 +131,11 @@ def test_blank_groups_create_independent_products_and_codes(import_context) -> N
         [
             valid_row(remark="商品一"),
             valid_row(remark="商品二", packing_qty=48),
-        ]
+        ],
+        images={
+            2: [image_bytes((40, 120, 90))],
+            3: [image_bytes((40, 120, 90))],
+        },
     )
     preview_data = preview_payload(client, data)
 
@@ -136,21 +148,41 @@ def test_blank_groups_create_independent_products_and_codes(import_context) -> N
         assert db.scalar(select(func.count(Product.id))) == 2
 
 
-def test_warning_without_image_can_be_committed(import_context) -> None:
+def test_no_image_is_an_error_and_commit_is_rejected(import_context) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
     preview_data = preview_payload(client, workbook_bytes([valid_row()]))
-    assert preview_data["warning_count"] == 1
-    assert preview_data["error_count"] == 0
+    assert preview_data["warning_count"] == 0
+    assert preview_data["error_count"] == 1
 
     result = commit(client, preview_data["preview_session_id"])
 
-    assert result.status_code == 200
+    assert result.status_code == 422
+    with session_factory() as db:
+        assert db.scalar(select(Product)) is None
+
+
+def test_commit_persists_nullable_product_fields_and_single_packaging_quantity(
+    import_context,
+) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    preview_data = preview_payload(
+        client,
+        single_image_workbook(
+            [valid_row(unit=None, price=None, packing_qty=None)],
+        ),
+    )
+
+    result = commit(client, preview_data["preview_session_id"])
+
+    assert result.status_code == 200, result.text
     with session_factory() as db:
         product = db.scalar(select(Product))
         assert product is not None
-        assert product.image_path is None
-        assert product.thumbnail_path is None
+        assert product.unit is None
+        assert product.price is None
+        assert product.packagings[0].packing_qty is None
 
 
 def test_commit_generates_main_and_thumbnail_webp(import_context) -> None:
@@ -255,7 +287,7 @@ def test_commit_rejects_preview_with_errors(import_context) -> None:
 def test_commit_rejects_more_than_twenty_products(import_context, monkeypatch) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
-    preview_data = preview_payload(client, workbook_bytes([valid_row()]))
+    preview_data = preview_payload(client, single_image_workbook([valid_row()]))
     real_prepare = commit_service.prepare_product_import_preview
 
     def prepare_with_too_many(*args, **kwargs):
@@ -284,7 +316,7 @@ def test_same_file_second_commit_is_rejected_and_preview_marks_duplicate(
 ) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
-    data = workbook_bytes([valid_row()])
+    data = single_image_workbook([valid_row()])
     first_preview = preview_payload(client, data)
     assert commit(client, first_preview["preview_session_id"]).status_code == 200
 
@@ -304,8 +336,12 @@ def test_modified_file_creates_new_batch_and_group_name_is_not_global_identity(
 ) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
-    first_data = workbook_bytes([valid_row(product_group="A001", remark="第一批")])
-    second_data = workbook_bytes([valid_row(product_group="A001", remark="第二批")])
+    first_data = single_image_workbook(
+        [valid_row(product_group="A001", remark="第一批")]
+    )
+    second_data = single_image_workbook(
+        [valid_row(product_group="A001", remark="第二批")]
+    )
 
     first = preview_payload(client, first_data)
     second = preview_payload(client, second_data)
@@ -361,7 +397,10 @@ def test_commit_failure_rolls_back_database_sequence_and_new_images(
 def test_committed_product_is_visible_in_inventory_api(import_context) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
-    preview_data = preview_payload(client, workbook_bytes([valid_row(carton_count=9)]))
+    preview_data = preview_payload(
+        client,
+        single_image_workbook([valid_row(carton_count=9)]),
+    )
     result = commit(client, preview_data["preview_session_id"])
     assert result.status_code == 200
 
@@ -376,7 +415,7 @@ def test_committed_product_is_visible_in_inventory_api(import_context) -> None:
 def test_consumed_or_unknown_session_cannot_commit_again(import_context) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
-    preview_data = preview_payload(client, workbook_bytes([valid_row()]))
+    preview_data = preview_payload(client, single_image_workbook([valid_row()]))
     session_id = preview_data["preview_session_id"]
     assert commit(client, session_id).status_code == 200
 
@@ -406,7 +445,11 @@ def test_preview_without_optional_source_code_header_is_valid(import_context) ->
 
     payload = preview_payload(
         client,
-        workbook_bytes([valid_row()], headers=core_headers),
+        workbook_bytes(
+            [valid_row()],
+            headers=core_headers,
+            images={2: [image_bytes((90, 120, 160))]},
+        ),
     )
 
     assert payload["error_count"] == 0

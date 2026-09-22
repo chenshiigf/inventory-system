@@ -44,13 +44,13 @@ export type WarehouseSelection = "all" | number;
 
 export interface ProductPackagingApiRecord {
   id: number;
-  packing_qty: number;
+  packing_qty: number | null;
   carton_count: number;
   sort_order: number;
 }
 
 export interface ProductPackagingCreatePayload {
-  packing_qty: number;
+  packing_qty: number | null;
   carton_count: number;
 }
 
@@ -67,8 +67,8 @@ export interface ProductApiRecord {
   image_path: string | null;
   thumbnail_path: string | null;
   size: string;
-  unit: ProductUnit;
-  price: string;
+  unit: ProductUnit | null;
+  price: string | null;
   remark: string | null;
   packagings: ProductPackagingApiRecord[];
   total_carton_count: number;
@@ -89,8 +89,8 @@ export interface ProductCreatePayload {
   image_path: string | null;
   thumbnail_path: string | null;
   size: string;
-  unit: ProductUnit;
-  price: string;
+  unit: ProductUnit | null;
+  price: string | null;
   remark: string | null;
   packagings: ProductPackagingCreatePayload[];
 }
@@ -102,7 +102,7 @@ export type ProductUpdatePayload =
 
 export interface InventoryPackaging {
   id: number;
-  packingQty: number;
+  packingQty: number | null;
   cartonCount: number;
   sortOrder: number;
 }
@@ -115,8 +115,8 @@ export interface InventoryProduct {
   imagePath: string | null;
   thumbnailPath: string | null;
   size: string;
-  unit: ProductUnit;
-  price: string;
+  unit: ProductUnit | null;
+  price: string | null;
   packagings: InventoryPackaging[];
   totalCartonCount: number;
   remark: string;
@@ -134,7 +134,7 @@ export interface StockMovementValues {
 
 export interface ProductPackagingFormValue {
   id?: number;
-  packingQty: number;
+  packingQty: number | null;
   cartonCount: number;
 }
 
@@ -144,8 +144,8 @@ export interface ProductEditorFormValues {
   categoryPath: number[];
   warehouseId: number;
   size: string;
-  unit: ProductUnit;
-  price: string;
+  unit: ProductUnit | null;
+  price: string | null;
   packagings: ProductPackagingFormValue[];
   remark: string;
 }

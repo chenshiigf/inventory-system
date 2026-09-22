@@ -75,9 +75,10 @@ def _parse_integer(
     *,
     label: str,
     positive: bool,
+    allow_blank: bool = False,
 ) -> tuple[int | None, str | None]:
     if value is None or (isinstance(value, str) and not value.strip()):
-        return None, f"{label}不能为空"
+        return (None, None) if allow_blank else (None, f"{label}不能为空")
     if isinstance(value, bool):
         return None, f"{label}必须是整数"
 
@@ -102,7 +103,7 @@ def _parse_integer(
 
 def _parse_price(value: object) -> tuple[str | None, str | None]:
     if value is None or (isinstance(value, str) and not value.strip()):
-        return None, "单价不能为空"
+        return None, None
     if isinstance(value, bool):
         return None, "单价必须是合法数字"
 
@@ -286,9 +287,7 @@ def _validate_product_fields(values: dict[str, str]) -> tuple[str | None, list[s
     errors: list[str] = []
     warnings_found: list[str] = []
     unit = values["unit"]
-    if not unit:
-        errors.append("单位不能为空")
-    elif unit not in {"pcs", "set"}:
+    if unit and unit not in {"pcs", "set"}:
         errors.append("单位必须为 pcs 或 set")
 
     price, price_error = _parse_price(values["price"])
@@ -405,7 +404,7 @@ def prepare_product_import_preview(
                     f"商品组 {group_label} 检测到多张商品图片，请只保留一张主图。"
                 )
         elif not unique_images:
-            warnings_found.append("无商品图片")
+            errors.append("无商品图片")
 
         preview_image_id: str | None = None
         image_preview_url: str | None = None
@@ -427,6 +426,7 @@ def prepare_product_import_preview(
                 raw_row.values.get("packing_qty"),
                 label="装箱数",
                 positive=True,
+                allow_blank=len(group_rows) == 1,
             )
             if packing_error:
                 errors.append(f"Excel第 {raw_row.excel_row} 行：{packing_error}")
@@ -493,7 +493,7 @@ def prepare_product_import_preview(
                 "image_preview_url": image_preview_url,
                 "shared_image": False,
                 "size": resolved["size"],
-                "unit": resolved["unit"],
+                "unit": resolved["unit"] or None,
                 "price": price,
                 "remark": resolved["remark"],
                 "source_codes": source_codes,

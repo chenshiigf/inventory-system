@@ -25,7 +25,7 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base, get_db
 from app.main import create_app
 from app.models import Category, Product, ProductPackaging, Warehouse
-from app.services.product_import.schemas import IMPORT_HEADERS
+from app.services.product_import.schemas import IMPORT_HEADERS, normalize_header
 
 
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -45,6 +45,9 @@ HEADER_TO_FIELD = {
     "原系统编号": "source_code",
     "系统编号": "source_code",
     "义库": "secondary_stock",
+}
+NORMALIZED_HEADER_TO_FIELD = {
+    normalize_header(header): field for header, field in HEADER_TO_FIELD.items()
 }
 
 
@@ -152,13 +155,17 @@ def workbook_bytes(
     # asserted separately and now contains only the 11 core headers.
     actual_headers = headers or [*IMPORT_HEADERS, "原系统编号"]
     worksheet.append(actual_headers)
-    image_column_index = actual_headers.index("产品图片") + 1
+    image_column_index = next(
+        index
+        for index, header in enumerate(actual_headers, start=1)
+        if normalize_header(header) == "产品图片"
+    )
     image_column_letter = get_column_letter(image_column_index)
 
     for excel_row, row in enumerate(rows, start=2):
         if row is not None:
             for column_index, header in enumerate(actual_headers, start=1):
-                field = HEADER_TO_FIELD.get(header)
+                field = NORMALIZED_HEADER_TO_FIELD.get(normalize_header(header))
                 value = row.get(field, row.get(header)) if field else row.get(header)
                 worksheet.cell(row=excel_row, column=column_index).value = value
         for image_value in (images or {}).get(excel_row, []):
@@ -389,7 +396,7 @@ def test_stock_header_aliases_are_supported_and_both_are_rejected(import_context
     missing_headers = [header for header in alias_headers if header != "结余箱数"]
     missing_response = preview(client, workbook_bytes([valid_row()], headers=missing_headers))
     assert missing_response.status_code == 400
-    assert missing_response.json()["detail"] == "未找到库存列，请提供‘结余箱数’或‘当前箱数’。"
+    assert missing_response.json()["detail"] == "未找到可识别的商品数据工作表。"
 
     both_response = preview(
         client,
@@ -397,6 +404,149 @@ def test_stock_header_aliases_are_supported_and_both_are_rejected(import_context
     )
     assert both_response.status_code == 400
     assert both_response.json()["detail"] == "同时发现‘结余箱数’和‘当前箱数’，请保留其中一个。"
+
+
+@pytest.mark.parametrize(
+    "header_variant",
+    [
+        "结余\n箱数",
+        "结余 箱数",
+        "结余　箱数",
+        "备 注",
+        "产品\n图片",
+        "一 级 分 类",
+    ],
+)
+def test_import_headers_are_normalized_across_all_aliases(
+    import_context,
+    header_variant: str,
+) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    headers = list(IMPORT_HEADERS)
+    normalized_variant = normalize_header(header_variant)
+    target_header = (
+        "当前箱数" if normalized_variant == "结余箱数" else normalized_variant
+    )
+    target_index = next(
+        index
+        for index, header in enumerate(headers)
+        if normalize_header(header) == target_header
+    )
+    headers[target_index] = header_variant
+
+    product = one_product(
+        preview(
+            client,
+            workbook_bytes(
+                [valid_row()],
+                headers=headers,
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
+    )
+
+    assert product["status"] == "valid"
+    assert product["packagings"][0]["carton_count"] == 10
+
+
+def test_remark_internal_spaces_and_newlines_are_preserved(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    remark = "蓝边  大号\n第二行"
+
+    product = one_product(
+        preview(
+            client,
+            workbook_bytes(
+                [valid_row(remark=f"  {remark}  ")],
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
+    )
+
+    assert product["remark"] == remark
+
+
+def test_non_default_sheet_name_is_selected_by_headers(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+
+    product = one_product(
+        preview(
+            client,
+            workbook_bytes(
+                [valid_row()],
+                sheet_name="库存明细",
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
+    )
+
+    assert product["status"] == "valid"
+
+
+def test_multiple_recognizable_sheets_are_rejected(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    data = workbook_bytes(
+        [valid_row()],
+        sheet_name="库存明细",
+        images={2: [image_bytes((90, 120, 160))]},
+    )
+    workbook = load_workbook(BytesIO(data))
+    second_sheet = workbook.create_sheet("另一份库存")
+    second_sheet.append(list(IMPORT_HEADERS))
+    second_sheet.append([None] * len(IMPORT_HEADERS))
+    output = BytesIO()
+    workbook.save(output)
+    workbook.close()
+
+    response = preview(client, output.getvalue())
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "发现多个可导入工作表：库存明细、另一份库存，请只保留一个。"
+
+
+def test_optional_product_fields_and_single_packaging_quantity_can_be_blank(
+    import_context,
+) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    product = one_product(
+        preview(
+            client,
+            workbook_bytes(
+                [valid_row(unit=None, price=None, packing_qty=None)],
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
+    )
+
+    assert product["status"] == "valid"
+    assert product["unit"] is None
+    assert product["price"] is None
+    assert product["packagings"][0]["packing_qty"] is None
+
+
+def test_multi_packaging_requires_nonblank_unique_packing_quantities(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    product = one_product(
+        preview(
+            client,
+            workbook_bytes(
+                [
+                    valid_row(product_group="A001", packing_qty=None),
+                    valid_row(product_group="A001", packing_qty=48),
+                ],
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
+    )
+
+    assert product["status"] == "error"
+    assert "Excel第 2 行：装箱数不能为空" in product["messages"]
 
 
 def test_blank_groups_remain_independent_products(import_context) -> None:
@@ -553,22 +703,36 @@ def test_product_values_are_validated(import_context, row_kwargs, expected) -> N
 def test_allowed_units_are_normalized(import_context, unit: str, expected: str) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
-    product = one_product(preview(client, workbook_bytes([valid_row(unit=unit)])))
+    product = one_product(
+        preview(
+            client,
+            workbook_bytes(
+                [valid_row(unit=unit)],
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
+    )
     assert product["unit"] == expected
-    assert product["status"] == "warning"
-    assert "无商品图片" in product["messages"]
+    assert product["status"] == "valid"
+    assert "无商品图片" not in product["messages"]
 
 
 def test_zero_cartons_is_valid_and_missing_size_is_warning(import_context) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
     product = one_product(
-        preview(client, workbook_bytes([valid_row(size="", carton_count=0)]))
+        preview(
+            client,
+            workbook_bytes(
+                [valid_row(size="", carton_count=0)],
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
     )
     assert product["packagings"][0]["carton_count"] == 0
     assert product["status"] == "warning"
     assert "产品尺寸为空" in product["messages"]
-    assert "无商品图片" in product["messages"]
+    assert "无商品图片" not in product["messages"]
 
 
 def test_duplicate_packaging_quantity_is_an_error(import_context) -> None:
@@ -739,7 +903,16 @@ def test_secondary_stock_is_added_to_remark_and_bad_value_warns(import_context) 
         valid_row(product_group="A001", secondary_stock=2),
         valid_row(product_group="A001", packing_qty=48, secondary_stock="无法识别"),
     ]
-    product = one_product(preview(client, workbook_bytes(rows, headers=headers)))
+    product = one_product(
+        preview(
+            client,
+            workbook_bytes(
+                rows,
+                headers=headers,
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
+    )
     assert product["remark"].endswith("义库：2箱")
     assert product["status"] == "warning"
     assert "义库值无法识别，未合并到备注。" in product["messages"]
@@ -823,16 +996,22 @@ def test_formula_cached_values_follow_carton_count_rules(
         assert any(expected_message in message for message in product["messages"])
 
 
-def test_empty_size_and_no_image_are_warning_not_error(import_context) -> None:
+def test_empty_size_is_warning_when_image_is_present(import_context) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
     product = one_product(
-        preview(client, workbook_bytes([valid_row(size="", carton_count=0)]))
+        preview(
+            client,
+            workbook_bytes(
+                [valid_row(size="", carton_count=0)],
+                images={2: [image_bytes((90, 120, 160))]},
+            ),
+        )
     )
     assert product["status"] == "warning"
     assert product["packagings"][0]["carton_count"] == 0
     assert "产品尺寸为空" in product["messages"]
-    assert "无商品图片" in product["messages"]
+    assert "无商品图片" not in product["messages"]
 
 
 def test_preview_skips_empty_rows_and_limits_to_first_20_candidates(import_context) -> None:
@@ -847,6 +1026,16 @@ def test_preview_skips_empty_rows_and_limits_to_first_20_candidates(import_conte
     payload = response.json()
     assert payload["source_row_count"] == 20
     assert [row["excel_rows"][0] for row in payload["products"]] == [2, *range(4, 23)]
+
+
+def test_product_without_any_image_is_an_error(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+
+    product = one_product(preview(client, workbook_bytes([valid_row()])))
+
+    assert product["status"] == "error"
+    assert "无商品图片" in product["messages"]
 
 
 def test_duplicate_known_headers_are_rejected(import_context) -> None:
@@ -929,8 +1118,15 @@ def test_invalid_xlsx_bytes_are_rejected(import_context) -> None:
     assert "无法读取 Excel" in response.json()["detail"]
 
 
-def test_missing_sheet_is_rejected(import_context) -> None:
+def test_workbook_without_recognizable_sheet_is_rejected(import_context) -> None:
     client, _session_factory, _application, _uploads, _previews = import_context
-    response = preview(client, workbook_bytes([valid_row()], sheet_name="Sheet1"))
+    response = preview(
+        client,
+        workbook_bytes(
+            [valid_row()],
+            sheet_name="Sheet1",
+            headers=["名称", "产品图片"],
+        ),
+    )
     assert response.status_code == 400
-    assert response.json()["detail"] == "未找到工作表：商品导入"
+    assert response.json()["detail"] == "未找到可识别的商品数据工作表。"

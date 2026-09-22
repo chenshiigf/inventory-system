@@ -17,7 +17,7 @@ OUTPUT_PATH = (
     Path(__file__).resolve().parents[1]
     / "data"
     / "tmp"
-    / "product-import-browser-acceptance.xlsx"
+    / "product-import-compatibility-acceptance.xlsx"
 )
 
 
@@ -68,17 +68,31 @@ def add_cached_formula(data: bytes, *, cell_ref: str, formula: str, value: int) 
 def build_fixture() -> Path:
     workbook = Workbook()
     worksheet = workbook.active
-    worksheet.title = "商品导入"
-    worksheet.append(IMPORT_HEADERS)
+    worksheet.title = "库存明细"
+    worksheet.append(
+        [
+            "商品组",
+            "仓库",
+            "一级 分类",
+            "二级分类",
+            "产品\n图片",
+            "产品尺寸",
+            "装箱数",
+            "单位",
+            "单价",
+            "结余\n箱数",
+            "备 注",
+        ]
+    )
 
     rows = [
-        ["", "主仓", "厨房用品", "盘子", None, "26cm", 12, "pcs", 6.80, 4, "普通单包装商品"],
+        ["", "主仓", "厨房用品", "盘子", None, "26cm", None, None, None, 4, "普通单包装商品"],
         ["A001", "主仓", "厨房用品", "盘子", None, "20cm", 240, "pcs", 3.50, 21, "三种包装规格"],
         ["A001", "主仓", "厨房用品", "盘子", None, "20cm", 144, "pcs", 3.50, 1, "三种包装规格"],
         ["A001", "主仓", "厨房用品", "盘子", None, "20cm", 72, "pcs", 3.50, 0, "三种包装规格"],
         ["", "主仓", "厨房用品", "盘子", None, "18cm", 12, "set", 5.80, 6, "共享图片商品一"],
         ["", "主仓", "厨房用品", "盘子", None, "22cm", 24, "pcs", 4.20, 8, "共享图片商品二"],
-        ["", "主仓", "厨房用品", "盘子", None, "15cm", 18, "pcs", 2.60, "=3+2", "无图警告且公式有缓存"],
+        ["", "主仓", "厨房用品", "盘子", None, "15cm", 18, "pcs", 2.60, "=3+2", "公式有缓存"],
     ]
     for excel_row, row in enumerate(rows, start=2):
         for column_index, value in enumerate(row, start=1):
@@ -98,6 +112,7 @@ def build_fixture() -> Path:
         to=AnchorMarker(col=4, row=6),
     )
     worksheet.add_image(shared_image)
+    worksheet.add_image(ExcelImage(BytesIO(make_image((150, 55, 120), height=25))), "E8")
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     workbook.save(OUTPUT_PATH)

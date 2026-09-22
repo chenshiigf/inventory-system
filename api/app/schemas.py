@@ -76,7 +76,7 @@ class WarehouseRead(BaseModel):
 class ProductPackagingCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    packing_qty: PositiveInt
+    packing_qty: PositiveInt | None = None
     carton_count: NonNegativeInt = 0
 
 
@@ -88,7 +88,7 @@ class ProductPackagingRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    packing_qty: int
+    packing_qty: int | None
     carton_count: int
     sort_order: int
 
@@ -129,8 +129,8 @@ class ProductCreate(BaseModel):
     thumbnail_path: str | None = Field(default=None, max_length=500)
     size: ProductSize = ""
     packagings: list[ProductPackagingCreate] = Field(min_length=1)
-    unit: ProductUnit
-    price: ProductPrice
+    unit: ProductUnit | None = None
+    price: ProductPrice | None = None
     remark: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
@@ -181,6 +181,8 @@ class ProductUpdate(BaseModel):
             "warehouse_id",
             "image_path",
             "thumbnail_path",
+            "unit",
+            "price",
             "remark",
         }
         for field_name in self.model_fields_set - nullable_fields:
@@ -220,8 +222,8 @@ class ProductRead(BaseModel):
     image_path: str | None
     thumbnail_path: str | None
     size: str
-    unit: ProductUnit
-    price: Decimal
+    unit: ProductUnit | None
+    price: Decimal | None
     remark: str | None
     packagings: list[ProductPackagingRead]
     total_carton_count: int

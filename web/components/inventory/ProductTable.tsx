@@ -53,12 +53,14 @@ export default function ProductTable({
       (left, right) => left.sortOrder - right.sortOrder,
     );
     const isMultiple = packagings.length > 1;
-    const summary = packagings.map((packaging) => packaging.packingQty).join(" / ");
+    const summary = packagings
+      .map((packaging) => packaging.packingQty ?? "—")
+      .join(" / ");
     const details = (
       <div className="packaging-popover-content">
         {packagings.map((packaging) => (
           <div key={packaging.id}>
-            {packaging.packingQty} {product.unit}/箱 × {packaging.cartonCount}箱
+            {packaging.packingQty ?? "未填写"} {product.unit ?? "—"}/箱 × {packaging.cartonCount}箱
           </div>
         ))}
       </div>
@@ -118,7 +120,7 @@ export default function ProductTable({
       dataIndex: "size",
       key: "size",
       width: 130,
-      render: (value: string) => (
+      render: (value: string | null) => (
         <span className="table-secondary-value">{value || "—"}</span>
       ),
     },
@@ -133,7 +135,7 @@ export default function ProductTable({
       dataIndex: "unit",
       key: "unit",
       width: 80,
-      render: (value: string) => (
+      render: (value: string | null) => (
         <span className="table-secondary-value">{value || "—"}</span>
       ),
     },
@@ -142,8 +144,8 @@ export default function ProductTable({
       dataIndex: "price",
       key: "price",
       width: 100,
-      render: (value: string) => (
-        <span className="table-price">¥ {value}</span>
+      render: (value: string | null) => (
+        <span className="table-price">{value ? `¥ ${value}` : "—"}</span>
       ),
     },
     {

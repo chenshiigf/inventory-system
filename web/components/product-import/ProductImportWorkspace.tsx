@@ -85,7 +85,7 @@ function statusColor(status: ProductImportRowStatus): string {
 function formatPackaging(
   packingQty: number | null,
   cartonCount: number | null,
-  unit: string,
+  unit: string | null,
 ): string {
   const quantity =
     packingQty === null ? "装箱数待确认" : `${packingQty} ${unit || "—"}/箱`;

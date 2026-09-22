@@ -64,7 +64,7 @@ export default function ProductEditorModal({
   const [uploading, setUploading] = useState(false);
   const [imagePath, setImagePath] = useState(product?.imagePath ?? null);
   const [messageApi, messageContextHolder] = message.useMessage();
-  const selectedUnit = Form.useWatch("unit", form) ?? product?.unit ?? "pcs";
+  const selectedUnit = Form.useWatch("unit", form) ?? product?.unit ?? "—";
   const title = product ? "编辑商品" : "新增商品";
   const categoryOptions: InventoryCategoryOption[] = toCategoryOptions(categories);
   const categoryPath = getCategoryPath(categories, product?.categoryId ?? null);
@@ -311,9 +311,10 @@ export default function ProductEditorModal({
             <Form.Item
               name="unit"
               label="单位"
-              rules={[{ required: true, message: "请选择单位" }]}
             >
               <Select
+                allowClear
+                placeholder="可不填写"
                 options={[
                   { label: "pcs", value: "pcs" },
                   { label: "set", value: "set" },
@@ -362,7 +363,9 @@ export default function ProductEditorModal({
                           <Form.Item
                             name={[field.name, "packingQty"]}
                             rules={[
-                              { required: true, message: "请输入装箱数" },
+                              ...(fields.length > 1
+                                ? [{ required: true, message: "请输入装箱数" }]
+                                : []),
                               {
                                 type: "number",
                                 min: 1,
@@ -430,7 +433,6 @@ export default function ProductEditorModal({
             <Form.Item
               name="price"
               label="单价"
-              rules={[{ required: true, message: "请输入单价" }]}
             >
               <InputNumber
                 min={0}

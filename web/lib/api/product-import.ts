@@ -19,7 +19,7 @@ export interface ProductImportPreviewProduct {
   image_preview_url: string | null;
   shared_image: boolean;
   size: string;
-  unit: string;
+  unit: string | null;
   price: string | null;
   remark: string;
   source_codes: string[];

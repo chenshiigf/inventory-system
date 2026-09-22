@@ -81,7 +81,7 @@ class Warehouse(Base):
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (
-        CheckConstraint("unit IN ('pcs', 'set')", name="ck_products_unit_valid"),
+        CheckConstraint("unit IS NULL OR unit IN ('pcs', 'set')", name="ck_products_unit_valid"),
         CheckConstraint("price >= 0", name="ck_products_price_nonnegative"),
         Index(
             "uq_products_product_code",
@@ -106,8 +106,11 @@ class Product(Base):
     image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     thumbnail_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     size: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    unit: Mapped[str] = mapped_column(String(3), nullable=False)
-    price: Mapped[Decimal] = mapped_column(Numeric(12, 2, asdecimal=True), nullable=False)
+    unit: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    price: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 2, asdecimal=True),
+        nullable=True,
+    )
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
@@ -129,7 +132,7 @@ class ProductPackaging(Base):
     __tablename__ = "product_packagings"
     __table_args__ = (
         CheckConstraint(
-            "packing_qty > 0",
+            "packing_qty IS NULL OR packing_qty > 0",
             name="ck_product_packagings_packing_qty_positive",
         ),
         CheckConstraint(
@@ -157,7 +160,7 @@ class ProductPackaging(Base):
         nullable=False,
         index=True,
     )
-    packing_qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    packing_qty: Mapped[int | None] = mapped_column(Integer, nullable=True)
     carton_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sort_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"

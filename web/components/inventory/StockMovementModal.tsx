@@ -108,21 +108,21 @@ export default function StockMovementModal({
   }
 
   function packagingLabel(packaging: InventoryPackaging) {
-    return `${packaging.packingQty} ${product.unit}/箱（当前 ${packaging.cartonCount} 箱）`;
+    return `${packaging.packingQty ?? "未填写"} ${product.unit ?? "—"}/箱（当前 ${packaging.cartonCount} 箱）`;
   }
 
   const packagingOptions = product.packagings.map((packaging) => ({
     label: packagingLabel(packaging),
-    value: String(packaging.packingQty),
+    value: String(packaging.packingQty ?? ""),
   }));
   const packagingDescription = isStockIn
     ? selectedPackingQty === null
       ? "请选择或输入装箱数"
       : isNewPackaging
-        ? `将新增包装规格：${selectedPackingQty} ${product.unit}/箱`
-        : `${selectedPackingQty} ${product.unit}/箱`
+        ? `将新增包装规格：${selectedPackingQty} ${product.unit ?? "—"}/箱`
+        : `${selectedPackingQty} ${product.unit ?? "—"}/箱`
     : selectedPackaging
-      ? `${selectedPackaging.packingQty} ${product.unit}/箱`
+      ? `${selectedPackaging.packingQty ?? "未填写"} ${product.unit ?? "—"}/箱`
       : "请选择装箱数";
 
   return (
@@ -233,7 +233,7 @@ export default function StockMovementModal({
               </Form.Item>
               <Input
                 readOnly
-                value={`${product.unit}/箱`}
+              value={`${product.unit ?? "—"}/箱`}
                 aria-label="装箱数单位"
                 tabIndex={-1}
                 style={{ width: 72, flex: "0 0 72px", textAlign: "center" }}
@@ -260,7 +260,7 @@ export default function StockMovementModal({
             <span>装箱数</span>
             <strong>
               {defaultPackaging
-                ? `${defaultPackaging.packingQty} ${product.unit}/箱`
+                ? `${defaultPackaging.packingQty ?? "未设置"} ${product.unit ?? "—"}/箱`
                 : "未设置"}
             </strong>
           </div>

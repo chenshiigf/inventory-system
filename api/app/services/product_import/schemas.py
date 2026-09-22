@@ -10,9 +10,18 @@ class ImportColumn:
     header: str
 
 
-# Header matching is intentionally exact after trimming. Keeping aliases in one
-# place makes it impossible for the reader and template to silently disagree.
-FIELD_ALIASES: Final[dict[str, tuple[str, ...]]] = {
+def normalize_header(value: object) -> str:
+    """Normalize Excel headers without changing imported cell values."""
+
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return "".join(character for character in text if not character.isspace())
+
+
+# Keep aliases in their normalized form so every import header uses the same
+# matching rule, including historical aliases and future aliases with spaces.
+_FIELD_ALIASES: Final[dict[str, tuple[str, ...]]] = {
     "product_group": ("商品组",),
     "warehouse": ("仓库",),
     "category_level_1": ("一级分类",),
@@ -26,6 +35,10 @@ FIELD_ALIASES: Final[dict[str, tuple[str, ...]]] = {
     "remark": ("备注",),
     "source_code": ("系统编号", "原系统编号"),
     "secondary_stock": ("义库",),
+}
+FIELD_ALIASES: Final[dict[str, tuple[str, ...]]] = {
+    field: tuple(normalize_header(alias) for alias in aliases)
+    for field, aliases in _FIELD_ALIASES.items()
 }
 
 # The downloaded template uses the least ambiguous stock header, while uploads
@@ -55,12 +68,7 @@ REQUIRED_IMPORT_FIELDS: Final[tuple[str, ...]] = (
     "category_level_1",
     "category_level_2",
     "image",
-    "size",
-    "packing_qty",
-    "unit",
-    "price",
     "carton_count",
-    "remark",
 )
 
 ProductImportRowStatus = Literal["valid", "warning", "error"]
@@ -87,7 +95,7 @@ class ProductImportPreviewProduct(BaseModel):
     image_preview_url: str | None
     shared_image: bool
     size: str
-    unit: str
+    unit: str | None
     price: str | None
     remark: str
     source_codes: list[str]

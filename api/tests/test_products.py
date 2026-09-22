@@ -35,10 +35,9 @@ def product_payload(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "image_path": None,
         "size": "18 × 18 cm",
-        "packing_qty": 24,
+        "packagings": [{"packing_qty": 24, "carton_count": 18}],
         "unit": "pcs",
         "price": "2.80",
-        "carton_count": 18,
         "remark": "蓝边方盘",
     }
     payload.update(overrides)
@@ -65,7 +64,10 @@ def test_product_unit_must_be_pcs_or_set(client: TestClient) -> None:
 
 
 def test_carton_count_cannot_be_negative(client: TestClient) -> None:
-    response = client.post("/api/products", json=product_payload(carton_count=-1))
+    response = client.post(
+        "/api/products",
+        json=product_payload(packagings=[{"packing_qty": 24, "carton_count": -1}]),
+    )
 
     assert response.status_code == 422
 
@@ -131,7 +133,8 @@ def test_patch_product_succeeds(client: TestClient) -> None:
     product = response.json()
     assert product["price"] == "3.15"
     assert product["remark"] == "调整后的备注"
-    assert product["carton_count"] == 18
+    assert product["total_carton_count"] == 18
+    assert product["packagings"][0]["carton_count"] == 18
 
 
 @pytest.mark.parametrize(

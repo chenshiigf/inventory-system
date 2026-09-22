@@ -1,6 +1,11 @@
 "use client";
 
-import { PictureOutlined, UploadOutlined } from "@ant-design/icons";
+import {
+  DeleteOutlined,
+  PlusOutlined,
+  PictureOutlined,
+  UploadOutlined,
+} from "@ant-design/icons";
 import {
   Alert,
   Cascader,
@@ -59,6 +64,7 @@ export default function ProductEditorModal({
   const [uploading, setUploading] = useState(false);
   const [imagePath, setImagePath] = useState(product?.imagePath ?? null);
   const [messageApi, messageContextHolder] = message.useMessage();
+  const selectedUnit = Form.useWatch("unit", form) ?? product?.unit ?? "pcs";
   const title = product ? "编辑商品" : "新增商品";
   const categoryOptions: InventoryCategoryOption[] = toCategoryOptions(categories);
   const categoryPath = getCategoryPath(categories, product?.categoryId ?? null);
@@ -177,10 +183,13 @@ export default function ProductEditorModal({
                   imagePath: product.imagePath,
                   thumbnailPath: product.thumbnailPath,
                   size: product.size,
-                  packingQty: product.packingQty,
                   unit: product.unit,
                   price: product.price,
-                  cartonCount: product.cartonCount,
+                  packagings: product.packagings.map((packaging) => ({
+                    id: packaging.id,
+                    packingQty: packaging.packingQty,
+                    cartonCount: packaging.cartonCount,
+                  })),
                   remark: product.remark,
                 }
               : {
@@ -189,10 +198,9 @@ export default function ProductEditorModal({
                   imagePath: null,
                   thumbnailPath: null,
                   size: "",
-                  packingQty: 1,
                   unit: "pcs",
                   price: "0.00",
-                  cartonCount: 0,
+                  packagings: [{ packingQty: 1, cartonCount: 0 }],
                   remark: "",
                 }
           }
@@ -301,18 +309,6 @@ export default function ProductEditorModal({
               <Input placeholder="例如 18 × 18 cm" maxLength={200} />
             </Form.Item>
             <Form.Item
-              name="packingQty"
-              label="装箱数"
-              rules={[{ required: true, message: "请输入装箱数" }]}
-            >
-              <InputNumber
-                min={1}
-                precision={0}
-                style={{ width: "100%" }}
-                placeholder="每箱数量"
-              />
-            </Form.Item>
-            <Form.Item
               name="unit"
               label="单位"
               rules={[{ required: true, message: "请选择单位" }]}
@@ -323,6 +319,113 @@ export default function ProductEditorModal({
                   { label: "set", value: "set" },
                 ]}
               />
+            </Form.Item>
+            <Form.Item
+              label="包装规格"
+              required
+              className="form-item-full packaging-form-item"
+            >
+              <Form.List name="packagings">
+                {(fields, { add, remove }) => (
+                  <div className="packaging-editor-list">
+                    {fields.map((field, index) => {
+                      const packaging = form.getFieldValue([
+                        "packagings",
+                        field.name,
+                      ]) as
+                        | { cartonCount?: number }
+                        | undefined;
+                      const cartonCount = packaging?.cartonCount ?? 0;
+
+                      function removePackaging() {
+                        if (fields.length === 1) {
+                          return;
+                        }
+                        if (cartonCount > 0) {
+                          Modal.confirm({
+                            title: "确认删除包装规格？",
+                            content: `该包装规格当前还有 ${cartonCount} 箱库存，删除后这部分库存记录将被移除，是否继续？`,
+                            okText: "继续删除",
+                            cancelText: "取消",
+                            onOk: () => remove(field.name),
+                          });
+                          return;
+                        }
+                        remove(field.name);
+                      }
+
+                      return (
+                        <div className="packaging-editor-row" key={field.key}>
+                          <span className="packaging-editor-index">
+                            {index + 1}
+                          </span>
+                          <Form.Item
+                            name={[field.name, "packingQty"]}
+                            rules={[
+                              { required: true, message: "请输入装箱数" },
+                              {
+                                type: "number",
+                                min: 1,
+                                transform: (value) => value ?? undefined,
+                                message: "装箱数必须是正整数",
+                              },
+                            ]}
+                            className="packaging-editor-quantity"
+                          >
+                            <InputNumber
+                              min={1}
+                              precision={0}
+                              placeholder="每箱数量"
+                              aria-label={`第 ${index + 1} 个包装规格的装箱数`}
+                            />
+                          </Form.Item>
+                          <span className="packaging-editor-unit">
+                            {selectedUnit}/箱
+                          </span>
+                          <Form.Item
+                            name={[field.name, "cartonCount"]}
+                            rules={[
+                              { required: true, message: "请输入当前箱数" },
+                              {
+                                type: "number",
+                                min: 0,
+                                transform: (value) => value ?? undefined,
+                                message: "当前箱数不能小于 0",
+                              },
+                            ]}
+                            className="packaging-editor-cartons"
+                          >
+                            <InputNumber
+                              min={0}
+                              precision={0}
+                              placeholder="当前箱数"
+                              aria-label={`第 ${index + 1} 个包装规格的当前箱数`}
+                            />
+                          </Form.Item>
+                          <span className="packaging-editor-unit">箱</span>
+                          <Button
+                            type="link"
+                            danger
+                            icon={<DeleteOutlined />}
+                            disabled={fields.length === 1}
+                            onClick={removePackaging}
+                            aria-label={`删除第 ${index + 1} 个包装规格`}
+                          >
+                            删除
+                          </Button>
+                        </div>
+                      );
+                    })}
+                    <Button
+                      type="dashed"
+                      icon={<PlusOutlined />}
+                      onClick={() => add({ packingQty: 1, cartonCount: 0 })}
+                    >
+                      添加包装规格
+                    </Button>
+                  </div>
+                )}
+              </Form.List>
             </Form.Item>
             <Form.Item
               name="price"
@@ -336,19 +439,6 @@ export default function ProductEditorModal({
                 style={{ width: "100%" }}
                 placeholder="0.00"
               />
-            </Form.Item>
-            <Form.Item label="当前箱数" required>
-              <Form.Item
-                name="cartonCount"
-                noStyle
-                rules={[{ required: true, message: "请输入当前箱数" }]}
-              >
-                <InputNumber
-                  min={0}
-                  precision={0}
-                  style={{ width: "100%" }}
-                />
-              </Form.Item>
             </Form.Item>
           </div>
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import Category, Product, Warehouse
+from app.models import Category, Product, ProductPackaging, Warehouse
 from app.product_codes import backfill_product_codes, format_code_component
 
 
@@ -54,10 +54,9 @@ def product_payload(category_id: int, **overrides: object) -> dict[str, object]:
         "warehouse_id": None,
         "image_path": None,
         "size": "TEST-20cm",
-        "packing_qty": 24,
+        "packagings": [{"packing_qty": 24, "carton_count": 10}],
         "unit": "pcs",
         "price": "1.00",
-        "carton_count": 10,
         "remark": "商品编号验收",
     }
     payload.update(overrides)
@@ -257,26 +256,23 @@ def test_backfill_assigns_missing_codes_by_sort_order_and_is_idempotent(
                 Product(
                     category_id=child_later.id,
                     size="A",
-                    packing_qty=1,
                     unit="pcs",
                     price=Decimal("1.00"),
-                    carton_count=0,
+                    packagings=[ProductPackaging(packing_qty=1, carton_count=0)],
                 ),
                 Product(
                     category_id=child_later.id,
                     size="B",
-                    packing_qty=1,
                     unit="pcs",
                     price=Decimal("1.00"),
-                    carton_count=0,
+                    packagings=[ProductPackaging(packing_qty=1, carton_count=0)],
                 ),
                 Product(
                     category_id=None,
                     size="未分类",
-                    packing_qty=1,
                     unit="pcs",
                     price=Decimal("1.00"),
-                    carton_count=0,
+                    packagings=[ProductPackaging(packing_qty=1, carton_count=0)],
                 ),
             ]
         )
@@ -348,18 +344,16 @@ def test_backfill_preserves_existing_codes_and_does_not_recycle_sequences(
                     category_id=child.id,
                     product_code="06-03-011",
                     size="旧商品",
-                    packing_qty=1,
                     unit="pcs",
                     price=Decimal("1.00"),
-                    carton_count=0,
+                    packagings=[ProductPackaging(packing_qty=1, carton_count=0)],
                 ),
                 Product(
                     category_id=child.id,
                     size="新旧数据缺码",
-                    packing_qty=1,
                     unit="pcs",
                     price=Decimal("1.00"),
-                    carton_count=0,
+                    packagings=[ProductPackaging(packing_qty=1, carton_count=0)],
                 ),
             ]
         )

@@ -347,10 +347,9 @@ def test_product_create_and_update_store_image_paths_without_changing_code(
             "image_path": old_image["image_path"],
             "thumbnail_path": old_image["thumbnail_path"],
             "size": "IMAGE-TEST",
-            "packing_qty": 24,
+            "packagings": [{"packing_qty": 24, "carton_count": 10}],
             "unit": "pcs",
             "price": "1.00",
-            "carton_count": 10,
             "remark": "temporary image API test",
         },
     )
@@ -372,7 +371,7 @@ def test_product_create_and_update_store_image_paths_without_changing_code(
     assert updated_product["product_code"] == original_product["product_code"]
     assert updated_product["category_id"] == category_id
     assert updated_product["warehouse_id"] is None
-    assert updated_product["carton_count"] == 10
+    assert updated_product["total_carton_count"] == 10
 
 
 def test_products_without_images_and_legacy_null_thumbnail_remain_readable(
@@ -385,10 +384,9 @@ def test_products_without_images_and_legacy_null_thumbnail_remain_readable(
             "image_path": None,
             "thumbnail_path": None,
             "size": "NO-IMAGE",
-            "packing_qty": 1,
+            "packagings": [{"packing_qty": 1, "carton_count": 0}],
             "unit": "set",
             "price": "0.00",
-            "carton_count": 0,
             "remark": None,
         },
     )
@@ -411,10 +409,9 @@ def test_legacy_main_image_with_null_thumbnail_remains_readable(
             "image_path": "products/main/legacy-product.webp",
             "thumbnail_path": None,
             "size": "LEGACY-IMAGE",
-            "packing_qty": 1,
+            "packagings": [{"packing_qty": 1, "carton_count": 0}],
             "unit": "pcs",
             "price": "0.00",
-            "carton_count": 0,
             "remark": None,
         },
     )

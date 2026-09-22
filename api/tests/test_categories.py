@@ -53,10 +53,9 @@ def product_payload(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
         "image_path": None,
         "size": "18 × 18 cm",
-        "packing_qty": 24,
+        "packagings": [{"packing_qty": 24, "carton_count": 18}],
         "unit": "pcs",
         "price": "2.80",
-        "carton_count": 18,
         "remark": "蓝边方盘",
         "category_id": None,
     }

@@ -13,7 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -81,10 +81,8 @@ class Warehouse(Base):
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (
-        CheckConstraint("packing_qty > 0", name="ck_products_packing_qty_positive"),
         CheckConstraint("unit IN ('pcs', 'set')", name="ck_products_unit_valid"),
         CheckConstraint("price >= 0", name="ck_products_price_nonnegative"),
-        CheckConstraint("carton_count >= 0", name="ck_products_carton_count_nonnegative"),
         Index(
             "uq_products_product_code",
             "product_code",
@@ -108,12 +106,64 @@ class Product(Base):
     image_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     thumbnail_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     size: Mapped[str] = mapped_column(String(200), nullable=False, default="")
-    packing_qty: Mapped[int] = mapped_column(Integer, nullable=False)
     unit: Mapped[str] = mapped_column(String(3), nullable=False)
     price: Mapped[Decimal] = mapped_column(Numeric(12, 2, asdecimal=True), nullable=False)
-    carton_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     remark: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(), nullable=False, default=utc_now, onupdate=utc_now
     )
+    packagings: Mapped[list["ProductPackaging"]] = relationship(
+        back_populates="product",
+        cascade="all, delete-orphan",
+        order_by="ProductPackaging.sort_order",
+        lazy="selectin",
+    )
+
+    @property
+    def total_carton_count(self) -> int:
+        return sum(packaging.carton_count for packaging in self.packagings)
+
+
+class ProductPackaging(Base):
+    __tablename__ = "product_packagings"
+    __table_args__ = (
+        CheckConstraint(
+            "packing_qty > 0",
+            name="ck_product_packagings_packing_qty_positive",
+        ),
+        CheckConstraint(
+            "carton_count >= 0",
+            name="ck_product_packagings_carton_count_nonnegative",
+        ),
+        CheckConstraint(
+            "sort_order >= 0",
+            name="ck_product_packagings_sort_order_nonnegative",
+        ),
+        UniqueConstraint(
+            "product_id",
+            "packing_qty",
+            name="uq_product_packagings_product_packing_qty",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "products.id",
+            name="fk_product_packagings_product_id_products",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+        index=True,
+    )
+    packing_qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    carton_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sort_order: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), nullable=False, default=utc_now, onupdate=utc_now
+    )
+    product: Mapped[Product] = relationship(back_populates="packagings")

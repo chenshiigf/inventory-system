@@ -43,6 +43,12 @@ interface StockMovementState {
 }
 
 function toInventoryProduct(product: ProductApiRecord): InventoryProduct {
+  const packagings = product.packagings.map((packaging) => ({
+    id: packaging.id,
+    packingQty: packaging.packing_qty,
+    cartonCount: packaging.carton_count,
+    sortOrder: packaging.sort_order,
+  }));
   return {
     id: product.id,
     productCode: product.product_code,
@@ -51,10 +57,10 @@ function toInventoryProduct(product: ProductApiRecord): InventoryProduct {
     imagePath: product.image_path,
     thumbnailPath: product.thumbnail_path,
     size: product.size,
-    packingQty: product.packing_qty,
     unit: product.unit,
     price: product.price,
-    cartonCount: product.carton_count,
+    packagings,
+    totalCartonCount: product.total_carton_count,
     remark: product.remark ?? "",
   };
 }
@@ -278,24 +284,36 @@ export default function InventoryWorkspace() {
       throw new Error("请选择所属仓库后保存商品。");
     }
 
-    const editableFields: ProductCreatePayload = {
+    const editableFields = {
       category_id: categoryId,
       warehouse_id: values.warehouseId,
       image_path: values.imagePath,
       thumbnail_path: values.thumbnailPath,
       size: values.size.trim(),
-      packing_qty: values.packingQty,
       unit: values.unit,
       price: values.price,
-      carton_count: values.cartonCount,
       remark: values.remark.trim() || null,
     };
 
     if (productEditor?.product) {
-      const updatePayload: ProductUpdatePayload = editableFields;
+      const updatePayload: ProductUpdatePayload = {
+        ...editableFields,
+        packagings: values.packagings.map((packaging) => ({
+          ...(packaging.id ? { id: packaging.id } : {}),
+          packing_qty: packaging.packingQty,
+          carton_count: packaging.cartonCount,
+        })),
+      };
       await updateProductRequest(productEditor.product.id, updatePayload);
     } else {
-      await createProductRequest(editableFields);
+      const createPayload: ProductCreatePayload = {
+        ...editableFields,
+        packagings: values.packagings.map((packaging) => ({
+          packing_qty: packaging.packingQty,
+          carton_count: packaging.cartonCount,
+        })),
+      };
+      await createProductRequest(createPayload);
     }
 
     setProductEditor(null);
@@ -318,19 +336,65 @@ export default function InventoryWorkspace() {
 
     const { direction, product } = stockMovement;
     setProducts((previousProducts) =>
-      previousProducts.map((item) =>
-        item.id === product.id
-          ? {
-              ...item,
-              cartonCount:
-                item.cartonCount +
-                (direction === "in" ? values.quantity : -values.quantity),
-            }
-          : item,
-      ),
+      previousProducts.map((item) => {
+        if (item.id !== product.id) {
+          return item;
+        }
+
+        const targetPackaging =
+          direction === "in"
+            ? item.packagings.find(
+                (packaging) => packaging.packingQty === values.packingQty,
+              )
+            : item.packagings.find(
+                (packaging) => packaging.id === values.packagingId,
+              );
+
+        let nextPackagings = item.packagings;
+        if (targetPackaging) {
+          nextPackagings = item.packagings.map((packaging) =>
+            packaging.id === targetPackaging.id
+              ? {
+                  ...packaging,
+                  cartonCount:
+                    packaging.cartonCount +
+                    (direction === "in"
+                      ? values.quantity
+                      : -values.quantity),
+                }
+              : packaging,
+          );
+        } else if (direction === "in") {
+          const temporaryId =
+            item.packagings.reduce(
+              (minimumId, packaging) => Math.min(minimumId, packaging.id),
+              0,
+            ) - 1;
+          nextPackagings = [
+            ...item.packagings,
+            {
+              id: temporaryId,
+              packingQty: values.packingQty,
+              cartonCount: values.quantity,
+              sortOrder: item.packagings.length,
+            },
+          ];
+        }
+
+        return {
+          ...item,
+          packagings: nextPackagings,
+          totalCartonCount: nextPackagings.reduce(
+            (total, packaging) => total + packaging.cartonCount,
+            0,
+          ),
+        };
+      }),
     );
     setStockMovement(null);
-    messageApi.warning("入库/出库原型只临时改变本页数字，刷新后会恢复数据库中的箱数。");
+    messageApi.warning(
+      "入库/出库原型只临时改变本页数字，刷新后会恢复数据库中的包装和箱数，不会写入数据库。",
+    );
   }
 
   return (

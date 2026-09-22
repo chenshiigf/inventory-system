@@ -42,6 +42,23 @@ export interface WarehouseRead {
 
 export type WarehouseSelection = "all" | number;
 
+export interface ProductPackagingApiRecord {
+  id: number;
+  packing_qty: number;
+  carton_count: number;
+  sort_order: number;
+}
+
+export interface ProductPackagingCreatePayload {
+  packing_qty: number;
+  carton_count: number;
+}
+
+export interface ProductPackagingUpdatePayload
+  extends ProductPackagingCreatePayload {
+  id?: number;
+}
+
 export interface ProductApiRecord {
   id: number;
   category_id: number | null;
@@ -50,11 +67,11 @@ export interface ProductApiRecord {
   image_path: string | null;
   thumbnail_path: string | null;
   size: string;
-  packing_qty: number;
   unit: ProductUnit;
   price: string;
-  carton_count: number;
   remark: string | null;
+  packagings: ProductPackagingApiRecord[];
+  total_carton_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -72,14 +89,23 @@ export interface ProductCreatePayload {
   image_path: string | null;
   thumbnail_path: string | null;
   size: string;
-  packing_qty: number;
   unit: ProductUnit;
   price: string;
-  carton_count: number;
   remark: string | null;
+  packagings: ProductPackagingCreatePayload[];
 }
 
-export type ProductUpdatePayload = Partial<ProductCreatePayload>;
+export type ProductUpdatePayload =
+  Partial<Omit<ProductCreatePayload, "packagings">> & {
+    packagings?: ProductPackagingUpdatePayload[];
+  };
+
+export interface InventoryPackaging {
+  id: number;
+  packingQty: number;
+  cartonCount: number;
+  sortOrder: number;
+}
 
 export interface InventoryProduct {
   id: number;
@@ -89,18 +115,27 @@ export interface InventoryProduct {
   imagePath: string | null;
   thumbnailPath: string | null;
   size: string;
-  packingQty: number;
   unit: ProductUnit;
   price: string;
-  cartonCount: number;
+  packagings: InventoryPackaging[];
+  totalCartonCount: number;
   remark: string;
 }
 
 export type StockMovementDirection = "in" | "out";
 
 export interface StockMovementValues {
+  packagingId?: number;
+  packingQty: number;
   quantity: number;
   note?: string;
+  isNewPackaging?: boolean;
+}
+
+export interface ProductPackagingFormValue {
+  id?: number;
+  packingQty: number;
+  cartonCount: number;
 }
 
 export interface ProductEditorFormValues {
@@ -109,9 +144,8 @@ export interface ProductEditorFormValues {
   categoryPath: number[];
   warehouseId: number;
   size: string;
-  packingQty: number;
   unit: ProductUnit;
   price: string;
-  cartonCount: number;
+  packagings: ProductPackagingFormValue[];
   remark: string;
 }

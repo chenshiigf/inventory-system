@@ -3,10 +3,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import begin_write_transaction, get_db
-from app.models import Category, Product, Warehouse
+from app.models import Category, Product, ProductPackaging, Warehouse
 from app.product_codes import allocate_product_code
 from app.schemas import ProductCreate, ProductListRead, ProductRead, ProductUpdate
 
@@ -23,7 +23,7 @@ def list_products(
     category_id: Annotated[int | None, Query(ge=1)] = None,
     warehouse_id: Annotated[int | None, Query(ge=1)] = None,
 ) -> ProductListRead:
-    statement = select(Product)
+    statement = select(Product).options(selectinload(Product.packagings))
     count_statement = select(func.count(Product.id))
     filters = []
 
@@ -76,7 +76,11 @@ def get_product(
     product_id: Annotated[int, Path(ge=1)],
     db: Annotated[Session, Depends(get_db)],
 ) -> Product:
-    product = db.get(Product, product_id)
+    product = db.scalar(
+        select(Product)
+        .options(selectinload(Product.packagings))
+        .where(Product.id == product_id)
+    )
     if product is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
     return product
@@ -90,7 +94,17 @@ def create_product(
     begin_write_transaction(db)
     _validate_product_category(db, payload.category_id)
     _validate_product_warehouse(db, payload.warehouse_id)
-    product = Product(**payload.model_dump())
+    product = Product(
+        **payload.model_dump(exclude={"packagings"}),
+        packagings=[
+            ProductPackaging(
+                packing_qty=packaging.packing_qty,
+                carton_count=packaging.carton_count,
+                sort_order=sort_order,
+            )
+            for sort_order, packaging in enumerate(payload.packagings)
+        ],
+    )
     if payload.category_id is not None:
         try:
             product.product_code = allocate_product_code(db, payload.category_id)
@@ -112,23 +126,67 @@ def update_product(
     payload: ProductUpdate,
     db: Annotated[Session, Depends(get_db)],
 ) -> Product:
-    product = db.get(Product, product_id)
+    begin_write_transaction(db)
+    product = db.scalar(
+        select(Product)
+        .options(selectinload(Product.packagings))
+        .where(Product.id == product_id)
+    )
     if product is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
 
-    updates = payload.model_dump(exclude_unset=True)
+    updates = payload.model_dump(exclude_unset=True, exclude={"packagings"})
     if "category_id" in updates:
         _validate_product_category(db, updates["category_id"])
     if "warehouse_id" in updates:
         _validate_product_warehouse(db, updates["warehouse_id"])
+
+    if payload.packagings is not None:
+        _replace_product_packagings(db, product, payload.packagings)
 
     for field_name, value in updates.items():
         setattr(product, field_name, value)
     product.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
     db.commit()
-    db.refresh(product)
-    return product
+    refreshed_product = db.scalar(
+        select(Product)
+        .options(selectinload(Product.packagings))
+        .where(Product.id == product_id)
+    )
+    assert refreshed_product is not None
+    return refreshed_product
+
+
+def _replace_product_packagings(
+    db: Session,
+    product: Product,
+    packagings: list,
+) -> None:
+    existing_ids = {packaging.id for packaging in product.packagings}
+    incoming_ids = {
+        packaging.id for packaging in packagings if packaging.id is not None
+    }
+    if incoming_ids - existing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="packaging id does not belong to this product",
+        )
+
+    # Validate identities before replacing rows so a mistaken cross-product id
+    # cannot remove any packaging from this product.
+    for packaging in list(product.packagings):
+        db.delete(packaging)
+    db.flush()
+
+    product.packagings = [
+        ProductPackaging(
+            packing_qty=packaging.packing_qty,
+            carton_count=packaging.carton_count,
+            sort_order=sort_order,
+        )
+        for sort_order, packaging in enumerate(packagings)
+    ]
 
 
 def _validate_product_category(db: Session, category_id: int | None) -> None:

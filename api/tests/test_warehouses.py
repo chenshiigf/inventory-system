@@ -59,10 +59,9 @@ def product_payload(**overrides: object) -> dict[str, object]:
         "category_id": None,
         "image_path": None,
         "size": "20 cm",
-        "packing_qty": 24,
+        "packagings": [{"packing_qty": 24, "carton_count": 10}],
         "unit": "pcs",
         "price": "1.00",
-        "carton_count": 10,
         "remark": "测试商品",
     }
     payload.update(overrides)
@@ -295,7 +294,7 @@ def test_patch_product_can_change_warehouse_without_changing_stock_or_category(
         client,
         warehouse_id=ids["主仓"],
         category_id=plate["id"],
-        carton_count=17,
+        packagings=[{"packing_qty": 24, "carton_count": 17}],
     )
 
     response = client.patch(
@@ -305,7 +304,7 @@ def test_patch_product_can_change_warehouse_without_changing_stock_or_category(
 
     assert response.status_code == 200
     assert response.json()["warehouse_id"] == ids["虎跳仓"]
-    assert response.json()["carton_count"] == 17
+    assert response.json()["total_carton_count"] == 17
     assert response.json()["category_id"] == plate["id"]
 
 

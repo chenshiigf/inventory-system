@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Space, Table, Tooltip } from "antd";
+import { Button, Popover, Space, Table, Tooltip } from "antd";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import ProductImage from "@/components/inventory/ProductImage";
 import type { InventoryProduct } from "@/types/inventory";
@@ -48,6 +48,36 @@ export default function ProductTable({
   onStockOut,
   onEdit,
 }: ProductTableProps) {
+  function renderPackagingSummary(product: InventoryProduct) {
+    const packagings = [...product.packagings].sort(
+      (left, right) => left.sortOrder - right.sortOrder,
+    );
+    const isMultiple = packagings.length > 1;
+    const summary = packagings.map((packaging) => packaging.packingQty).join(" / ");
+    const details = (
+      <div className="packaging-popover-content">
+        {packagings.map((packaging) => (
+          <div key={packaging.id}>
+            {packaging.packingQty} {product.unit}/箱 × {packaging.cartonCount}箱
+          </div>
+        ))}
+      </div>
+    );
+
+    if (!isMultiple) {
+      return <span className="table-secondary-value">{summary || "—"}</span>;
+    }
+
+    return (
+      <Popover title="包装规格" content={details} trigger="hover">
+        <span className="packaging-summary" tabIndex={0}>
+          <span className="table-secondary-value">{summary}</span>
+          <span className="packaging-summary-count">{packagings.length}种包装</span>
+        </span>
+      </Popover>
+    );
+  }
+
   const columns: ColumnsType<InventoryProduct> = [
     {
       title: "商品编号",
@@ -94,12 +124,9 @@ export default function ProductTable({
     },
     {
       title: "装箱数",
-      dataIndex: "packingQty",
-      key: "packingQty",
-      width: 90,
-      render: (value: number) => (
-        <span className="table-secondary-value">{value}</span>
-      ),
+      key: "packagings",
+      width: 120,
+      render: (_value, product) => renderPackagingSummary(product),
     },
     {
       title: "单位",
@@ -121,12 +148,11 @@ export default function ProductTable({
     },
     {
       title: "当前箱数",
-      dataIndex: "cartonCount",
-      key: "cartonCount",
+      key: "totalCartonCount",
       width: 120,
-      render: (value: number) => (
+      render: (_value, product) => (
         <span className="stock-quantity">
-          <strong>{value}</strong>
+          <strong>{product.totalCartonCount}</strong>
           <span>箱</span>
         </span>
       ),

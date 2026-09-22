@@ -73,6 +73,34 @@ class WarehouseRead(BaseModel):
     sort_order: int
 
 
+class ProductPackagingCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    packing_qty: PositiveInt
+    carton_count: NonNegativeInt = 0
+
+
+class ProductPackagingWrite(ProductPackagingCreate):
+    id: PositiveInt | None = None
+
+
+class ProductPackagingRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    packing_qty: int
+    carton_count: int
+    sort_order: int
+
+
+def _validate_unique_packaging_quantities(
+    packagings: list[ProductPackagingCreate | ProductPackagingWrite],
+) -> None:
+    quantities = [packaging.packing_qty for packaging in packagings]
+    if len(quantities) != len(set(quantities)):
+        raise ValueError("packagings cannot contain duplicate packing_qty values")
+
+
 def validate_image_path(value: str | None) -> str | None:
     if value is None:
         return None
@@ -100,11 +128,15 @@ class ProductCreate(BaseModel):
     image_path: str | None = Field(default=None, max_length=500)
     thumbnail_path: str | None = Field(default=None, max_length=500)
     size: ProductSize = ""
-    packing_qty: PositiveInt
+    packagings: list[ProductPackagingCreate] = Field(min_length=1)
     unit: ProductUnit
     price: ProductPrice
-    carton_count: NonNegativeInt = 0
     remark: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_unique_packagings(self) -> "ProductCreate":
+        _validate_unique_packaging_quantities(self.packagings)
+        return self
 
     @field_validator("image_path", "thumbnail_path")
     @classmethod
@@ -132,10 +164,11 @@ class ProductUpdate(BaseModel):
     image_path: str | None = Field(default=None, max_length=500)
     thumbnail_path: str | None = Field(default=None, max_length=500)
     size: ProductSize | None = None
-    packing_qty: PositiveInt | None = None
+    packagings: list[ProductPackagingWrite] | None = Field(
+        default=None, min_length=1
+    )
     unit: ProductUnit | None = None
     price: ProductPrice | None = None
-    carton_count: NonNegativeInt | None = None
     remark: str | None = Field(default=None, max_length=2000)
 
     @model_validator(mode="after")
@@ -153,6 +186,9 @@ class ProductUpdate(BaseModel):
         for field_name in self.model_fields_set - nullable_fields:
             if getattr(self, field_name) is None:
                 raise ValueError(f"{field_name} cannot be null")
+
+        if self.packagings is not None:
+            _validate_unique_packaging_quantities(self.packagings)
 
         return self
 
@@ -184,11 +220,11 @@ class ProductRead(BaseModel):
     image_path: str | None
     thumbnail_path: str | None
     size: str
-    packing_qty: int
     unit: ProductUnit
     price: Decimal
-    carton_count: int
     remark: str | None
+    packagings: list[ProductPackagingRead]
+    total_carton_count: int
     created_at: datetime
     updated_at: datetime
 

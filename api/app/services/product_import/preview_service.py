@@ -4,6 +4,7 @@ import re
 import uuid
 import warnings
 from collections import Counter, OrderedDict
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
@@ -50,6 +51,13 @@ FIELD_LABELS: Final[dict[str, str]] = {
 FORMULA_CACHE_ERROR: Final[str] = (
     "结余箱数为公式，但没有可读取的计算结果。请使用 Microsoft Excel 打开文件、确认公式结果正常后保存，再重新上传。"
 )
+
+
+@dataclass(frozen=True)
+class PreparedProductImport:
+    response: ProductImportPreviewResponse
+    images_by_id: dict[str, EmbeddedImage]
+    product_image_ids: dict[str, str | None]
 
 
 def _text(value: object) -> str:
@@ -319,21 +327,25 @@ def _append_secondary_stock(
     return (f"{remark}；{suffix}" if remark else suffix), _unique_messages(warnings_found)
 
 
-def build_product_import_preview(
+def prepare_product_import_preview(
     *,
     rows: list[RawImportRow],
     db: Session,
     preview_directory: Path,
     preview_url_prefix: str = "/import-previews",
     file_name: str,
-) -> ProductImportPreviewResponse:
+    session_id: str | None = None,
+    already_imported: bool = False,
+    write_preview_images: bool = True,
+) -> PreparedProductImport:
     warehouses = db.scalars(select(Warehouse)).all()
     warehouse_by_name = {warehouse.name.strip(): warehouse for warehouse in warehouses}
     root_by_name, child_by_parent_and_name, children_by_name = _category_indexes(db)
 
-    session_id = uuid.uuid4().hex
+    session_id = session_id or uuid.uuid4().hex
     session_directory = preview_directory / session_id
-    session_directory.mkdir(parents=True, exist_ok=False)
+    if write_preview_images:
+        session_directory.mkdir(parents=True, exist_ok=True)
 
     grouped_rows: OrderedDict[str, list[RawImportRow]] = OrderedDict()
     group_names: dict[str, str | None] = {}
@@ -346,6 +358,7 @@ def build_product_import_preview(
     records: list[dict[str, object]] = []
     image_usage: Counter[str] = Counter()
     image_by_id: dict[str, EmbeddedImage] = {}
+    product_image_ids: dict[str, str | None] = {}
 
     for product_index, (group_key, group_rows) in enumerate(grouped_rows.items(), start=1):
         product_group = group_names[group_key]
@@ -399,7 +412,8 @@ def build_product_import_preview(
         if len(unique_images) == 1:
             preview_image_id, image = next(iter(unique_images.items()))
             try:
-                _save_preview_image(image, session_directory)
+                if write_preview_images:
+                    _save_preview_image(image, session_directory)
                 image_preview_url = (
                     f"{preview_url_prefix}/{session_id}/{preview_image_id}.webp"
                 )
@@ -466,9 +480,11 @@ def build_product_import_preview(
         for image_id in unique_images:
             image_usage[image_id] += 1
 
+        preview_id = f"preview-{session_id}-{product_index}"
+        product_image_ids[preview_id] = preview_image_id
         records.append(
             {
-                "preview_id": f"preview-{session_id}-{product_index}",
+                "preview_id": preview_id,
                 "product_group": product_group,
                 "excel_rows": [row.excel_row for row in group_rows],
                 "warehouse": resolved["warehouse"],
@@ -499,12 +515,41 @@ def build_product_import_preview(
     valid_count = sum(product.status == "valid" for product in products)
     warning_count = sum(product.status == "warning" for product in products)
     error_count = sum(product.status == "error" for product in products)
-    return ProductImportPreviewResponse(
-        file_name=file_name,
-        source_row_count=len(rows),
-        product_count=len(products),
-        valid_count=valid_count,
-        warning_count=warning_count,
-        error_count=error_count,
-        products=products,
+    return PreparedProductImport(
+        response=ProductImportPreviewResponse(
+            preview_session_id=session_id,
+            file_name=file_name,
+            already_imported=already_imported,
+            source_row_count=len(rows),
+            product_count=len(products),
+            valid_count=valid_count,
+            warning_count=warning_count,
+            error_count=error_count,
+            products=products,
+        ),
+        images_by_id=image_by_id,
+        product_image_ids=product_image_ids,
     )
+
+
+def build_product_import_preview(
+    *,
+    rows: list[RawImportRow],
+    db: Session,
+    preview_directory: Path,
+    preview_url_prefix: str = "/import-previews",
+    file_name: str,
+    session_id: str | None = None,
+    already_imported: bool = False,
+    write_preview_images: bool = True,
+) -> ProductImportPreviewResponse:
+    return prepare_product_import_preview(
+        rows=rows,
+        db=db,
+        preview_directory=preview_directory,
+        preview_url_prefix=preview_url_prefix,
+        file_name=file_name,
+        session_id=session_id,
+        already_imported=already_imported,
+        write_preview_images=write_preview_images,
+    ).response

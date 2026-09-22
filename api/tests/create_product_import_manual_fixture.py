@@ -69,32 +69,33 @@ def build_fixture() -> Path:
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "商品导入"
-    headers = [*IMPORT_HEADERS, "义库"]
-    worksheet.append(headers)
+    worksheet.append(IMPORT_HEADERS)
 
     rows = [
-        ["A001", "主仓", "厨房用品", "盘子", None, "20cm", 24, "pcs", 3.50, 10, "蓝边款", "10235", 1],
-        ["A001", "主仓", "厨房用品", "盘子", None, "20cm", 48, "pcs", 3.50, 12, "蓝边款", "10236", None],
-        ["", "主仓", "厨房用品", "盘子", None, "18cm", 12, "set", 5.80, 6, "独立商品一", "10237", None],
-        ["", "主仓", "厨房用品", "盘子", None, "22cm", 24, "pcs", 4.20, 8, "独立商品二", "10238", None],
-        ["A002", "主仓", "厨房用品", "盘子", None, "16cm", 18, "pcs", 2.80, 4, "分组冲突主行", "10239", None],
-        ["A002", "虎跳仓", "厨房用品", "盘子", None, "16cm", 36, "pcs", 2.80, 5, "分组冲突从行", "10240", None],
-        ["", "主仓", "厨房用品", "盘子", None, "15cm", 18, "pcs", 2.60, "=3+2", "公式有缓存", "10241", None],
+        ["", "主仓", "厨房用品", "盘子", None, "26cm", 12, "pcs", 6.80, 4, "普通单包装商品"],
+        ["A001", "主仓", "厨房用品", "盘子", None, "20cm", 240, "pcs", 3.50, 21, "三种包装规格"],
+        ["A001", "主仓", "厨房用品", "盘子", None, "20cm", 144, "pcs", 3.50, 1, "三种包装规格"],
+        ["A001", "主仓", "厨房用品", "盘子", None, "20cm", 72, "pcs", 3.50, 0, "三种包装规格"],
+        ["", "主仓", "厨房用品", "盘子", None, "18cm", 12, "set", 5.80, 6, "共享图片商品一"],
+        ["", "主仓", "厨房用品", "盘子", None, "22cm", 24, "pcs", 4.20, 8, "共享图片商品二"],
+        ["", "主仓", "厨房用品", "盘子", None, "15cm", 18, "pcs", 2.60, "=3+2", "无图警告且公式有缓存"],
     ]
     for excel_row, row in enumerate(rows, start=2):
         for column_index, value in enumerate(row, start=1):
             worksheet.cell(row=excel_row, column=column_index).value = value
 
-    # A001 has a single image anchored to its first row; the second row inherits it
-    # through the product group rather than through a second drawing.
     worksheet.add_image(ExcelImage(BytesIO(make_image((35, 95, 150), height=25))), "E2")
 
-    # One image explicitly covers rows 4 and 5. These rows have blank groups and
+    # A001 has a single image anchored to its first row; the other two rows inherit
+    # it through the product group rather than through duplicate drawings.
+    worksheet.add_image(ExcelImage(BytesIO(make_image((150, 85, 45), height=25))), "E3")
+
+    # One image explicitly covers rows 6 and 7. These rows have blank groups and
     # therefore remain two products while sharing one Preview image.
     shared_image = ExcelImage(BytesIO(make_image((80, 140, 95))))
     shared_image.anchor = TwoCellAnchor(
-        _from=AnchorMarker(col=4, row=3),
-        to=AnchorMarker(col=4, row=4),
+        _from=AnchorMarker(col=4, row=5),
+        to=AnchorMarker(col=4, row=6),
     )
     worksheet.add_image(shared_image)
 

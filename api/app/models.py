@@ -167,3 +167,25 @@ class ProductPackaging(Base):
         DateTime(), nullable=False, default=utc_now, onupdate=utc_now
     )
     product: Mapped[Product] = relationship(back_populates="packagings")
+
+
+class ProductImportBatch(Base):
+    __tablename__ = "product_import_batches"
+    __table_args__ = (
+        UniqueConstraint("file_hash", name="uq_product_import_batches_file_hash"),
+        CheckConstraint(
+            "source_row_count >= 0",
+            name="ck_product_import_batches_source_rows_nonnegative",
+        ),
+        CheckConstraint(
+            "product_count >= 0",
+            name="ck_product_import_batches_products_nonnegative",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    product_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=utc_now)

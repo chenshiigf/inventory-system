@@ -147,7 +147,10 @@ def workbook_bytes(
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = sheet_name
-    actual_headers = headers or list(IMPORT_HEADERS)
+    # Most regression fixtures emulate legacy workbooks that still contain
+    # the optional source-code column. The downloaded template itself is
+    # asserted separately and now contains only the 11 core headers.
+    actual_headers = headers or [*IMPORT_HEADERS, "原系统编号"]
     worksheet.append(actual_headers)
     image_column_index = actual_headers.index("产品图片") + 1
     image_column_letter = get_column_letter(image_column_index)

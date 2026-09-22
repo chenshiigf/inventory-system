@@ -11,6 +11,8 @@ import {
   Alert,
   Button,
   Image,
+  Modal,
+  Result,
   Space,
   Steps,
   Table,
@@ -23,11 +25,13 @@ import {
 import type { TableColumnsType, UploadProps } from "antd";
 import { useMemo, useState } from "react";
 import {
+  commitProductImport,
   getImportPreviewImageUrl,
   getProductImportTemplateUrl,
   previewProductImport,
 } from "@/lib/api/product-import";
 import type {
+  ProductImportCommitResponse,
   ProductImportPreviewPackaging,
   ProductImportPreviewProduct,
   ProductImportPreviewResponse,
@@ -101,7 +105,12 @@ export default function ProductImportWorkspace() {
   );
   const [fileInfo, setFileInfo] = useState<UploadedFileInfo | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [commitResult, setCommitResult] =
+    useState<ProductImportCommitResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [commitError, setCommitError] = useState<string | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
 
   async function handleFile(file: File) {
@@ -112,6 +121,8 @@ export default function ProductImportWorkspace() {
 
     setUploading(true);
     setLoadError(null);
+    setCommitError(null);
+    setCommitResult(null);
     setFileInfo({
       name: file.name,
       size: file.size,
@@ -135,6 +146,30 @@ export default function ProductImportWorkspace() {
     setPreview(null);
     setFileInfo(null);
     setLoadError(null);
+    setCommitError(null);
+    setCommitResult(null);
+    setConfirmOpen(false);
+  }
+
+  async function handleCommit() {
+    if (!preview || committing) {
+      return;
+    }
+    setCommitting(true);
+    setCommitError(null);
+    try {
+      const result = await commitProductImport(preview.preview_session_id);
+      setCommitResult(result);
+      setConfirmOpen(false);
+      messageApi.success("商品已正式导入库存");
+    } catch (error) {
+      setConfirmOpen(false);
+      setCommitError(
+        error instanceof Error ? error.message : "正式导入失败，请重试。",
+      );
+    } finally {
+      setCommitting(false);
+    }
   }
 
   const uploadProps: UploadProps = {
@@ -307,6 +342,35 @@ export default function ProductImportWorkspace() {
     [],
   );
 
+  const packagingCount =
+    preview?.products.reduce(
+      (total, product) => total + product.packagings.length,
+      0,
+    ) ?? 0;
+  const canCommit = Boolean(
+    preview &&
+      preview.product_count > 0 &&
+      preview.product_count <= 20 &&
+      preview.error_count === 0 &&
+      !preview.already_imported,
+  );
+
+  function commitDisabledReason(): string {
+    if (!preview) {
+      return "请先上传 Excel 并完成预览";
+    }
+    if (preview.already_imported) {
+      return "这份 Excel 已经成功导入过";
+    }
+    if (preview.error_count > 0) {
+      return "请先修正 Preview 中的错误";
+    }
+    if (preview.product_count > 20) {
+      return "当前试运行每批最多导入 20 个商品";
+    }
+    return "";
+  }
+
   return (
     <>
       {messageContextHolder}
@@ -330,11 +394,11 @@ export default function ProductImportWorkspace() {
 
         <div className="product-import-steps">
           <Steps
-            current={preview ? 1 : 0}
+            current={commitResult ? 2 : preview ? 1 : 0}
             items={[
               { title: "上传文件" },
               { title: "数据预览" },
-              { title: "确认导入", disabled: true },
+              { title: "确认导入" },
             ]}
           />
         </div>
@@ -349,7 +413,56 @@ export default function ProductImportWorkspace() {
           />
         )}
 
-        {!preview ? (
+        {commitError && (
+          <Alert
+            className="product-import-alert"
+            type="error"
+            showIcon
+            title="正式导入失败"
+            description={commitError}
+          />
+        )}
+
+        {commitResult ? (
+          <section className="product-import-success-panel" aria-label="正式导入结果">
+            <Result
+              status="success"
+              title="导入成功"
+              subTitle={`批次 ${commitResult.batch_id} · ${commitResult.file_name}`}
+            />
+            <div className="product-import-success-stats">
+              <div>
+                <span>商品</span>
+                <strong>{commitResult.product_count}</strong>
+              </div>
+              <div>
+                <span>包装规格</span>
+                <strong>{commitResult.packaging_count}</strong>
+              </div>
+              <div>
+                <span>Excel数据行</span>
+                <strong>{commitResult.source_row_count}</strong>
+              </div>
+            </div>
+            <div className="product-import-created-list">
+              {commitResult.created_products.map((product) => (
+                <div key={product.product_id}>
+                  <strong>{product.product_code}</strong>
+                  <span>
+                    Excel第 {product.excel_rows.join("、")} 行 · {product.packaging_count}
+                    种包装
+                  </span>
+                </div>
+              ))}
+            </div>
+            <Space className="product-import-success-actions" size={12}>
+              <Button type="primary" href="/">
+                返回商品库存
+              </Button>
+              <Button onClick={resetPreview}>导入其他 Excel</Button>
+            </Space>
+          </section>
+        ) : !preview ? (
           <section
             className="product-import-upload-panel"
             aria-label="上传商品导入 Excel"
@@ -357,7 +470,7 @@ export default function ProductImportWorkspace() {
             <div className="product-import-section-label">第一步</div>
             <Typography.Title level={2}>上传整理好的 Excel</Typography.Title>
             <p className="product-import-panel-description">
-              按表头名称读取“商品导入”工作表；列顺序可以调整，也可以保留历史列。本阶段只预览，不写入库存数据库。
+              按表头名称读取“商品导入”工作表；列顺序可以调整，也可以保留历史列。确认前不会写入库存数据库。
             </p>
             <Upload.Dragger {...uploadProps} disabled={uploading}>
               <p className="ant-upload-drag-icon">
@@ -408,6 +521,16 @@ export default function ProductImportWorkspace() {
               </Button>
             </section>
 
+            {preview.already_imported && (
+              <Alert
+                className="product-import-alert"
+                type="info"
+                showIcon
+                title="这份 Excel 已经成功导入过"
+                description="Preview 仍可查看，但不能再次创建商品。修改 Excel 并重新保存后会产生新的文件指纹。"
+              />
+            )}
+
             <div className="product-import-stat-grid" aria-label="导入预览统计">
               <div className="product-import-stat-card">
                 <span>Excel数据行</span>
@@ -438,7 +561,7 @@ export default function ProductImportWorkspace() {
                   <p>“可导入”表示通过当前校验，不代表已经写入数据库。</p>
                 </div>
                 <span className="product-import-limit-note">
-                  最多预览前 20 条非空 Excel 数据行
+                  预览最多前 20 条非空 Excel 数据行 · 正式导入每批最多 20 个商品
                 </span>
               </div>
               <Table<ProductImportPreviewProduct>
@@ -456,16 +579,18 @@ export default function ProductImportWorkspace() {
               <Button onClick={resetPreview}>重新上传</Button>
               <Space size={14}>
                 <span className="product-import-readonly-note">
-                  当前仅进行数据预览，本阶段不会修改库存数据库。
+                  正式导入会生成商品编号并写入库存，目前没有一键撤销功能。
                 </span>
-                <Tooltip title="正式导入将在下一阶段开放">
+                <Tooltip title={canCommit ? "" : commitDisabledReason()}>
                   <span>
                     <Button
                       className="product-import-confirm-button"
                       type="primary"
-                      disabled
+                      loading={committing}
+                      disabled={!canCommit}
+                      onClick={() => setConfirmOpen(true)}
                     >
-                      确认导入 {preview.valid_count} 个商品
+                      确认导入 {preview.product_count} 个商品
                     </Button>
                   </span>
                 </Tooltip>
@@ -473,6 +598,28 @@ export default function ProductImportWorkspace() {
             </div>
           </>
         )}
+
+        <Modal
+          className="product-import-confirm-modal"
+          title="确认正式导入？"
+          open={confirmOpen}
+          okText="确认导入"
+          cancelText="取消"
+          confirmLoading={committing}
+          closable={!committing}
+          mask={{ closable: !committing }}
+          keyboard={!committing}
+          onOk={() => void handleCommit()}
+          onCancel={() => !committing && setConfirmOpen(false)}
+        >
+          <p>将向库存数据库创建：</p>
+          <div className="product-import-confirm-counts">
+            <strong>{preview?.product_count ?? 0} 个商品</strong>
+            <strong>{packagingCount} 种包装规格</strong>
+          </div>
+          <p>商品图片将保存到正式图片目录，商品编号将在导入时自动生成。</p>
+          <p className="product-import-confirm-warning">该操作目前没有一键撤销功能。</p>
+        </Modal>
       </div>
     </>
   );

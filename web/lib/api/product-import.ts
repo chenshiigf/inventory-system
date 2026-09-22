@@ -1,4 +1,4 @@
-import { apiUpload, getApiBaseUrl } from "@/lib/api/client";
+import { apiRequest, apiUpload, getApiBaseUrl } from "@/lib/api/client";
 
 export type ProductImportRowStatus = "valid" | "warning" | "error";
 
@@ -30,13 +30,31 @@ export interface ProductImportPreviewProduct {
 }
 
 export interface ProductImportPreviewResponse {
+  preview_session_id: string;
   file_name: string;
+  already_imported: boolean;
   source_row_count: number;
   product_count: number;
   valid_count: number;
   warning_count: number;
   error_count: number;
   products: ProductImportPreviewProduct[];
+}
+
+export interface ProductImportCreatedProduct {
+  product_id: number;
+  product_code: string;
+  excel_rows: number[];
+  packaging_count: number;
+}
+
+export interface ProductImportCommitResponse {
+  batch_id: number;
+  file_name: string;
+  source_row_count: number;
+  product_count: number;
+  packaging_count: number;
+  created_products: ProductImportCreatedProduct[];
 }
 
 export function getProductImportTemplateUrl(): string {
@@ -65,4 +83,13 @@ export function previewProductImport(
     "/api/product-import/preview",
     formData,
   );
+}
+
+export function commitProductImport(
+  previewSessionId: string,
+): Promise<ProductImportCommitResponse> {
+  return apiRequest<ProductImportCommitResponse>("/api/product-import/commit", {
+    method: "POST",
+    body: JSON.stringify({ preview_session_id: previewSessionId }),
+  });
 }

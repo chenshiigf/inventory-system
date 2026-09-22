@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import begin_write_transaction, get_db
 from app.models import Category, Product, ProductPackaging, Warehouse
-from app.product_codes import allocate_product_code
 from app.schemas import ProductCreate, ProductListRead, ProductRead, ProductUpdate
+from app.services.products import ProductCreationError, create_product_record
 
 
 router = APIRouter(prefix="/api/products", tags=["products"])
@@ -92,32 +92,23 @@ def create_product(
     db: Annotated[Session, Depends(get_db)],
 ) -> Product:
     begin_write_transaction(db)
-    _validate_product_category(db, payload.category_id)
-    _validate_product_warehouse(db, payload.warehouse_id)
-    product = Product(
-        **payload.model_dump(exclude={"packagings"}),
-        packagings=[
-            ProductPackaging(
-                packing_qty=packaging.packing_qty,
-                carton_count=packaging.carton_count,
-                sort_order=sort_order,
-            )
-            for sort_order, packaging in enumerate(payload.packagings)
-        ],
+    try:
+        product = create_product_record(db, payload)
+        product_id = product.id
+        db.commit()
+    except ProductCreationError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail,
+        ) from error
+    refreshed_product = db.scalar(
+        select(Product)
+        .options(selectinload(Product.packagings))
+        .where(Product.id == product_id)
     )
-    if payload.category_id is not None:
-        try:
-            product.product_code = allocate_product_code(db, payload.category_id)
-        except ValueError as error:
-            db.rollback()
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=str(error),
-            ) from error
-    db.add(product)
-    db.commit()
-    db.refresh(product)
-    return product
+    assert refreshed_product is not None
+    return refreshed_product
 
 
 @router.patch("/{product_id}", response_model=ProductRead)

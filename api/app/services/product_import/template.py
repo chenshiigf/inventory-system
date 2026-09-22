@@ -39,7 +39,6 @@ def build_product_import_template() -> bytes:
         "单价": "必填，填写 >= 0 的数字，例如：3.50，不要带货币符号。",
         "当前箱数": "必填，填写 >= 0 的整数；也接受历史表头‘结余箱数’。公式必须保存有最新计算结果。",
         "备注": "允许为空，填写纯文本。",
-        "原系统编号": "允许为空，仅用于迁移追踪和预览，不会生成商品编号。",
     }
     for column_index, column in enumerate(IMPORT_COLUMNS, start=1):
         worksheet.cell(row=1, column=column_index).comment = Comment(
@@ -59,7 +58,6 @@ def build_product_import_template() -> bytes:
         12,
         14,
         24,
-        16,
     ]
     for column_index, width in enumerate(column_widths, start=1):
         worksheet.column_dimensions[get_column_letter(column_index)].width = width

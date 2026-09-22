@@ -42,7 +42,6 @@ IMPORT_COLUMNS: Final[tuple[ImportColumn, ...]] = (
     ImportColumn("price", "单价"),
     ImportColumn("carton_count", "当前箱数"),
     ImportColumn("remark", "备注"),
-    ImportColumn("source_code", "原系统编号"),
 )
 IMPORT_HEADERS: Final[tuple[str, ...]] = tuple(
     column.header for column in IMPORT_COLUMNS
@@ -62,7 +61,6 @@ REQUIRED_IMPORT_FIELDS: Final[tuple[str, ...]] = (
     "price",
     "carton_count",
     "remark",
-    "source_code",
 )
 
 ProductImportRowStatus = Literal["valid", "warning", "error"]
@@ -102,10 +100,38 @@ class ProductImportPreviewProduct(BaseModel):
 class ProductImportPreviewResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    preview_session_id: str
     file_name: str
+    already_imported: bool
     source_row_count: int
     product_count: int
     valid_count: int
     warning_count: int
     error_count: int
     products: list[ProductImportPreviewProduct]
+
+
+class ProductImportCommitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preview_session_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+
+
+class ProductImportCreatedProduct(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: int
+    product_code: str
+    excel_rows: list[int]
+    packaging_count: int
+
+
+class ProductImportCommitResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    batch_id: int
+    file_name: str
+    source_row_count: int
+    product_count: int
+    packaging_count: int
+    created_products: list[ProductImportCreatedProduct]

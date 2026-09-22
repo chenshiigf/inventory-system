@@ -4,15 +4,28 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models import ProductImportBatch
+from app.services.product_import.commit_service import (
+    ProductImportCommitError,
+    commit_product_import,
+)
 from app.services.product_import.excel_reader import (
     ProductImportWorkbookError,
     read_import_workbook,
 )
-from app.services.product_import.preview_service import build_product_import_preview
-from app.services.product_import.schemas import ProductImportPreviewResponse
+from app.services.product_import.schemas import (
+    ProductImportCommitRequest,
+    ProductImportCommitResponse,
+    ProductImportPreviewResponse,
+)
+from app.services.product_import.session_store import (
+    compute_file_hash,
+    create_preview_session,
+)
 from app.services.product_import.template import build_product_import_template
 
 
@@ -62,6 +75,11 @@ async def preview_product_import(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Excel 文件不能为空。",
             )
+        if len(file_name) > 255:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Excel 文件名不能超过 255 个字符。",
+            )
 
         try:
             rows = read_import_workbook(data)
@@ -71,11 +89,49 @@ async def preview_product_import(
                 detail=str(error),
             ) from error
 
-        return build_product_import_preview(
-            rows=rows,
-            db=db,
-            preview_directory=request.app.state.product_import_preview_directory,
-            file_name=file_name or "未命名.xlsx",
+        file_hash = compute_file_hash(data)
+        already_imported = (
+            db.scalar(
+                select(ProductImportBatch.id).where(
+                    ProductImportBatch.file_hash == file_hash
+                )
+            )
+            is not None
         )
+        try:
+            return create_preview_session(
+                data=data,
+                rows=rows,
+                db=db,
+                preview_directory=request.app.state.product_import_preview_directory,
+                file_name=file_name or "未命名.xlsx",
+                already_imported=already_imported,
+            )
+        except OSError as error:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Preview session 保存失败，请稍后重试。",
+            ) from error
     finally:
         await file.close()
+
+
+@router.post("/commit", response_model=ProductImportCommitResponse)
+def commit_previewed_product_import(
+    payload: ProductImportCommitRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> ProductImportCommitResponse:
+    try:
+        return commit_product_import(
+            session_id=payload.preview_session_id,
+            db=db,
+            preview_directory=request.app.state.product_import_preview_directory,
+            product_image_directory=request.app.state.product_image_directory,
+            uploads_directory=request.app.state.uploads_directory,
+        )
+    except ProductImportCommitError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail,
+        ) from error

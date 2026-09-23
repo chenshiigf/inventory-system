@@ -6,6 +6,7 @@ import {
   FileExcelOutlined,
   HistoryOutlined,
   InboxOutlined,
+  ShopOutlined,
   TagsOutlined,
 } from "@ant-design/icons";
 import { Layout, Menu, Tag } from "antd";
@@ -23,17 +24,20 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
   const isDashboardPage = pathname === "/";
   const isCategoriesPage = pathname === "/categories";
+  const isWarehousesPage = pathname === "/warehouses";
   const isProductImportPage = pathname === "/products/import";
   const isInventoryMovementsPage = pathname === "/inventory-movements";
   const currentPageTitle = isDashboardPage
     ? "概览"
     : isCategoriesPage
     ? "分类管理"
-    : isProductImportPage
-      ? "批量导入"
-      : isInventoryMovementsPage
-        ? "库存流水"
-        : "商品库存";
+    : isWarehousesPage
+      ? "仓库管理"
+      : isProductImportPage
+        ? "批量导入"
+        : isInventoryMovementsPage
+          ? "库存流水"
+          : "商品库存";
 
   return (
     <Layout className="inventory-shell">
@@ -61,11 +65,13 @@ export default function AppLayout({ children }: AppLayoutProps) {
               ? "dashboard"
               : isCategoriesPage
               ? "categories"
-              : isProductImportPage
-                ? "product-import"
-                : isInventoryMovementsPage
-                  ? "inventory-movements"
-                  : "inventory",
+              : isWarehousesPage
+                ? "warehouses"
+                : isProductImportPage
+                  ? "product-import"
+                  : isInventoryMovementsPage
+                    ? "inventory-movements"
+                    : "inventory",
           ]}
           items={[
             {
@@ -87,6 +93,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
               key: "categories",
               icon: <TagsOutlined />,
               label: <Link href="/categories">分类管理</Link>,
+            },
+            {
+              key: "warehouses",
+              icon: <ShopOutlined />,
+              label: <Link href="/warehouses">仓库管理</Link>,
             },
             {
               key: "product-import",

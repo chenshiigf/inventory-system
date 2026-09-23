@@ -205,7 +205,8 @@ textarea {
 }
 
 .inventory-page,
-.categories-page {
+.categories-page,
+.warehouse-page {
   min-width: 0;
   max-width: 1360px;
   margin-inline: auto;
@@ -1283,6 +1284,34 @@ textarea {
   font-size: 12px;
 }
 
+.warehouse-subtitle {
+  margin: 5px 0 0;
+  color: #7b8493;
+  font-size: 12px;
+}
+
+.warehouse-load-error {
+  margin-bottom: 14px;
+}
+
+.warehouse-table-card {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.warehouse-table-card .ant-table-thead > tr > th {
+  color: #596477;
+  background: #fbfcfe;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.warehouse-table-card .ant-table-tbody > tr > td {
+  color: #3e4858;
+}
+
 .category-load-error {
   margin-bottom: 14px;
 }
@@ -1442,6 +1471,10 @@ textarea {
   }
 
   .categories-page .page-heading {
+    align-items: flex-start;
+  }
+
+  .warehouse-page .page-heading {
     align-items: flex-start;
   }
 

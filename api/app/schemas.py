@@ -28,6 +28,10 @@ CategoryName = Annotated[
     StringConstraints(min_length=1, max_length=100, strip_whitespace=True),
 ]
 CategorySortOrder = Annotated[int, Field(ge=0, strict=True)]
+WarehouseName = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=100, strip_whitespace=True),
+]
 
 
 class CategoryCreate(BaseModel):
@@ -71,6 +75,26 @@ class WarehouseRead(BaseModel):
     id: int
     name: str
     sort_order: int
+
+
+class WarehouseCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: WarehouseName
+
+
+class WarehouseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: WarehouseName
+
+
+class WarehouseSummaryRead(BaseModel):
+    id: int
+    name: str
+    sort_order: int
+    product_count: int
+    carton_count: int
 
 
 class ProductPackagingCreate(BaseModel):

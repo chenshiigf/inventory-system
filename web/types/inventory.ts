@@ -40,6 +40,11 @@ export interface WarehouseRead {
   sort_order: number;
 }
 
+export interface WarehouseSummaryRead extends WarehouseRead {
+  product_count: number;
+  carton_count: number;
+}
+
 export type WarehouseSelection = "all" | number;
 export type ProductStatus = "active" | "inactive" | "all";
 

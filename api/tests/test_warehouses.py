@@ -102,6 +102,127 @@ def test_default_warehouse_seed_is_idempotent(
     assert len({item["id"] for item in response.json()}) == 2
 
 
+def test_warehouse_management_creates_trims_sorts_and_rejects_duplicate_names(
+    warehouse_context: tuple[TestClient, sessionmaker],
+) -> None:
+    client, _session_factory = warehouse_context
+
+    created = client.post("/api/warehouses", json={"name": "  新仓  "})
+
+    assert created.status_code == 201
+    assert created.json()["name"] == "新仓"
+    assert created.json()["sort_order"] == 11
+    assert client.get("/api/warehouses").json()[-1]["name"] == "新仓"
+
+    empty_name = client.post("/api/warehouses", json={"name": "   "})
+    assert empty_name.status_code == 422
+
+    duplicate = client.post("/api/warehouses", json={"name": " 主仓 "})
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"] == "仓库名称已存在。"
+
+    duplicate_rename = client.patch(
+        f"/api/warehouses/{warehouse_ids(client)['虎跳仓']}",
+        json={"name": "主仓"},
+    )
+    assert duplicate_rename.status_code == 409
+    assert duplicate_rename.json()["detail"] == "仓库名称已存在。"
+
+    renamed = client.patch(
+        f"/api/warehouses/{created.json()['id']}",
+        json={"name": "  新仓库  "},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["id"] == created.json()["id"]
+    assert renamed.json()["name"] == "新仓库"
+    assert client.delete(f"/api/warehouses/{created.json()['id']}").status_code == 405
+
+
+def test_warehouse_summary_counts_all_products_and_multiple_packagings(
+    warehouse_context: tuple[TestClient, sessionmaker],
+) -> None:
+    client, _session_factory = warehouse_context
+    ids = warehouse_ids(client)
+
+    create_product(
+        client,
+        warehouse_id=ids["主仓"],
+        packagings=[
+            {"packing_qty": 12, "carton_count": 2},
+            {"packing_qty": 24, "carton_count": 3},
+        ],
+    )
+    inactive = create_product(
+        client,
+        warehouse_id=ids["主仓"],
+        packagings=[{"packing_qty": 48, "carton_count": 4}],
+    )
+    assert client.post(f"/api/products/{inactive['id']}/deactivate").status_code == 200
+    create_product(
+        client,
+        warehouse_id=ids["虎跳仓"],
+        packagings=[{"packing_qty": 6, "carton_count": 7}],
+    )
+    empty = client.post("/api/warehouses", json={"name": "空仓"}).json()
+
+    response = client.get("/api/warehouses/summary")
+
+    assert response.status_code == 200
+    summary = {item["name"]: item for item in response.json()}
+    assert summary["主仓"]["product_count"] == 2
+    assert summary["主仓"]["carton_count"] == 9
+    assert summary["虎跳仓"]["product_count"] == 1
+    assert summary["虎跳仓"]["carton_count"] == 7
+    assert summary["空仓"] == {
+        "id": empty["id"],
+        "name": "空仓",
+        "sort_order": 11,
+        "product_count": 0,
+        "carton_count": 0,
+    }
+
+
+def test_warehouse_rename_preserves_product_stock_and_movement_history(
+    warehouse_context: tuple[TestClient, sessionmaker],
+) -> None:
+    client, _session_factory = warehouse_context
+    main_id = warehouse_ids(client)["主仓"]
+    product = create_product(
+        client,
+        warehouse_id=main_id,
+        packagings=[{"packing_qty": 12, "carton_count": 2}],
+    )
+    before = client.get(f"/api/products/{product['id']}").json()
+    movement = client.post(
+        f"/api/products/{product['id']}/stock/in",
+        json={
+            "product_packaging_id": product["packagings"][0]["id"],
+            "quantity": 1,
+        },
+    )
+    assert movement.status_code == 201
+    before_rename = client.get(f"/api/products/{product['id']}").json()
+
+    renamed = client.patch(
+        f"/api/warehouses/{main_id}",
+        json={"name": "主仓改名"},
+    )
+    after = client.get(f"/api/products/{product['id']}").json()
+    history = client.get(
+        "/api/inventory-movements",
+        params={"warehouse_id": main_id},
+    )
+
+    assert renamed.status_code == 200
+    assert after["warehouse_id"] == before["warehouse_id"] == main_id
+    assert after["packagings"] == before_rename["packagings"]
+    assert after["total_carton_count"] == before_rename["total_carton_count"]
+    assert history.status_code == 200
+    assert history.json()["total"] == 1
+    assert history.json()["items"][0]["warehouse_id"] == main_id
+    assert history.json()["items"][0]["warehouse_name"] == "主仓改名"
+
+
 def test_create_product_with_warehouse_succeeds(
     warehouse_context: tuple[TestClient, sessionmaker],
 ) -> None:

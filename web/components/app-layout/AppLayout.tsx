@@ -2,6 +2,7 @@
 
 import {
   AppstoreOutlined,
+  DashboardOutlined,
   FileExcelOutlined,
   HistoryOutlined,
   InboxOutlined,
@@ -20,10 +21,13 @@ interface AppLayoutProps {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
+  const isDashboardPage = pathname === "/";
   const isCategoriesPage = pathname === "/categories";
   const isProductImportPage = pathname === "/products/import";
   const isInventoryMovementsPage = pathname === "/inventory-movements";
-  const currentPageTitle = isCategoriesPage
+  const currentPageTitle = isDashboardPage
+    ? "概览"
+    : isCategoriesPage
     ? "分类管理"
     : isProductImportPage
       ? "批量导入"
@@ -53,7 +57,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <Menu
           mode="inline"
           selectedKeys={[
-            isCategoriesPage
+            isDashboardPage
+              ? "dashboard"
+              : isCategoriesPage
               ? "categories"
               : isProductImportPage
                 ? "product-import"
@@ -63,9 +69,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
           ]}
           items={[
             {
+              key: "dashboard",
+              icon: <DashboardOutlined />,
+              label: <Link href="/">概览</Link>,
+            },
+            {
               key: "inventory",
               icon: <AppstoreOutlined />,
-              label: <Link href="/">商品库存</Link>,
+              label: <Link href="/products">商品库存</Link>,
             },
             {
               key: "inventory-movements",

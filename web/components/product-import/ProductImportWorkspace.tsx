@@ -456,7 +456,7 @@ export default function ProductImportWorkspace() {
               ))}
             </div>
             <Space className="product-import-success-actions" size={12}>
-              <Button type="primary" href="/">
+              <Button type="primary" href="/products">
                 返回商品库存
               </Button>
               <Button onClick={resetPreview}>导入其他 Excel</Button>

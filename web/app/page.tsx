@@ -1,10 +1,10 @@
 import AppLayout from "@/components/app-layout/AppLayout";
-import InventoryWorkspace from "@/components/inventory/InventoryWorkspace";
+import DashboardWorkspace from "@/components/dashboard/DashboardWorkspace";
 
 export default function Home() {
   return (
     <AppLayout>
-      <InventoryWorkspace />
+      <DashboardWorkspace />
     </AppLayout>
   );
 }

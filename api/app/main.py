@@ -7,6 +7,7 @@ from starlette.types import Scope
 
 from app.database import DATA_DIR
 from app.routers.categories import router as categories_router
+from app.routers.dashboard import router as dashboard_router
 from app.routers.product_images import router as product_images_router
 from app.routers.product_import import router as product_import_router
 from app.routers.products import router as products_router
@@ -49,6 +50,7 @@ def create_app(
     )
 
     application.include_router(products_router)
+    application.include_router(dashboard_router)
     application.include_router(inventory_movements_router)
     application.include_router(product_images_router)
     application.include_router(product_import_router)

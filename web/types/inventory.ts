@@ -167,6 +167,38 @@ export interface InventoryMovementListResponse {
   page_size: number;
 }
 
+export interface DashboardZeroStockProduct {
+  id: number;
+  product_code: string | null;
+  image_path: string | null;
+  thumbnail_path: string | null;
+  category_name: string;
+  warehouse_name: string | null;
+}
+
+export interface DashboardCategoryDistribution {
+  category_id: number | null;
+  category_name: string;
+  product_count: number;
+}
+
+export interface DashboardWarehouseDistribution {
+  warehouse_id: number;
+  warehouse_name: string;
+  carton_count: number;
+}
+
+export interface DashboardSummary {
+  active_product_count: number;
+  total_carton_count: number;
+  zero_stock_product_count: number;
+  inactive_product_count: number;
+  recent_movements: InventoryMovementApiRecord[];
+  zero_stock_products: DashboardZeroStockProduct[];
+  category_distribution: DashboardCategoryDistribution[];
+  warehouse_distribution: DashboardWarehouseDistribution[];
+}
+
 export interface ProductPackagingFormValue {
   id?: number;
   packingQty: number | null;

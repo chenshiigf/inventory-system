@@ -317,3 +317,35 @@ class InventoryMovementListRead(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class DashboardZeroStockProductRead(BaseModel):
+    id: int
+    product_code: str | None
+    image_path: str | None
+    thumbnail_path: str | None
+    category_name: str
+    warehouse_name: str | None
+
+
+class DashboardCategoryDistributionRead(BaseModel):
+    category_id: int | None
+    category_name: str
+    product_count: int
+
+
+class DashboardWarehouseDistributionRead(BaseModel):
+    warehouse_id: int
+    warehouse_name: str
+    carton_count: int
+
+
+class DashboardSummaryRead(BaseModel):
+    active_product_count: int
+    total_carton_count: int
+    zero_stock_product_count: int
+    inactive_product_count: int
+    recent_movements: list[InventoryMovementRead]
+    zero_stock_products: list[DashboardZeroStockProductRead]
+    category_distribution: list[DashboardCategoryDistributionRead]
+    warehouse_distribution: list[DashboardWarehouseDistributionRead]

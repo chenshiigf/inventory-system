@@ -38,6 +38,10 @@ import type {
 type MovementFilter = "all" | InventoryMovementType;
 type WarehouseFilter = "all" | number;
 
+interface InventoryMovementsWorkspaceProps {
+  initialSearch?: string;
+}
+
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 function getErrorMessage(error: unknown): string {
@@ -54,12 +58,14 @@ function getMovementTagColor(type: InventoryMovementType): string {
   return "blue";
 }
 
-export default function InventoryMovementsWorkspace() {
+export default function InventoryMovementsWorkspace({
+  initialSearch = "",
+}: InventoryMovementsWorkspaceProps) {
   const [items, setItems] = useState<InventoryMovementApiRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(initialSearch.trim());
   const [movementType, setMovementType] = useState<InventoryMovementType>();
   const [warehouseId, setWarehouseId] = useState<number>();
   const [startDate, setStartDate] = useState("");

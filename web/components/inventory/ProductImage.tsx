@@ -13,6 +13,7 @@ interface ProductImageProps {
   height: number;
   loading?: "eager" | "lazy";
   hoverPreview?: boolean;
+  enablePreview?: boolean;
 }
 
 export default function ProductImage({
@@ -23,6 +24,7 @@ export default function ProductImage({
   height,
   loading = "lazy",
   hoverPreview = false,
+  enablePreview = true,
 }: ProductImageProps) {
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -58,7 +60,7 @@ export default function ProductImage({
       height={height}
       loading={loading}
       preview={
-        mainUrl
+        enablePreview && mainUrl
           ? {
               src: mainUrl,
               cover: <span className="image-preview-mask">点击查看大图</span>,

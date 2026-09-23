@@ -126,10 +126,20 @@ class Product(Base):
         order_by="ProductPackaging.sort_order",
         lazy="selectin",
     )
+    category: Mapped[Category | None] = relationship()
+    warehouse: Mapped[Warehouse | None] = relationship()
 
     @property
     def total_carton_count(self) -> int:
         return sum(packaging.carton_count for packaging in self.packagings)
+
+    @property
+    def category_name(self) -> str | None:
+        return self.category.name if self.category is not None else None
+
+    @property
+    def warehouse_name(self) -> str | None:
+        return self.warehouse.name if self.warehouse is not None else None
 
 
 class ProductPackaging(Base):

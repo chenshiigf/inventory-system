@@ -3,11 +3,17 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.database import begin_write_transaction, get_db
 from app.models import Category, Product, ProductPackaging, Warehouse
-from app.schemas import ProductCreate, ProductListRead, ProductRead, ProductUpdate
+from app.schemas import (
+    ProductCreate,
+    ProductDetailRead,
+    ProductListRead,
+    ProductRead,
+    ProductUpdate,
+)
 from app.services.products import ProductCreationError, create_product_record
 
 
@@ -93,14 +99,18 @@ def activate_product(
     return _set_product_active(db, product_id, is_active=True)
 
 
-@router.get("/{product_id}", response_model=ProductRead)
+@router.get("/{product_id}", response_model=ProductDetailRead)
 def get_product(
     product_id: Annotated[int, Path(ge=1)],
     db: Annotated[Session, Depends(get_db)],
 ) -> Product:
     product = db.scalar(
         select(Product)
-        .options(selectinload(Product.packagings))
+        .options(
+            selectinload(Product.packagings),
+            joinedload(Product.category),
+            joinedload(Product.warehouse),
+        )
         .where(Product.id == product_id)
     )
     if product is None:

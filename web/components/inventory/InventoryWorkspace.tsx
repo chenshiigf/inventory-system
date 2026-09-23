@@ -18,6 +18,7 @@ import {
   updateProduct as updateProductRequest,
 } from "@/lib/api/products";
 import { listWarehouses } from "@/lib/api/warehouses";
+import { toInventoryProduct } from "@/lib/inventory-products";
 import {
   createStockAdjustment,
   createStockMovement,
@@ -31,7 +32,6 @@ import type {
   CategorySelection,
   CategoryTreeNode,
   InventoryProduct,
-  ProductApiRecord,
   ProductCreatePayload,
   ProductEditorFormValues,
   ProductUpdatePayload,
@@ -50,30 +50,6 @@ interface ProductEditorState {
 interface StockMovementState {
   product: InventoryProduct;
   direction: StockMovementDirection;
-}
-
-function toInventoryProduct(product: ProductApiRecord): InventoryProduct {
-  const packagings = product.packagings.map((packaging) => ({
-    id: packaging.id,
-    packingQty: packaging.packing_qty,
-    cartonCount: packaging.carton_count,
-    sortOrder: packaging.sort_order,
-  }));
-  return {
-    id: product.id,
-    productCode: product.product_code,
-    isActive: product.is_active,
-    categoryId: product.category_id,
-    warehouseId: product.warehouse_id,
-    imagePath: product.image_path,
-    thumbnailPath: product.thumbnail_path,
-    size: product.size,
-    unit: product.unit,
-    price: product.price,
-    packagings,
-    totalCartonCount: product.total_carton_count,
-    remark: product.remark ?? "",
-  };
 }
 
 function getErrorMessage(error: unknown): string {

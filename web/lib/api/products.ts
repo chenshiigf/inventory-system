@@ -42,6 +42,16 @@ export function listProducts(
   });
 }
 
+export function getProduct(
+  id: number,
+  signal?: AbortSignal,
+): Promise<ProductApiRecord> {
+  return apiRequest<ProductApiRecord>(`/api/products/${id}`, {
+    method: "GET",
+    signal,
+  });
+}
+
 export function createProduct(
   payload: ProductCreatePayload,
 ): Promise<ProductApiRecord> {

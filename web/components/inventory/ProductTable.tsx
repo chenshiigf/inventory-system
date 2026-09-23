@@ -3,6 +3,7 @@
 import { Button, Dropdown, Popover, Space, Table, Tag, Tooltip } from "antd";
 import { MoreOutlined } from "@ant-design/icons";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
+import Link from "next/link";
 import ProductImage from "@/components/inventory/ProductImage";
 import type { InventoryProduct } from "@/types/inventory";
 
@@ -101,7 +102,13 @@ export default function ProductTable({
             className={value ? "product-code-value" : "product-code-empty"}
             title={value ?? undefined}
           >
-            {value ?? "—"}
+            <Link
+              href={`/products/${product.id}`}
+              className="product-detail-link"
+              aria-label={`查看商品 ${(value ?? product.size) || "详情"}`}
+            >
+              {value ?? "—"}
+            </Link>
           </span>
           {!product.isActive && (
             <Tag className="product-status-tag" color="default">
@@ -118,16 +125,23 @@ export default function ProductTable({
       width: 120,
       render: (_imagePath, product) => (
         <div className="product-image-frame">
-          <ProductImage
-            key={`${product.id}:${product.imagePath ?? ""}:${product.thumbnailPath ?? ""}`}
-            imagePath={product.imagePath}
-            thumbnailPath={product.thumbnailPath}
-            alt={`${product.productCode ?? (product.size || "商品")}商品图片`}
-            width={108}
-            height={82}
-            loading="lazy"
-            hoverPreview
-          />
+          <Link
+            href={`/products/${product.id}`}
+            className="product-image-detail-link"
+            aria-label={`查看商品 ${(product.productCode ?? product.size) || "详情"}`}
+          >
+            <ProductImage
+              key={`${product.id}:${product.imagePath ?? ""}:${product.thumbnailPath ?? ""}`}
+              imagePath={product.imagePath}
+              thumbnailPath={product.thumbnailPath}
+              alt={`${product.productCode ?? (product.size || "商品")}商品图片`}
+              width={108}
+              height={82}
+              loading="lazy"
+              hoverPreview
+              enablePreview={false}
+            />
+          </Link>
         </div>
       ),
     },

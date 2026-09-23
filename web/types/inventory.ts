@@ -67,6 +67,8 @@ export interface ProductApiRecord {
   id: number;
   category_id: number | null;
   warehouse_id: number | null;
+  category_name?: string | null;
+  warehouse_name?: string | null;
   product_code: string | null;
   is_active: boolean;
   image_path: string | null;
@@ -118,6 +120,8 @@ export interface InventoryProduct {
   isActive: boolean;
   categoryId: number | null;
   warehouseId: number | null;
+  categoryName?: string | null;
+  warehouseName?: string | null;
   imagePath: string | null;
   thumbnailPath: string | null;
   size: string;

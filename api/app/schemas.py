@@ -265,6 +265,11 @@ class ProductRead(BaseModel):
     updated_at: datetime
 
 
+class ProductDetailRead(ProductRead):
+    category_name: str | None = None
+    warehouse_name: str | None = None
+
+
 class ProductListRead(BaseModel):
     items: list[ProductRead]
     total: int

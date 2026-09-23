@@ -306,3 +306,147 @@ def test_existing_product_rows_created_by_current_schema_are_active(lifecycle_co
         saved = db.get(Product, int(product["id"]))
         assert saved is not None
         assert saved.is_active is True
+
+
+def test_stock_status_all_is_the_default_and_includes_zero_and_in_stock(
+    lifecycle_context,
+) -> None:
+    client, _session_factory, ids = lifecycle_context
+    zero = create_product(
+        client,
+        ids,
+        size="库存状态零库存",
+        packagings=[
+            {"packing_qty": 240, "carton_count": 0},
+            {"packing_qty": 144, "carton_count": 0},
+        ],
+    )
+    in_stock = create_product(
+        client,
+        ids,
+        size="库存状态有库存",
+        packagings=[
+            {"packing_qty": 240, "carton_count": 0},
+            {"packing_qty": 144, "carton_count": 2},
+        ],
+    )
+
+    default_response = client.get("/api/products")
+    in_stock_response = client.get("/api/products?stock_status=in_stock")
+    zero_response = client.get("/api/products?stock_status=zero")
+
+    assert {item["id"] for item in default_response.json()["items"]} == {
+        zero["id"],
+        in_stock["id"],
+    }
+    assert [item["id"] for item in in_stock_response.json()["items"]] == [
+        in_stock["id"]
+    ]
+    assert [item["id"] for item in zero_response.json()["items"]] == [zero["id"]]
+
+
+def test_stock_status_combines_with_status_warehouse_category_and_search(
+    lifecycle_context,
+) -> None:
+    client, _session_factory, ids = lifecycle_context
+    target = create_product(
+        client,
+        ids,
+        warehouse_id=ids["tiger_warehouse"],
+        category_id=ids["bowl"],
+        size="库存筛选组合目标",
+        packagings=[{"packing_qty": 240, "carton_count": 0}],
+    )
+    wrong_warehouse = create_product(
+        client,
+        ids,
+        warehouse_id=ids["main_warehouse"],
+        category_id=ids["bowl"],
+        size="库存筛选组合目标",
+        packagings=[{"packing_qty": 240, "carton_count": 0}],
+    )
+    inactive = create_product(
+        client,
+        ids,
+        warehouse_id=ids["tiger_warehouse"],
+        category_id=ids["bowl"],
+        size="库存筛选组合目标",
+        packagings=[{"packing_qty": 240, "carton_count": 0}],
+    )
+    assert client.post(f"/api/products/{inactive['id']}/deactivate").status_code == 200
+
+    response = client.get(
+        "/api/products",
+        params={
+            "stock_status": "zero",
+            "status": "active",
+            "warehouse_id": ids["tiger_warehouse"],
+            "category_id": ids["bowl"],
+            "search": "库存筛选组合目标",
+        },
+    )
+
+    assert [item["id"] for item in response.json()["items"]] == [target["id"]]
+    assert wrong_warehouse["id"] not in [item["id"] for item in response.json()["items"]]
+
+
+def test_stock_status_aggregates_all_packagings_without_duplicate_rows(
+    lifecycle_context,
+) -> None:
+    client, _session_factory, ids = lifecycle_context
+    product = create_product(
+        client,
+        ids,
+        size="多包装聚合不重复",
+        packagings=[
+            {"packing_qty": 240, "carton_count": 0},
+            {"packing_qty": 144, "carton_count": 2},
+        ],
+    )
+
+    response = client.get(
+        "/api/products",
+        params={"stock_status": "in_stock", "page": 1, "page_size": 1},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert len(response.json()["items"]) == 1
+    assert response.json()["items"][0]["id"] == product["id"]
+
+
+def test_stock_status_zero_pagination_total_is_filtered_count(lifecycle_context) -> None:
+    client, _session_factory, ids = lifecycle_context
+    zero_products = [
+        create_product(
+            client,
+            ids,
+            size=f"零库存分页-{index}",
+            packagings=[{"packing_qty": 24, "carton_count": 0}],
+        )
+        for index in range(3)
+    ]
+    create_product(
+        client,
+        ids,
+        size="有库存分页排除",
+        packagings=[{"packing_qty": 24, "carton_count": 1}],
+    )
+
+    response = client.get(
+        "/api/products",
+        params={"stock_status": "zero", "page": 2, "page_size": 2},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == len(zero_products)
+    assert response.json()["page"] == 2
+    assert len(response.json()["items"]) == 1
+
+
+def test_stock_status_rejects_unknown_value(lifecycle_context) -> None:
+    client, _session_factory, _ids = lifecycle_context
+
+    response = client.get("/api/products?stock_status=low")
+
+    assert response.status_code == 422

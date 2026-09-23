@@ -6,6 +6,7 @@ import type {
   CategorySelection,
   InventoryCategoryOption,
   ProductStatus,
+  StockStatus,
   WarehouseRead,
   WarehouseSelection,
 } from "@/types/inventory";
@@ -22,6 +23,8 @@ interface InventoryToolbarProps {
   onSearchChange: (value: string) => void;
   statusValue: ProductStatus;
   onStatusChange: (value: ProductStatus) => void;
+  stockStatusValue: StockStatus;
+  onStockStatusChange: (value: StockStatus) => void;
   resultCount: number;
   categoryDisabled?: boolean;
 }
@@ -38,11 +41,13 @@ export default function InventoryToolbar({
   onSearchChange,
   statusValue,
   onStatusChange,
+  stockStatusValue,
+  onStockStatusChange,
   resultCount,
   categoryDisabled = false,
 }: InventoryToolbarProps) {
   return (
-    <div className="inventory-toolbar" aria-label="仓库、商品分类、状态与搜索">
+    <div className="inventory-toolbar" aria-label="仓库、商品分类、状态、库存与搜索">
       <Select<WarehouseSelection>
         className="inventory-warehouse-picker"
         aria-label="选择仓库"
@@ -82,6 +87,17 @@ export default function InventoryToolbar({
           { label: "全部商品", value: "all" },
         ]}
         onChange={onStatusChange}
+      />
+      <Select<StockStatus>
+        className="inventory-stock-status-picker"
+        aria-label="选择库存状态"
+        value={stockStatusValue}
+        options={[
+          { label: "全部库存", value: "all" },
+          { label: "有库存", value: "in_stock" },
+          { label: "零库存", value: "zero" },
+        ]}
+        onChange={onStockStatusChange}
       />
       <Input
         className="inventory-search"

@@ -31,6 +31,9 @@ def list_products(
     product_status: Annotated[
         Literal["active", "inactive", "all"], Query(alias="status")
     ] = "active",
+    stock_status: Annotated[
+        Literal["all", "in_stock", "zero"], Query()
+    ] = "all",
 ) -> ProductListRead:
     statement = select(Product).options(selectinload(Product.packagings))
     count_statement = select(func.count(Product.id))
@@ -69,6 +72,16 @@ def list_products(
 
     if product_status != "all":
         filters.append(Product.is_active.is_(product_status == "active"))
+
+    total_stock = (
+        select(func.coalesce(func.sum(ProductPackaging.carton_count), 0))
+        .where(ProductPackaging.product_id == Product.id)
+        .scalar_subquery()
+    )
+    if stock_status == "in_stock":
+        filters.append(total_stock > 0)
+    elif stock_status == "zero":
+        filters.append(total_stock == 0)
 
     if filters:
         statement = statement.where(*filters)

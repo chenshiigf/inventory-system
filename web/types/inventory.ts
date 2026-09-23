@@ -47,6 +47,7 @@ export interface WarehouseSummaryRead extends WarehouseRead {
 
 export type WarehouseSelection = "all" | number;
 export type ProductStatus = "active" | "inactive" | "all";
+export type StockStatus = "all" | "in_stock" | "zero";
 
 export interface ProductPackagingApiRecord {
   id: number;

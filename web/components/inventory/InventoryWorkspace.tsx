@@ -1,11 +1,12 @@
 "use client";
 
 import { PlusOutlined } from "@ant-design/icons";
-import { Alert, App, Button, message, Typography } from "antd";
+import { Alert, App, Button, message, Segmented, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import ProductEditorModal from "@/components/inventory/ProductEditorModal";
 import InventoryAdjustmentModal from "@/components/inventory/InventoryAdjustmentModal";
 import InventoryMovementsModal from "@/components/inventory/InventoryMovementsModal";
+import ProductGallery from "@/components/inventory/ProductGallery";
 import ProductTable from "@/components/inventory/ProductTable";
 import InventoryToolbar from "@/components/inventory/InventoryToolbar";
 import StockMovementModal from "@/components/inventory/StockMovementModal";
@@ -36,6 +37,7 @@ import type {
   ProductEditorFormValues,
   ProductUpdatePayload,
   ProductStatus,
+  StockStatus,
   StockMovementDirection,
   StockAdjustmentValues,
   StockMovementValues,
@@ -51,6 +53,8 @@ interface StockMovementState {
   product: InventoryProduct;
   direction: StockMovementDirection;
 }
+
+type InventoryViewMode = "table" | "gallery";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "服务请求失败，请重试。";
@@ -84,6 +88,8 @@ export default function InventoryWorkspace() {
   const [categoryValue, setCategoryValue] = useState<CategorySelection>(["all"]);
   const [searchValue, setSearchValue] = useState("");
   const [statusValue, setStatusValue] = useState<ProductStatus>("active");
+  const [stockStatusValue, setStockStatusValue] = useState<StockStatus>("all");
+  const [viewMode, setViewMode] = useState<InventoryViewMode>("table");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [productEditor, setProductEditor] = useState<ProductEditorState | null>(
@@ -115,7 +121,7 @@ export default function InventoryWorkspace() {
       : warehouses.find((warehouse) => warehouse.id === warehouseValue)?.name ??
         "仓库";
   const currentRangeLabel = `${selectedWarehouseName} / ${currentCategoryLabel}`;
-  const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${statusValue}:${warehouseId ?? "all"}:${categoryId ?? "all"}`;
+  const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${statusValue}:${stockStatusValue}:${warehouseId ?? "all"}:${categoryId ?? "all"}`;
   const loading = completedRequestKey !== requestKey;
   const visibleLoadError =
     loadError?.requestKey === requestKey ? loadError.message : null;
@@ -206,6 +212,7 @@ export default function InventoryWorkspace() {
         categoryId,
         warehouseId,
         status: statusValue,
+        stockStatus: stockStatusValue,
       },
       controller.signal,
     )
@@ -239,6 +246,7 @@ export default function InventoryWorkspace() {
     reloadCounter,
     requestKey,
     searchValue,
+    stockStatusValue,
     statusValue,
     warehouseId,
   ]);
@@ -267,6 +275,11 @@ export default function InventoryWorkspace() {
 
   function handleStatusChange(value: ProductStatus) {
     setStatusValue(value);
+    setCurrentPage(1);
+  }
+
+  function handleStockStatusChange(value: StockStatus) {
+    setStockStatusValue(value);
     setCurrentPage(1);
   }
 
@@ -505,6 +518,8 @@ export default function InventoryWorkspace() {
           onSearchChange={handleSearchChange}
           statusValue={statusValue}
           onStatusChange={handleStatusChange}
+          stockStatusValue={stockStatusValue}
+          onStockStatusChange={handleStockStatusChange}
           resultCount={total}
           categoryDisabled={
             categoriesLoading ||
@@ -538,26 +553,53 @@ export default function InventoryWorkspace() {
               <span className="category-context-label">当前范围</span>
               <strong className="category-path">{currentRangeLabel}</strong>
             </div>
+            <Segmented<InventoryViewMode>
+              className="inventory-view-switcher"
+              aria-label="切换库存视图"
+              value={viewMode}
+              options={[
+                { label: "表格视图", value: "table" },
+                { label: "画廊视图", value: "gallery" },
+              ]}
+              onChange={(value) => setViewMode(value)}
+            />
           </div>
-          <ProductTable
-            products={products}
-            total={total}
-            loading={loading}
-            currentPage={currentPage}
-            pageSize={pageSize}
-            onPageChange={handlePaginationChange}
-            onStockIn={(product) =>
-              setStockMovement({ product, direction: "in" })
-            }
-            onStockOut={(product) =>
-              setStockMovement({ product, direction: "out" })
-            }
-            onViewMovements={(product) => setMovementProduct(product)}
-            onAdjust={(product) => setAdjustmentProduct(product)}
-            onEdit={(product) => setProductEditor({ product })}
-            onDeactivate={(product) => confirmProductStatusChange(product, false)}
-            onActivate={(product) => confirmProductStatusChange(product, true)}
-          />
+          {viewMode === "table" ? (
+            <ProductTable
+              products={products}
+              total={total}
+              loading={loading}
+              currentPage={currentPage}
+              pageSize={pageSize}
+              onPageChange={handlePaginationChange}
+              onStockIn={(product) =>
+                setStockMovement({ product, direction: "in" })
+              }
+              onStockOut={(product) =>
+                setStockMovement({ product, direction: "out" })
+              }
+              onViewMovements={(product) => setMovementProduct(product)}
+              onAdjust={(product) => setAdjustmentProduct(product)}
+              onEdit={(product) => setProductEditor({ product })}
+              onDeactivate={(product) => confirmProductStatusChange(product, false)}
+              onActivate={(product) => confirmProductStatusChange(product, true)}
+            />
+          ) : (
+            <ProductGallery
+              products={products}
+              total={total}
+              loading={loading}
+              currentPage={currentPage}
+              pageSize={pageSize}
+              onPageChange={handlePaginationChange}
+              onStockIn={(product) =>
+                setStockMovement({ product, direction: "in" })
+              }
+              onStockOut={(product) =>
+                setStockMovement({ product, direction: "out" })
+              }
+            />
+          )}
         </section>
       </div>
 

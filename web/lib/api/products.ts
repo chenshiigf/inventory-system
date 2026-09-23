@@ -5,6 +5,7 @@ import type {
   ProductListResponse,
   ProductStatus,
   ProductUpdatePayload,
+  StockStatus,
 } from "@/types/inventory";
 
 interface ProductListParams {
@@ -14,6 +15,7 @@ interface ProductListParams {
   categoryId?: number;
   warehouseId?: number;
   status?: ProductStatus;
+  stockStatus?: StockStatus;
 }
 
 export function listProducts(
@@ -35,6 +37,9 @@ export function listProducts(
   }
   if (params.status !== undefined) {
     query.set("status", params.status);
+  }
+  if (params.stockStatus !== undefined) {
+    query.set("stock_status", params.stockStatus);
   }
   return apiRequest<ProductListResponse>(`/api/products?${query.toString()}`, {
     method: "GET",

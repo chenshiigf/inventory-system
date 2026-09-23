@@ -31,11 +31,9 @@ from .session_store import (
 )
 
 
-MAX_COMMIT_PRODUCTS = 20
+MAX_COMMIT_PRODUCTS = 100
 DUPLICATE_FILE_MESSAGE = "这份 Excel 已经成功导入过，请不要重复导入。"
-TOO_MANY_PRODUCTS_MESSAGE = (
-    "当前正式导入试运行最多支持 20 个商品，请先使用小批量文件验证。"
-)
+TOO_MANY_PRODUCTS_MESSAGE = "单次最多支持正式导入 100 个商品，请拆分 Excel 后再导入。"
 
 
 class ProductImportCommitError(Exception):

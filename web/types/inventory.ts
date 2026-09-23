@@ -41,6 +41,7 @@ export interface WarehouseRead {
 }
 
 export type WarehouseSelection = "all" | number;
+export type ProductStatus = "active" | "inactive" | "all";
 
 export interface ProductPackagingApiRecord {
   id: number;
@@ -64,6 +65,7 @@ export interface ProductApiRecord {
   category_id: number | null;
   warehouse_id: number | null;
   product_code: string | null;
+  is_active: boolean;
   image_path: string | null;
   thumbnail_path: string | null;
   size: string;
@@ -110,6 +112,7 @@ export interface InventoryPackaging {
 export interface InventoryProduct {
   id: number;
   productCode: string | null;
+  isActive: boolean;
   categoryId: number | null;
   warehouseId: number | null;
   imagePath: string | null;

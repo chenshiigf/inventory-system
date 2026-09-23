@@ -1,6 +1,7 @@
 "use client";
 
-import { Button, Popover, Space, Table, Tooltip } from "antd";
+import { Button, Dropdown, Popover, Space, Table, Tag, Tooltip } from "antd";
+import { MoreOutlined } from "@ant-design/icons";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import ProductImage from "@/components/inventory/ProductImage";
 import type { InventoryProduct } from "@/types/inventory";
@@ -15,6 +16,8 @@ interface ProductTableProps {
   onStockIn: (product: InventoryProduct) => void;
   onStockOut: (product: InventoryProduct) => void;
   onEdit: (product: InventoryProduct) => void;
+  onDeactivate: (product: InventoryProduct) => void;
+  onActivate: (product: InventoryProduct) => void;
 }
 
 function getPaginationConfig(
@@ -47,6 +50,8 @@ export default function ProductTable({
   onStockIn,
   onStockOut,
   onEdit,
+  onDeactivate,
+  onActivate,
 }: ProductTableProps) {
   function renderPackagingSummary(product: InventoryProduct) {
     const packagings = [...product.packagings].sort(
@@ -86,13 +91,20 @@ export default function ProductTable({
       dataIndex: "productCode",
       key: "productCode",
       width: 120,
-      render: (value: string | null) => (
-        <span
-          className={value ? "product-code-value" : "product-code-empty"}
-          title={value ?? undefined}
-        >
-          {value ?? "—"}
-        </span>
+      render: (value: string | null, product) => (
+        <div className="product-code-cell">
+          <span
+            className={value ? "product-code-value" : "product-code-empty"}
+            title={value ?? undefined}
+          >
+            {value ?? "—"}
+          </span>
+          {!product.isActive && (
+            <Tag className="product-status-tag" color="default">
+              已停用
+            </Tag>
+          )}
+        </div>
       ),
     },
     {
@@ -177,35 +189,69 @@ export default function ProductTable({
     {
       title: "操作",
       key: "actions",
-      width: 180,
-      render: (_value, product) => (
-        <Space className="product-row-actions" size={4}>
-          <Button
-            type="link"
-            size="small"
-            aria-label={"为尺寸 " + product.size + " 的商品入库"}
-            onClick={() => onStockIn(product)}
-          >
-            入库
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            aria-label={"为尺寸 " + product.size + " 的商品出库"}
-            onClick={() => onStockOut(product)}
-          >
-            出库
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            aria-label={"编辑尺寸 " + product.size + " 的商品"}
-            onClick={() => onEdit(product)}
-          >
-            编辑
-          </Button>
-        </Space>
-      ),
+      width: 150,
+      render: (_value, product) => {
+        const managementItems = product.isActive
+          ? [
+              { key: "edit", label: "编辑" },
+              { key: "deactivate", label: "停用", danger: true },
+            ]
+          : [{ key: "edit", label: "编辑" }];
+
+        return (
+          <Space className="product-row-actions" size={4}>
+            {product.isActive ? (
+              <>
+                <Button
+                  type="link"
+                  size="small"
+                  aria-label={"入库尺寸 " + product.size + " 的商品"}
+                  onClick={() => onStockIn(product)}
+                >
+                  入库
+                </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  aria-label={"出库尺寸 " + product.size + " 的商品"}
+                  onClick={() => onStockOut(product)}
+                >
+                  出库
+                </Button>
+              </>
+            ) : (
+              <Button
+                type="link"
+                size="small"
+                aria-label={"重新启用尺寸 " + product.size + " 的商品"}
+                onClick={() => onActivate(product)}
+              >
+                重新启用
+              </Button>
+            )}
+            <Dropdown
+              trigger={["click"]}
+              menu={{
+                items: managementItems,
+                onClick: ({ key }) => {
+                  if (key === "edit") {
+                    onEdit(product);
+                  } else if (key === "deactivate") {
+                    onDeactivate(product);
+                  }
+                },
+              }}
+            >
+              <Button
+                type="text"
+                size="small"
+                icon={<MoreOutlined />}
+                aria-label={`${product.size || product.productCode || "商品"}的操作菜单`}
+              />
+            </Dropdown>
+          </Space>
+        );
+      },
     },
   ];
 
@@ -223,6 +269,7 @@ export default function ProductTable({
         total,
         onPageChange,
       )}
+      rowClassName={(product) => (product.isActive ? "" : "product-row-inactive")}
       locale={{ emptyText: "没有符合条件的商品" }}
     />
   );

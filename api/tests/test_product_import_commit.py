@@ -43,6 +43,45 @@ def single_image_workbook(rows: list[dict[str, object] | None], **kwargs) -> byt
     )
 
 
+def grouped_130_row_workbook() -> bytes:
+    rows: list[dict[str, object] | None] = []
+    images: dict[int, list[bytes]] = {}
+
+    def append_row(row: dict[str, object], *, with_image: bool) -> None:
+        excel_row = len(rows) + 2
+        rows.append(row)
+        if with_image:
+            images[excel_row] = [image_bytes((90, 120, 160))]
+
+    for group_index in range(40):
+        product_group = f"GROUP-{group_index:02d}"
+        append_row(
+            valid_row(
+                product_group=product_group,
+                packing_qty=24,
+                source_code=f"{product_group}-24",
+            ),
+            with_image=True,
+        )
+        append_row(
+            valid_row(
+                product_group=product_group,
+                packing_qty=12,
+                source_code=f"{product_group}-12",
+            ),
+            with_image=False,
+        )
+
+    for product_index in range(50):
+        append_row(
+            valid_row(source_code=f"SINGLE-{product_index:02d}"),
+            with_image=True,
+        )
+
+    assert len(rows) == 130
+    return workbook_bytes(rows, images=images)
+
+
 def formal_image_files(uploads_directory: Path) -> tuple[list[Path], list[Path]]:
     return (
         sorted((uploads_directory / "products" / "main").glob("*.webp")),
@@ -85,6 +124,7 @@ def test_commit_creates_single_packaging_product_and_batch(import_context) -> No
         assert product is not None
         assert product.warehouse_id == ids["main_warehouse"]
         assert product.category_id == ids["plate"]
+        assert product.is_active is True
         assert product.total_carton_count == 8
         assert len(product.packagings) == 1
         assert db.scalar(select(func.count(ProductImportBatch.id))) == 1
@@ -284,7 +324,16 @@ def test_commit_rejects_preview_with_errors(import_context) -> None:
         assert db.get(Category, ids["plate"]).next_product_sequence == 7
 
 
-def test_commit_rejects_more_than_twenty_products(import_context, monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("product_count", "expected_status"),
+    [(100, 200), (101, 422)],
+)
+def test_commit_product_limit_boundaries(
+    import_context,
+    monkeypatch,
+    product_count: int,
+    expected_status: int,
+) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
     preview_data = preview_payload(client, single_image_workbook([valid_row()]))
@@ -292,7 +341,7 @@ def test_commit_rejects_more_than_twenty_products(import_context, monkeypatch) -
 
     def prepare_with_too_many(*args, **kwargs):
         prepared = real_prepare(*args, **kwargs)
-        response = prepared.response.model_copy(update={"product_count": 21})
+        response = prepared.response.model_copy(update={"product_count": product_count})
         return PreparedProductImport(
             response=response,
             images_by_id=prepared.images_by_id,
@@ -307,8 +356,27 @@ def test_commit_rejects_more_than_twenty_products(import_context, monkeypatch) -
 
     result = commit(client, preview_data["preview_session_id"])
 
-    assert result.status_code == 422
-    assert result.json()["detail"] == commit_service.TOO_MANY_PRODUCTS_MESSAGE
+    assert result.status_code == expected_status
+    if expected_status == 422:
+        assert result.json()["detail"] == commit_service.TOO_MANY_PRODUCTS_MESSAGE
+
+
+def test_130_source_rows_group_to_90_products_and_can_commit(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+
+    preview_data = preview_payload(client, grouped_130_row_workbook())
+
+    assert preview_data["source_row_count"] == 130
+    assert preview_data["product_count"] == 90
+    assert preview_data["error_count"] == 0
+
+    result = commit(client, preview_data["preview_session_id"])
+
+    assert result.status_code == 200, result.text
+    assert result.json()["product_count"] == 90
+    with session_factory() as db:
+        assert db.scalar(select(func.count(Product.id))) == 90
 
 
 def test_same_file_second_commit_is_rejected_and_preview_marks_duplicate(

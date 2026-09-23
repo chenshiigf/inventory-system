@@ -350,7 +350,7 @@ export default function ProductImportWorkspace() {
   const canCommit = Boolean(
     preview &&
       preview.product_count > 0 &&
-      preview.product_count <= 20 &&
+      preview.product_count <= 100 &&
       preview.error_count === 0 &&
       !preview.already_imported,
   );
@@ -365,8 +365,8 @@ export default function ProductImportWorkspace() {
     if (preview.error_count > 0) {
       return "请先修正 Preview 中的错误";
     }
-    if (preview.product_count > 20) {
-      return "当前试运行每批最多导入 20 个商品";
+    if (preview.product_count > 100) {
+      return "单次最多支持正式导入 100 个商品，请拆分 Excel 后再导入。";
     }
     return "";
   }
@@ -486,7 +486,7 @@ export default function ProductImportWorkspace() {
             <div className="product-import-upload-notes">
               <span>工作表：商品导入</span>
               <span>识别：表头名称</span>
-              <span>范围：前 20 条非空数据行</span>
+              <span>范围：最多 300 条非空数据行</span>
               <span>公式：读取已保存的计算结果</span>
             </div>
             <div className="product-import-rule-notes">
@@ -561,7 +561,7 @@ export default function ProductImportWorkspace() {
                   <p>“可导入”表示通过当前校验，不代表已经写入数据库。</p>
                 </div>
                 <span className="product-import-limit-note">
-                  预览最多前 20 条非空 Excel 数据行 · 正式导入每批最多 20 个商品
+                  单个 Excel 最多 300 条非空数据行 · 正式导入每批最多 100 个商品
                 </span>
               </div>
               <Table<ProductImportPreviewProduct>

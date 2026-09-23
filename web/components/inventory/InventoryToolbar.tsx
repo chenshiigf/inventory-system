@@ -5,6 +5,7 @@ import { Cascader, Input, Select } from "antd";
 import type {
   CategorySelection,
   InventoryCategoryOption,
+  ProductStatus,
   WarehouseRead,
   WarehouseSelection,
 } from "@/types/inventory";
@@ -19,6 +20,8 @@ interface InventoryToolbarProps {
   onCategoryChange: (value: CategorySelection) => void;
   searchValue: string;
   onSearchChange: (value: string) => void;
+  statusValue: ProductStatus;
+  onStatusChange: (value: ProductStatus) => void;
   resultCount: number;
   categoryDisabled?: boolean;
 }
@@ -33,11 +36,13 @@ export default function InventoryToolbar({
   onCategoryChange,
   searchValue,
   onSearchChange,
+  statusValue,
+  onStatusChange,
   resultCount,
   categoryDisabled = false,
 }: InventoryToolbarProps) {
   return (
-    <div className="inventory-toolbar" aria-label="仓库、商品分类与搜索">
+    <div className="inventory-toolbar" aria-label="仓库、商品分类、状态与搜索">
       <Select<WarehouseSelection>
         className="inventory-warehouse-picker"
         aria-label="选择仓库"
@@ -66,6 +71,17 @@ export default function InventoryToolbar({
         onChange={(value) =>
           onCategoryChange((value ?? []) as CategorySelection)
         }
+      />
+      <Select<ProductStatus>
+        className="inventory-status-picker"
+        aria-label="选择商品状态"
+        value={statusValue}
+        options={[
+          { label: "在用商品", value: "active" },
+          { label: "已停用", value: "inactive" },
+          { label: "全部商品", value: "all" },
+        ]}
+        onChange={onStatusChange}
       />
       <Input
         className="inventory-search"

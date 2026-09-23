@@ -1,6 +1,6 @@
 "use client";
 
-import { ConfigProvider } from "antd";
+import { App as AntApp, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import type { ReactNode } from "react";
 
@@ -21,7 +21,7 @@ export default function AppProviders({ children }: AppProvidersProps) {
         },
       }}
     >
-      {children}
+      <AntApp>{children}</AntApp>
     </ConfigProvider>
   );
 }

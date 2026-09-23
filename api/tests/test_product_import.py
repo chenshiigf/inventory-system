@@ -1014,18 +1014,53 @@ def test_empty_size_is_warning_when_image_is_present(import_context) -> None:
     assert "无商品图片" not in product["messages"]
 
 
-def test_preview_skips_empty_rows_and_limits_to_first_20_candidates(import_context) -> None:
+def test_preview_skips_empty_rows_and_reads_all_source_rows(import_context) -> None:
     client, session_factory, _application, _uploads, _previews = import_context
     seed_reference_data(session_factory)
     rows: list[dict[str, object] | None] = [valid_row(source_code="first")]
     rows.append({})
-    rows.extend(valid_row(source_code=str(index)) for index in range(2, 23))
+    rows.extend(valid_row(source_code=str(index)) for index in range(2, 22))
 
     response = preview(client, workbook_bytes(rows))
 
     payload = response.json()
-    assert payload["source_row_count"] == 20
-    assert [row["excel_rows"][0] for row in payload["products"]] == [2, *range(4, 23)]
+    assert payload["source_row_count"] == 21
+    assert [row["excel_rows"][0] for row in payload["products"]] == [2, *range(4, 24)]
+
+
+def test_preview_reads_more_than_100_source_rows(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    rows = [valid_row(source_code=f"source-{index}") for index in range(130)]
+
+    response = preview(client, workbook_bytes(rows))
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["source_row_count"] == 130
+    assert len(payload["products"]) == 130
+
+
+def test_preview_allows_300_source_rows(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    rows = [valid_row(source_code=f"source-{index}") for index in range(300)]
+
+    response = preview(client, workbook_bytes(rows))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["source_row_count"] == 300
+
+
+def test_preview_rejects_more_than_300_source_rows(import_context) -> None:
+    client, session_factory, _application, _uploads, _previews = import_context
+    seed_reference_data(session_factory)
+    rows = [valid_row(source_code=f"source-{index}") for index in range(301)]
+
+    response = preview(client, workbook_bytes(rows))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "单个 Excel 最多支持 300 条数据行，请拆分后再导入。"
 
 
 def test_product_without_any_image_is_an_error(import_context) -> None:

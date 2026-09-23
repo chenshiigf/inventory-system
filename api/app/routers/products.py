@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import func, or_, select
@@ -22,6 +22,9 @@ def list_products(
     search: Annotated[str | None, Query(max_length=100)] = None,
     category_id: Annotated[int | None, Query(ge=1)] = None,
     warehouse_id: Annotated[int | None, Query(ge=1)] = None,
+    product_status: Annotated[
+        Literal["active", "inactive", "all"], Query(alias="status")
+    ] = "active",
 ) -> ProductListRead:
     statement = select(Product).options(selectinload(Product.packagings))
     count_statement = select(func.count(Product.id))
@@ -58,6 +61,9 @@ def list_products(
         else:
             filters.append(Product.category_id == category.id)
 
+    if product_status != "all":
+        filters.append(Product.is_active.is_(product_status == "active"))
+
     if filters:
         statement = statement.where(*filters)
         count_statement = count_statement.where(*filters)
@@ -69,6 +75,22 @@ def list_products(
         .limit(page_size)
     ).all()
     return ProductListRead(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post("/{product_id}/deactivate", response_model=ProductRead)
+def deactivate_product(
+    product_id: Annotated[int, Path(ge=1)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Product:
+    return _set_product_active(db, product_id, is_active=False)
+
+
+@router.post("/{product_id}/activate", response_model=ProductRead)
+def activate_product(
+    product_id: Annotated[int, Path(ge=1)],
+    db: Annotated[Session, Depends(get_db)],
+) -> Product:
+    return _set_product_active(db, product_id, is_active=True)
 
 
 @router.get("/{product_id}", response_model=ProductRead)
@@ -139,6 +161,28 @@ def update_product(
         setattr(product, field_name, value)
     product.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    db.commit()
+    refreshed_product = db.scalar(
+        select(Product)
+        .options(selectinload(Product.packagings))
+        .where(Product.id == product_id)
+    )
+    assert refreshed_product is not None
+    return refreshed_product
+
+
+def _set_product_active(db: Session, product_id: int, *, is_active: bool) -> Product:
+    begin_write_transaction(db)
+    product = db.scalar(
+        select(Product)
+        .options(selectinload(Product.packagings))
+        .where(Product.id == product_id)
+    )
+    if product is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+
+    product.is_active = is_active
+    product.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
     refreshed_product = db.scalar(
         select(Product)

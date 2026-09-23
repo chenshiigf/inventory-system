@@ -219,6 +219,7 @@ class ProductRead(BaseModel):
     category_id: int | None
     warehouse_id: int | None
     product_code: str | None
+    is_active: bool
     image_path: str | None
     thumbnail_path: str | None
     size: str

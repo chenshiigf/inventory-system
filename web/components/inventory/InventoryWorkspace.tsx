@@ -1,7 +1,7 @@
 "use client";
 
 import { PlusOutlined } from "@ant-design/icons";
-import { Alert, Button, message, Typography } from "antd";
+import { Alert, App, Button, message, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import ProductEditorModal from "@/components/inventory/ProductEditorModal";
 import ProductTable from "@/components/inventory/ProductTable";
@@ -10,6 +10,8 @@ import StockMovementModal from "@/components/inventory/StockMovementModal";
 import { listCategories } from "@/lib/api/categories";
 import {
   createProduct as createProductRequest,
+  activateProduct,
+  deactivateProduct,
   listProducts,
   updateProduct as updateProductRequest,
 } from "@/lib/api/products";
@@ -27,6 +29,7 @@ import type {
   ProductCreatePayload,
   ProductEditorFormValues,
   ProductUpdatePayload,
+  ProductStatus,
   StockMovementDirection,
   StockMovementValues,
   WarehouseRead,
@@ -52,6 +55,7 @@ function toInventoryProduct(product: ProductApiRecord): InventoryProduct {
   return {
     id: product.id,
     productCode: product.product_code,
+    isActive: product.is_active,
     categoryId: product.category_id,
     warehouseId: product.warehouse_id,
     imagePath: product.image_path,
@@ -96,6 +100,7 @@ export default function InventoryWorkspace() {
   const [warehouseValue, setWarehouseValue] = useState<WarehouseSelection>("all");
   const [categoryValue, setCategoryValue] = useState<CategorySelection>(["all"]);
   const [searchValue, setSearchValue] = useState("");
+  const [statusValue, setStatusValue] = useState<ProductStatus>("active");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [productEditor, setProductEditor] = useState<ProductEditorState | null>(
@@ -104,6 +109,7 @@ export default function InventoryWorkspace() {
   const [stockMovement, setStockMovement] =
     useState<StockMovementState | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
+  const { modal } = App.useApp();
   const warehouseId =
     typeof warehouseValue === "number" ? warehouseValue : undefined;
   const selectedCategory = categoryValue[categoryValue.length - 1];
@@ -122,7 +128,7 @@ export default function InventoryWorkspace() {
       : warehouses.find((warehouse) => warehouse.id === warehouseValue)?.name ??
         "仓库";
   const currentRangeLabel = `${selectedWarehouseName} / ${currentCategoryLabel}`;
-  const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${warehouseId ?? "all"}:${categoryId ?? "all"}`;
+  const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${statusValue}:${warehouseId ?? "all"}:${categoryId ?? "all"}`;
   const loading = completedRequestKey !== requestKey;
   const visibleLoadError =
     loadError?.requestKey === requestKey ? loadError.message : null;
@@ -212,6 +218,7 @@ export default function InventoryWorkspace() {
         search: searchValue,
         categoryId,
         warehouseId,
+        status: statusValue,
       },
       controller.signal,
     )
@@ -245,6 +252,7 @@ export default function InventoryWorkspace() {
     reloadCounter,
     requestKey,
     searchValue,
+    statusValue,
     warehouseId,
   ]);
 
@@ -267,6 +275,11 @@ export default function InventoryWorkspace() {
 
   function handleSearchChange(value: string) {
     setSearchValue(value);
+    setCurrentPage(1);
+  }
+
+  function handleStatusChange(value: ProductStatus) {
+    setStatusValue(value);
     setCurrentPage(1);
   }
 
@@ -327,6 +340,53 @@ export default function InventoryWorkspace() {
     messageApi.success(
       productEditor?.product ? "商品信息已保存到数据库" : "商品已保存到数据库",
     );
+  }
+
+  async function setProductActive(product: InventoryProduct, isActive: boolean) {
+    try {
+      if (isActive) {
+        await activateProduct(product.id);
+      } else {
+        await deactivateProduct(product.id);
+      }
+      setReloadCounter((value) => value + 1);
+      messageApi.success(isActive ? "商品已重新启用" : "商品已停用");
+    } catch (error) {
+      messageApi.error(getErrorMessage(error));
+      throw error;
+    }
+  }
+
+  function confirmProductStatusChange(product: InventoryProduct, isActive: boolean) {
+    if (isActive) {
+      modal.confirm({
+        title: "重新启用商品？",
+        content: "商品将回到默认在用商品列表，商品编号、图片、包装规格和库存保持不变。",
+        okText: "确认启用",
+        cancelText: "取消",
+        onOk: () => setProductActive(product, true),
+      });
+      return;
+    }
+
+    const hasStock = product.totalCartonCount > 0;
+    modal.confirm({
+      title: "停用商品？",
+      content: (
+        <div>
+          <p>停用后，该商品将从默认库存列表中隐藏，历史数据仍会保留。</p>
+          {hasStock && (
+            <>
+              <p>该商品当前还有 {product.totalCartonCount} 箱库存。</p>
+              <p>停用不会清空库存。</p>
+            </>
+          )}
+        </div>
+      ),
+      okText: "确认停用",
+      cancelText: "取消",
+      onOk: () => setProductActive(product, false),
+    });
   }
 
   function confirmStockMovement(values: StockMovementValues) {
@@ -493,6 +553,8 @@ export default function InventoryWorkspace() {
           onCategoryChange={handleCategoryChange}
           searchValue={searchValue}
           onSearchChange={handleSearchChange}
+          statusValue={statusValue}
+          onStatusChange={handleStatusChange}
           resultCount={total}
           categoryDisabled={
             categoriesLoading ||
@@ -541,6 +603,8 @@ export default function InventoryWorkspace() {
               setStockMovement({ product, direction: "out" })
             }
             onEdit={(product) => setProductEditor({ product })}
+            onDeactivate={(product) => confirmProductStatusChange(product, false)}
+            onActivate={(product) => confirmProductStatusChange(product, true)}
           />
         </section>
       </div>

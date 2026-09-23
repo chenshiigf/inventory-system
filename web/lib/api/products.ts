@@ -3,6 +3,7 @@ import type {
   ProductApiRecord,
   ProductCreatePayload,
   ProductListResponse,
+  ProductStatus,
   ProductUpdatePayload,
 } from "@/types/inventory";
 
@@ -12,6 +13,7 @@ interface ProductListParams {
   search: string;
   categoryId?: number;
   warehouseId?: number;
+  status?: ProductStatus;
 }
 
 export function listProducts(
@@ -30,6 +32,9 @@ export function listProducts(
   }
   if (params.warehouseId !== undefined) {
     query.set("warehouse_id", String(params.warehouseId));
+  }
+  if (params.status !== undefined) {
+    query.set("status", params.status);
   }
   return apiRequest<ProductListResponse>(`/api/products?${query.toString()}`, {
     method: "GET",
@@ -53,5 +58,17 @@ export function updateProduct(
   return apiRequest<ProductApiRecord>(`/api/products/${id}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  });
+}
+
+export function deactivateProduct(id: number): Promise<ProductApiRecord> {
+  return apiRequest<ProductApiRecord>(`/api/products/${id}/deactivate`, {
+    method: "POST",
+  });
+}
+
+export function activateProduct(id: number): Promise<ProductApiRecord> {
+  return apiRequest<ProductApiRecord>(`/api/products/${id}/activate`, {
+    method: "POST",
   });
 }

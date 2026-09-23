@@ -14,7 +14,8 @@ from .schemas import (
 )
 
 
-MAX_PREVIEW_ROWS: Final[int] = 20
+MAX_IMPORT_SOURCE_ROWS: Final[int] = 300
+TOO_MANY_SOURCE_ROWS_MESSAGE = "单个 Excel 最多支持 300 条数据行，请拆分后再导入。"
 IMPORT_SHEET_NAME: Final[str] = "商品导入"
 DEFAULT_ROW_HEIGHT_POINTS: Final[float] = 15.0
 DEFAULT_COLUMN_WIDTH: Final[float] = 8.43
@@ -361,8 +362,8 @@ def read_import_workbook(data: bytes) -> list[RawImportRow]:
                     images=images,
                 )
             )
-            if len(rows) >= MAX_PREVIEW_ROWS:
-                break
+            if len(rows) > MAX_IMPORT_SOURCE_ROWS:
+                raise ProductImportWorkbookError(TOO_MANY_SOURCE_ROWS_MESSAGE)
 
         return rows
     finally:

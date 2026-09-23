@@ -3,6 +3,7 @@
 import {
   AppstoreOutlined,
   FileExcelOutlined,
+  HistoryOutlined,
   InboxOutlined,
   TagsOutlined,
 } from "@ant-design/icons";
@@ -21,11 +22,14 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
   const isCategoriesPage = pathname === "/categories";
   const isProductImportPage = pathname === "/products/import";
+  const isInventoryMovementsPage = pathname === "/inventory-movements";
   const currentPageTitle = isCategoriesPage
     ? "分类管理"
     : isProductImportPage
       ? "批量导入"
-      : "商品库存";
+      : isInventoryMovementsPage
+        ? "库存流水"
+        : "商品库存";
 
   return (
     <Layout className="inventory-shell">
@@ -53,13 +57,20 @@ export default function AppLayout({ children }: AppLayoutProps) {
               ? "categories"
               : isProductImportPage
                 ? "product-import"
-                : "inventory",
+                : isInventoryMovementsPage
+                  ? "inventory-movements"
+                  : "inventory",
           ]}
           items={[
             {
               key: "inventory",
               icon: <AppstoreOutlined />,
               label: <Link href="/">商品库存</Link>,
+            },
+            {
+              key: "inventory-movements",
+              icon: <HistoryOutlined />,
+              label: <Link href="/inventory-movements">库存流水</Link>,
             },
             {
               key: "categories",

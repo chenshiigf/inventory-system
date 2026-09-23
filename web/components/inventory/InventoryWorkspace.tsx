@@ -4,6 +4,7 @@ import { PlusOutlined } from "@ant-design/icons";
 import { Alert, App, Button, message, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import ProductEditorModal from "@/components/inventory/ProductEditorModal";
+import InventoryAdjustmentModal from "@/components/inventory/InventoryAdjustmentModal";
 import InventoryMovementsModal from "@/components/inventory/InventoryMovementsModal";
 import ProductTable from "@/components/inventory/ProductTable";
 import InventoryToolbar from "@/components/inventory/InventoryToolbar";
@@ -17,7 +18,10 @@ import {
   updateProduct as updateProductRequest,
 } from "@/lib/api/products";
 import { listWarehouses } from "@/lib/api/warehouses";
-import { createStockMovement } from "@/lib/api/inventory-movements";
+import {
+  createStockAdjustment,
+  createStockMovement,
+} from "@/lib/api/inventory-movements";
 import {
   getCategoryLabel,
   hasSecondLevelCategories,
@@ -33,6 +37,7 @@ import type {
   ProductUpdatePayload,
   ProductStatus,
   StockMovementDirection,
+  StockAdjustmentValues,
   StockMovementValues,
   WarehouseRead,
   WarehouseSelection,
@@ -111,6 +116,8 @@ export default function InventoryWorkspace() {
   const [stockMovement, setStockMovement] =
     useState<StockMovementState | null>(null);
   const [movementProduct, setMovementProduct] =
+    useState<InventoryProduct | null>(null);
+  const [adjustmentProduct, setAdjustmentProduct] =
     useState<InventoryProduct | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
@@ -408,6 +415,22 @@ export default function InventoryWorkspace() {
     }
   }
 
+  async function confirmStockAdjustment(values: StockAdjustmentValues) {
+    if (!adjustmentProduct) {
+      return;
+    }
+
+    try {
+      await createStockAdjustment(adjustmentProduct.id, values);
+      setAdjustmentProduct(null);
+      setReloadCounter((value) => value + 1);
+      messageApi.success("库存调整成功，库存已更新");
+    } catch (error) {
+      messageApi.error(getErrorMessage(error));
+      throw error;
+    }
+  }
+
   return (
     <>
       {messageContextHolder}
@@ -554,6 +577,7 @@ export default function InventoryWorkspace() {
               setStockMovement({ product, direction: "out" })
             }
             onViewMovements={(product) => setMovementProduct(product)}
+            onAdjust={(product) => setAdjustmentProduct(product)}
             onEdit={(product) => setProductEditor({ product })}
             onDeactivate={(product) => confirmProductStatusChange(product, false)}
             onActivate={(product) => confirmProductStatusChange(product, true)}
@@ -586,6 +610,14 @@ export default function InventoryWorkspace() {
         <InventoryMovementsModal
           product={movementProduct}
           onCancel={() => setMovementProduct(null)}
+        />
+      )}
+
+      {adjustmentProduct && (
+        <InventoryAdjustmentModal
+          product={adjustmentProduct}
+          onCancel={() => setAdjustmentProduct(null)}
+          onConfirm={confirmStockAdjustment}
         />
       )}
     </>

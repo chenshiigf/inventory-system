@@ -133,14 +133,23 @@ export interface StockMovementValues {
   isNewPackaging?: boolean;
 }
 
-export type InventoryMovementType = "IN" | "OUT";
+export interface StockAdjustmentValues {
+  packagingId: number;
+  actualCartonCount: number;
+  remark: string;
+}
+
+export type InventoryMovementType = "IN" | "OUT" | "ADJUST";
 
 export interface InventoryMovementApiRecord {
   id: number;
   product_id: number;
   product_code: string | null;
+  image_path: string | null;
+  thumbnail_path: string | null;
   product_packaging_id: number | null;
   warehouse_id: number | null;
+  warehouse_name: string | null;
   movement_type: InventoryMovementType;
   quantity: number;
   before_carton_count: number;

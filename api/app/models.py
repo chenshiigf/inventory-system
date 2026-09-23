@@ -199,12 +199,12 @@ class ProductImportBatch(Base):
 
 
 class InventoryMovement(Base):
-    """A historical record of one persisted IN or OUT stock operation."""
+    """A historical record of one persisted IN, OUT, or ADJUST stock operation."""
 
     __tablename__ = "inventory_movements"
     __table_args__ = (
         CheckConstraint(
-            "movement_type IN ('IN', 'OUT')",
+            "movement_type IN ('IN', 'OUT', 'ADJUST')",
             name="ck_inventory_movements_type_valid",
         ),
         CheckConstraint(
@@ -247,7 +247,7 @@ class InventoryMovement(Base):
         nullable=True,
         index=True,
     )
-    movement_type: Mapped[str] = mapped_column(String(3), nullable=False)
+    movement_type: Mapped[str] = mapped_column(String(6), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     before_carton_count: Mapped[int] = mapped_column(Integer, nullable=False)
     after_carton_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -258,8 +258,21 @@ class InventoryMovement(Base):
         DateTime(), nullable=False, default=utc_now, index=True
     )
 
-    product: Mapped[Product] = relationship()
+    product: Mapped[Product | None] = relationship()
+    warehouse: Mapped[Warehouse | None] = relationship()
 
     @property
     def product_code(self) -> str | None:
         return self.product.product_code if self.product is not None else None
+
+    @property
+    def image_path(self) -> str | None:
+        return self.product.image_path if self.product is not None else None
+
+    @property
+    def thumbnail_path(self) -> str | None:
+        return self.product.thumbnail_path if self.product is not None else None
+
+    @property
+    def warehouse_name(self) -> str | None:
+        return self.warehouse.name if self.warehouse is not None else None

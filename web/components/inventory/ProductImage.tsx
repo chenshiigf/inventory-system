@@ -28,7 +28,8 @@ export default function ProductImage({
   const [previewOpen, setPreviewOpen] = useState(false);
   const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainUrl = getProductImageUrl(imagePath);
-  const thumbnailUrl = getProductImageUrl(thumbnailPath ?? imagePath);
+  const thumbnailSource = thumbnailPath?.trim() ? thumbnailPath : imagePath;
+  const thumbnailUrl = getProductImageUrl(thumbnailSource);
 
   useEffect(
     () => () => {

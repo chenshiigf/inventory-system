@@ -16,6 +16,7 @@ interface ProductTableProps {
   onStockIn: (product: InventoryProduct) => void;
   onStockOut: (product: InventoryProduct) => void;
   onViewMovements: (product: InventoryProduct) => void;
+  onAdjust: (product: InventoryProduct) => void;
   onEdit: (product: InventoryProduct) => void;
   onDeactivate: (product: InventoryProduct) => void;
   onActivate: (product: InventoryProduct) => void;
@@ -51,6 +52,7 @@ export default function ProductTable({
   onStockIn,
   onStockOut,
   onViewMovements,
+  onAdjust,
   onEdit,
   onDeactivate,
   onActivate,
@@ -196,11 +198,13 @@ export default function ProductTable({
         const managementItems = product.isActive
           ? [
               { key: "movements", label: "库存流水" },
+              { key: "adjust", label: "库存调整" },
               { key: "edit", label: "编辑" },
               { key: "deactivate", label: "停用", danger: true },
             ]
           : [
               { key: "movements", label: "库存流水" },
+              { key: "adjust", label: "库存调整" },
               { key: "edit", label: "编辑" },
             ];
 
@@ -242,6 +246,8 @@ export default function ProductTable({
                 onClick: ({ key }) => {
                   if (key === "movements") {
                     onViewMovements(product);
+                  } else if (key === "adjust") {
+                    onAdjust(product);
                   } else if (key === "edit") {
                     onEdit(product);
                   } else if (key === "deactivate") {

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+from datetime import date, datetime, time, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -6,15 +8,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
-from app.models import InventoryMovement
+from app.models import InventoryMovement, Product
 from app.schemas import (
     InventoryMovementListRead,
     InventoryMovementRead,
+    StockAdjustmentCreate,
     StockMovementCreate,
 )
 from app.services.inventory import (
     MovementDirection,
     StockMovementError,
+    create_stock_adjustment,
     create_stock_movement,
 )
 
@@ -58,6 +62,26 @@ def stock_out(
     )
 
 
+@router.post(
+    "/products/{product_id}/stock/adjust",
+    response_model=InventoryMovementRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def stock_adjust(
+    product_id: Annotated[int, Path(ge=1)],
+    payload: StockAdjustmentCreate,
+    db: Annotated[Session, Depends(get_db)],
+) -> InventoryMovement:
+    return _apply_movement_operation(
+        db,
+        lambda: create_stock_adjustment(
+            db,
+            product_id=product_id,
+            payload=payload,
+        ),
+    )
+
+
 @router.get("/inventory-movements", response_model=InventoryMovementListRead)
 def list_inventory_movements(
     db: Annotated[Session, Depends(get_db)],
@@ -65,7 +89,13 @@ def list_inventory_movements(
     page_size: Annotated[int, Query(ge=1, le=100)] = 20,
     product_id: Annotated[int | None, Query(ge=1)] = None,
     product_packaging_id: Annotated[int | None, Query(ge=1)] = None,
-    movement_type: Annotated[Literal["IN", "OUT"] | None, Query()] = None,
+    movement_type: Annotated[
+        Literal["IN", "OUT", "ADJUST"] | None, Query()
+    ] = None,
+    search: Annotated[str | None, Query(max_length=100)] = None,
+    warehouse_id: Annotated[int | None, Query(ge=1)] = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> InventoryMovementListRead:
     filters = []
     if product_id is not None:
@@ -76,9 +106,28 @@ def list_inventory_movements(
         )
     if movement_type is not None:
         filters.append(InventoryMovement.movement_type == movement_type)
+    if search is not None and search.strip():
+        filters.append(
+            InventoryMovement.product.has(
+                Product.product_code.ilike(f"%{search.strip()}%")
+            )
+        )
+    if warehouse_id is not None:
+        filters.append(InventoryMovement.warehouse_id == warehouse_id)
+    if start_date is not None:
+        filters.append(
+            InventoryMovement.created_at
+            >= datetime.combine(start_date, time.min)
+        )
+    if end_date is not None:
+        filters.append(
+            InventoryMovement.created_at
+            < datetime.combine(end_date + timedelta(days=1), time.min)
+        )
 
     statement = select(InventoryMovement).options(
-        joinedload(InventoryMovement.product)
+        joinedload(InventoryMovement.product),
+        joinedload(InventoryMovement.warehouse),
     )
     count_statement = select(func.count(InventoryMovement.id))
     if filters:
@@ -110,13 +159,23 @@ def _apply_stock_movement(
     direction: MovementDirection,
     payload: StockMovementCreate,
 ) -> InventoryMovement:
-    try:
-        movement = create_stock_movement(
+    return _apply_movement_operation(
+        db,
+        lambda: create_stock_movement(
             db,
             product_id=product_id,
             direction=direction,
             payload=payload,
-        )
+        ),
+    )
+
+
+def _apply_movement_operation(
+    db: Session,
+    operation: Callable[[], InventoryMovement],
+) -> InventoryMovement:
+    try:
+        movement = operation()
         db.commit()
     except StockMovementError as error:
         db.rollback()
@@ -136,7 +195,10 @@ def _apply_stock_movement(
 
     refreshed_movement = db.scalar(
         select(InventoryMovement)
-        .options(joinedload(InventoryMovement.product))
+        .options(
+            joinedload(InventoryMovement.product),
+            joinedload(InventoryMovement.warehouse),
+        )
         .where(InventoryMovement.id == movement.id)
     )
     assert refreshed_movement is not None

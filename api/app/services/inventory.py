@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import begin_write_transaction
 from app.models import InventoryMovement, Product, ProductPackaging
-from app.schemas import StockMovementCreate
+from app.schemas import StockAdjustmentCreate, StockMovementCreate
 
 
 MovementDirection = Literal["IN", "OUT"]
@@ -84,6 +84,63 @@ def create_stock_movement(
     # Flush is part of the same request transaction. Any constraint or write
     # failure is raised before the router commits, so the carton update rolls
     # back together with the movement.
+    db.flush()
+    return movement
+
+
+def create_stock_adjustment(
+    db: Session,
+    *,
+    product_id: int,
+    payload: StockAdjustmentCreate,
+) -> InventoryMovement:
+    """Set one packaging to the counted stock and record the delta."""
+
+    begin_write_transaction(db)
+    product = db.scalar(
+        select(Product)
+        .options(selectinload(Product.packagings))
+        .where(Product.id == product_id)
+    )
+    if product is None:
+        raise StockMovementError("Product not found", status.HTTP_404_NOT_FOUND)
+
+    packaging = next(
+        (
+            row
+            for row in product.packagings
+            if row.id == payload.product_packaging_id
+        ),
+        None,
+    )
+    if packaging is None:
+        raise StockMovementError(
+            "product_packaging_id 不属于该商品。",
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+        )
+
+    before = packaging.carton_count
+    after = payload.actual_carton_count
+    if before == after:
+        raise StockMovementError(
+            "实际库存与当前库存一致，无需调整。",
+            status.HTTP_409_CONFLICT,
+        )
+
+    packaging.carton_count = after
+    movement = InventoryMovement(
+        product_id=product.id,
+        product_packaging_id=packaging.id,
+        warehouse_id=product.warehouse_id,
+        movement_type="ADJUST",
+        quantity=abs(after - before),
+        before_carton_count=before,
+        after_carton_count=after,
+        packing_qty_snapshot=packaging.packing_qty,
+        unit_snapshot=product.unit,
+        remark=payload.remark,
+    )
+    db.add(movement)
     db.flush()
     return movement
 

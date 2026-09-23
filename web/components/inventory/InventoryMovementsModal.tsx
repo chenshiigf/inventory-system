@@ -3,6 +3,13 @@
 import { Alert, Button, Empty, Modal, Pagination, Spin, Table, Typography } from "antd";
 import { useEffect, useState } from "react";
 import { listInventoryMovements } from "@/lib/api/inventory-movements";
+import {
+  formatMovementQuantity,
+  formatMovementTime,
+  formatPackaging,
+  getMovementDelta,
+  getMovementLabel,
+} from "@/components/inventory/inventory-movement-utils";
 import type {
   InventoryMovementApiRecord,
   InventoryMovementListResponse,
@@ -15,31 +22,6 @@ interface InventoryMovementsModalProps {
 }
 
 const PAGE_SIZE = 20;
-
-function formatMovementTime(value: string): string {
-  const date = new Date(value.endsWith("Z") ? value : `${value}Z`);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
-function formatPackaging(movement: InventoryMovementApiRecord): string {
-  if (movement.packing_qty_snapshot === null) {
-    return "装箱数未填写";
-  }
-  return `${movement.packing_qty_snapshot}${movement.unit_snapshot ? ` ${movement.unit_snapshot}` : ""}/箱`;
-}
-
-function getMovementLabel(type: InventoryMovementApiRecord["movement_type"]): string {
-  return type === "IN" ? "入库" : "出库";
-}
 
 export default function InventoryMovementsModal({
   product,
@@ -112,9 +94,18 @@ export default function InventoryMovementsModal({
       key: "quantity",
       width: 86,
       render: (_value: unknown, movement: InventoryMovementApiRecord) => (
-        <span className={`movement-quantity movement-quantity-${movement.movement_type.toLowerCase()}`}>
-          {movement.movement_type === "IN" ? "+" : "−"}
-          {movement.quantity}箱
+        <span
+          className={`movement-quantity movement-quantity-${movement.movement_type.toLowerCase()} ${
+            movement.movement_type === "ADJUST"
+              ? getMovementDelta(movement) > 0
+                ? "movement-quantity-adjust-increase"
+                : getMovementDelta(movement) < 0
+                  ? "movement-quantity-adjust-decrease"
+                  : "movement-quantity-adjust-zero"
+              : ""
+          }`}
+        >
+          {formatMovementQuantity(movement)}
         </span>
       ),
     },

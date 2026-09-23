@@ -255,7 +255,7 @@ class ProductImageUploadRead(BaseModel):
     thumbnail_url: str
 
 
-MovementType = Literal["IN", "OUT"]
+MovementType = Literal["IN", "OUT", "ADJUST"]
 
 
 class StockMovementCreate(BaseModel):
@@ -275,14 +275,33 @@ class StockMovementCreate(BaseModel):
         return value
 
 
+class StockAdjustmentCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_packaging_id: PositiveInt
+    actual_carton_count: NonNegativeInt
+    remark: str = Field(max_length=2000)
+
+    @field_validator("remark")
+    @classmethod
+    def require_adjustment_remark(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("调整原因不能为空")
+        return trimmed
+
+
 class InventoryMovementRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     product_id: int
     product_code: str | None = None
+    image_path: str | None = None
+    thumbnail_path: str | None = None
     product_packaging_id: int | None
     warehouse_id: int | None
+    warehouse_name: str | None = None
     movement_type: MovementType
     quantity: int
     before_carton_count: int

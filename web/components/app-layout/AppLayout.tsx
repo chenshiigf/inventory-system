@@ -88,7 +88,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
           </div>
           <div className="topbar-demo-note">
             <Tag color="green">SQLite 商品数据</Tag>
-            <span>入库 / 出库仍为页面原型</span>
+            <span>入库 / 出库已保存到数据库</span>
           </div>
         </Header>
         <Content className="inventory-content">{children}</Content>

@@ -208,6 +208,8 @@ def _replace_product_packagings(
             detail="packaging id does not belong to this product",
         )
 
+    existing_by_id = {packaging.id: packaging for packaging in product.packagings}
+
     # Validate identities before replacing rows so a mistaken cross-product id
     # cannot remove any packaging from this product.
     for packaging in list(product.packagings):
@@ -217,7 +219,14 @@ def _replace_product_packagings(
     product.packagings = [
         ProductPackaging(
             packing_qty=packaging.packing_qty,
-            carton_count=packaging.carton_count,
+            # Stock is intentionally not part of a normal product edit. Keep
+            # the existing count for rows identified by id; a newly added
+            # packaging starts at zero and must be stocked through IN.
+            carton_count=(
+                existing_by_id[packaging.id].carton_count
+                if packaging.id is not None and packaging.id in existing_by_id
+                else 0
+            ),
             sort_order=sort_order,
         )
         for sort_order, packaging in enumerate(packagings)

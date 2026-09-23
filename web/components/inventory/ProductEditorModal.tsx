@@ -399,27 +399,13 @@ export default function ProductEditorModal({
                         <span className="packaging-editor-unit">
                           {selectedUnit}/箱
                         </span>
-                        <Form.Item
-                          name={[field.name, "cartonCount"]}
-                          rules={[
-                            { required: true, message: "请输入当前箱数" },
-                            {
-                              type: "number",
-                              min: 0,
-                              transform: (value) => value ?? undefined,
-                              message: "当前箱数不能小于 0",
-                            },
-                          ]}
-                          className="packaging-editor-cartons"
+                        <div
+                          className="packaging-editor-cartons packaging-editor-stock-readonly"
+                          aria-label={`第 ${index + 1} 个包装规格的当前箱数`}
                         >
-                          <InputNumber
-                            min={0}
-                            precision={0}
-                            placeholder="当前箱数"
-                            aria-label={`第 ${index + 1} 个包装规格的当前箱数`}
-                          />
-                        </Form.Item>
-                        <span className="packaging-editor-unit">箱</span>
+                          <span>当前库存</span>
+                          <strong>{cartonCount} 箱</strong>
+                        </div>
                         <Button
                           type="link"
                           danger

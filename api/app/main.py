@@ -10,6 +10,7 @@ from app.routers.categories import router as categories_router
 from app.routers.product_images import router as product_images_router
 from app.routers.product_import import router as product_import_router
 from app.routers.products import router as products_router
+from app.routers.inventory_movements import router as inventory_movements_router
 from app.routers.warehouses import router as warehouses_router
 from starlette.staticfiles import StaticFiles
 
@@ -48,6 +49,7 @@ def create_app(
     )
 
     application.include_router(products_router)
+    application.include_router(inventory_movements_router)
     application.include_router(product_images_router)
     application.include_router(product_import_router)
     application.include_router(categories_router)

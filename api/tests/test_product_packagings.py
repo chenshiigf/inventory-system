@@ -61,7 +61,6 @@ def packaging_write(packaging: dict[str, object]) -> dict[str, object]:
     return {
         "id": packaging["id"],
         "packing_qty": packaging["packing_qty"],
-        "carton_count": packaging["carton_count"],
     }
 
 
@@ -190,9 +189,8 @@ def test_update_can_add_packaging(client: TestClient) -> None:
                 {
                     "id": original["id"],
                     "packing_qty": 24,
-                    "carton_count": 10,
                 },
-                {"packing_qty": 144, "carton_count": 1},
+                {"packing_qty": 144},
             ]
         },
     )
@@ -200,9 +198,9 @@ def test_update_can_add_packaging(client: TestClient) -> None:
     assert response.status_code == 200
     assert [(row["packing_qty"], row["carton_count"]) for row in response.json()["packagings"]] == [
         (24, 10),
-        (144, 1),
+        (144, 0),
     ]
-    assert response.json()["total_carton_count"] == 11
+    assert response.json()["total_carton_count"] == 10
 
 
 def test_update_can_edit_packaging(client: TestClient) -> None:
@@ -213,14 +211,14 @@ def test_update_can_edit_packaging(client: TestClient) -> None:
         f"/api/products/{created['id']}",
         json={
             "packagings": [
-                {"id": packaging_id, "packing_qty": 48, "carton_count": 7}
+                {"id": packaging_id, "packing_qty": 48}
             ]
         },
     )
 
     assert response.status_code == 200
     assert response.json()["packagings"][0]["packing_qty"] == 48
-    assert response.json()["total_carton_count"] == 7
+    assert response.json()["total_carton_count"] == 10
 
 
 def test_update_can_delete_zero_stock_packaging(client: TestClient) -> None:
@@ -277,8 +275,8 @@ def test_update_rejects_duplicate_final_packing_quantity(client: TestClient) -> 
         f"/api/products/{created['id']}",
         json={
             "packagings": [
-                {"packing_qty": 24, "carton_count": 1},
-                {"packing_qty": 24, "carton_count": 2},
+                {"packing_qty": 24},
+                {"packing_qty": 24},
             ]
         },
     )
@@ -306,7 +304,7 @@ def test_update_rejects_unknown_packaging_id(client: TestClient) -> None:
 
     response = client.patch(
         f"/api/products/{created['id']}",
-        json={"packagings": [{"id": 99999, "packing_qty": 24, "carton_count": 1}]},
+        json={"packagings": [{"id": 99999, "packing_qty": 24}]},
     )
 
     assert response.status_code == 422
@@ -357,7 +355,7 @@ def test_update_does_not_change_product_identity(client: TestClient) -> None:
     created = create_product(client)
     response = client.patch(
         f"/api/products/{created['id']}",
-        json={"packagings": [{"packing_qty": 48, "carton_count": 3}]},
+        json={"packagings": [{"packing_qty": 48}]},
     )
 
     assert response.status_code == 200

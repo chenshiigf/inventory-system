@@ -15,6 +15,7 @@ interface ProductTableProps {
   onPageChange: (currentPage: number, pageSize: number) => void;
   onStockIn: (product: InventoryProduct) => void;
   onStockOut: (product: InventoryProduct) => void;
+  onViewMovements: (product: InventoryProduct) => void;
   onEdit: (product: InventoryProduct) => void;
   onDeactivate: (product: InventoryProduct) => void;
   onActivate: (product: InventoryProduct) => void;
@@ -49,6 +50,7 @@ export default function ProductTable({
   onPageChange,
   onStockIn,
   onStockOut,
+  onViewMovements,
   onEdit,
   onDeactivate,
   onActivate,
@@ -193,10 +195,14 @@ export default function ProductTable({
       render: (_value, product) => {
         const managementItems = product.isActive
           ? [
+              { key: "movements", label: "库存流水" },
               { key: "edit", label: "编辑" },
               { key: "deactivate", label: "停用", danger: true },
             ]
-          : [{ key: "edit", label: "编辑" }];
+          : [
+              { key: "movements", label: "库存流水" },
+              { key: "edit", label: "编辑" },
+            ];
 
         return (
           <Space className="product-row-actions" size={4}>
@@ -234,7 +240,9 @@ export default function ProductTable({
               menu={{
                 items: managementItems,
                 onClick: ({ key }) => {
-                  if (key === "edit") {
+                  if (key === "movements") {
+                    onViewMovements(product);
+                  } else if (key === "edit") {
                     onEdit(product);
                   } else if (key === "deactivate") {
                     onDeactivate(product);

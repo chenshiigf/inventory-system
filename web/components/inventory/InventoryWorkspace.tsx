@@ -4,6 +4,7 @@ import { PlusOutlined } from "@ant-design/icons";
 import { Alert, App, Button, message, Typography } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import ProductEditorModal from "@/components/inventory/ProductEditorModal";
+import InventoryMovementsModal from "@/components/inventory/InventoryMovementsModal";
 import ProductTable from "@/components/inventory/ProductTable";
 import InventoryToolbar from "@/components/inventory/InventoryToolbar";
 import StockMovementModal from "@/components/inventory/StockMovementModal";
@@ -16,6 +17,7 @@ import {
   updateProduct as updateProductRequest,
 } from "@/lib/api/products";
 import { listWarehouses } from "@/lib/api/warehouses";
+import { createStockMovement } from "@/lib/api/inventory-movements";
 import {
   getCategoryLabel,
   hasSecondLevelCategories,
@@ -108,6 +110,8 @@ export default function InventoryWorkspace() {
   );
   const [stockMovement, setStockMovement] =
     useState<StockMovementState | null>(null);
+  const [movementProduct, setMovementProduct] =
+    useState<InventoryProduct | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
   const warehouseId =
@@ -314,7 +318,6 @@ export default function InventoryWorkspace() {
         packagings: values.packagings.map((packaging) => ({
           ...(packaging.id ? { id: packaging.id } : {}),
           packing_qty: packaging.packingQty,
-          carton_count: packaging.cartonCount,
         })),
       };
       await updateProductRequest(productEditor.product.id, updatePayload);
@@ -323,7 +326,6 @@ export default function InventoryWorkspace() {
         ...editableFields,
         packagings: values.packagings.map((packaging) => ({
           packing_qty: packaging.packingQty,
-          carton_count: packaging.cartonCount,
         })),
       };
       await createProductRequest(createPayload);
@@ -389,72 +391,21 @@ export default function InventoryWorkspace() {
     });
   }
 
-  function confirmStockMovement(values: StockMovementValues) {
+  async function confirmStockMovement(values: StockMovementValues) {
     if (!stockMovement) {
       return;
     }
 
     const { direction, product } = stockMovement;
-    setProducts((previousProducts) =>
-      previousProducts.map((item) => {
-        if (item.id !== product.id) {
-          return item;
-        }
-
-        const targetPackaging =
-          direction === "in"
-            ? item.packagings.find(
-                (packaging) => packaging.packingQty === values.packingQty,
-              )
-            : item.packagings.find(
-                (packaging) => packaging.id === values.packagingId,
-              );
-
-        let nextPackagings = item.packagings;
-        if (targetPackaging) {
-          nextPackagings = item.packagings.map((packaging) =>
-            packaging.id === targetPackaging.id
-              ? {
-                  ...packaging,
-                  cartonCount:
-                    packaging.cartonCount +
-                    (direction === "in"
-                      ? values.quantity
-                      : -values.quantity),
-                }
-              : packaging,
-          );
-        } else if (direction === "in") {
-          const temporaryId =
-            item.packagings.reduce(
-              (minimumId, packaging) => Math.min(minimumId, packaging.id),
-              0,
-            ) - 1;
-          nextPackagings = [
-            ...item.packagings,
-            {
-              id: temporaryId,
-              packingQty: values.packingQty,
-              cartonCount: values.quantity,
-              sortOrder: item.packagings.length,
-            },
-          ];
-        }
-
-        return {
-          ...item,
-          packagings: nextPackagings,
-          totalCartonCount: nextPackagings.reduce(
-            (total, packaging) => total + packaging.cartonCount,
-            0,
-          ),
-        };
-      }),
-    );
-    setStockMovement(null);
-    messageApi.warning(
-      "入库/出库原型只临时改变本页数字，刷新后会恢复数据库中的包装和箱数，不会写入数据库。",
-    );
+    try {
+      await createStockMovement(product.id, direction, values);
+      setStockMovement(null);
+      setReloadCounter((value) => value + 1);
+      messageApi.success(direction === "in" ? "入库成功，库存已更新" : "出库成功，库存已更新");
+    } catch (error) {
+      messageApi.error(getErrorMessage(error));
+      throw error;
+    }
   }
 
   return (
@@ -602,6 +553,7 @@ export default function InventoryWorkspace() {
             onStockOut={(product) =>
               setStockMovement({ product, direction: "out" })
             }
+            onViewMovements={(product) => setMovementProduct(product)}
             onEdit={(product) => setProductEditor({ product })}
             onDeactivate={(product) => confirmProductStatusChange(product, false)}
             onActivate={(product) => confirmProductStatusChange(product, true)}
@@ -627,6 +579,13 @@ export default function InventoryWorkspace() {
           direction={stockMovement.direction}
           onCancel={() => setStockMovement(null)}
           onConfirm={confirmStockMovement}
+        />
+      )}
+
+      {movementProduct && (
+        <InventoryMovementsModal
+          product={movementProduct}
+          onCancel={() => setMovementProduct(null)}
         />
       )}
     </>

@@ -11,6 +11,7 @@ import {
   Space,
   Typography,
 } from "antd";
+import { useState } from "react";
 import ProductImage from "@/components/inventory/ProductImage";
 import type {
   InventoryPackaging,
@@ -23,7 +24,7 @@ interface StockMovementModalProps {
   product: InventoryProduct;
   direction: StockMovementDirection;
   onCancel: () => void;
-  onConfirm: (values: StockMovementValues) => void;
+  onConfirm: (values: StockMovementValues) => Promise<void>;
 }
 
 interface StockMovementFormValues {
@@ -55,6 +56,7 @@ export default function StockMovementModal({
   onConfirm,
 }: StockMovementModalProps) {
   const [form] = Form.useForm<StockMovementFormValues>();
+  const [submitting, setSubmitting] = useState(false);
   const isStockIn = direction === "in";
   const isMultiplePackaging = product.packagings.length > 1;
   const selectedPackagingId = Form.useWatch("packagingId", form);
@@ -63,7 +65,8 @@ export default function StockMovementModal({
   const defaultPackaging = product.packagings[0];
   const selectedPackingQty = parsePositiveInteger(packingQtyValue);
   const selectedPackaging = isStockIn
-    ? product.packagings.find(
+    ? product.packagings.find((packaging) => packaging.id === selectedPackagingId) ??
+      product.packagings.find(
         (packaging) => packaging.packingQty === selectedPackingQty,
       )
     : product.packagings.find(
@@ -91,17 +94,26 @@ export default function StockMovementModal({
         : selectedPackaging?.packingQty;
       const packagingId = selectedPackaging?.id;
 
-      if (!packingQty || (!isStockIn && !packagingId) || !values.quantity) {
+      if (
+        (isStockIn && !packagingId && !packingQty) ||
+        (!isStockIn && !packagingId) ||
+        !values.quantity
+      ) {
         return;
       }
 
-      onConfirm({
-        packagingId,
-        packingQty,
-        quantity: values.quantity,
-        note: values.note,
-        isNewPackaging,
-      });
+      setSubmitting(true);
+      try {
+        await onConfirm({
+          packagingId,
+          packingQty,
+          quantity: values.quantity,
+          note: values.note,
+          isNewPackaging,
+        });
+      } catch {
+        setSubmitting(false);
+      }
     } catch {
       // Keep the dialog open so Form can show the invalid field.
     }
@@ -113,7 +125,10 @@ export default function StockMovementModal({
 
   const packagingOptions = product.packagings.map((packaging) => ({
     label: packagingLabel(packaging),
-    value: String(packaging.packingQty ?? ""),
+    value:
+      packaging.packingQty === null
+        ? `__packaging_${packaging.id}`
+        : String(packaging.packingQty),
   }));
   const packagingDescription = isStockIn
     ? selectedPackingQty === null
@@ -132,8 +147,10 @@ export default function StockMovementModal({
       width={520}
       okText={isStockIn ? "确认入库" : "确认出库"}
       cancelText="取消"
+      confirmLoading={submitting}
       okButtonProps={{
         disabled:
+          submitting ||
           !isStockIn &&
           (!selectedPackaging || selectedPackaging.cartonCount <= 0),
       }}
@@ -179,7 +196,7 @@ export default function StockMovementModal({
       </div>
 
       <Typography.Paragraph className="stock-prototype-note" type="secondary">
-        入库和出库目前只是页面原型，确认后仅临时改变本页数字；刷新后会恢复数据库中的箱数。
+        操作成功后会保存库存流水；如需核对历史记录，可在商品操作菜单中查看库存流水。
       </Typography.Paragraph>
 
       <Form
@@ -187,11 +204,16 @@ export default function StockMovementModal({
         layout="vertical"
         initialValues={{
           packagingId:
-            !isStockIn && !isMultiplePackaging
-              ? defaultPackaging?.id
-              : undefined,
+            isStockIn && !isMultiplePackaging && defaultPackaging?.packingQty === null
+              ? defaultPackaging.id
+              : !isStockIn && !isMultiplePackaging
+                ? defaultPackaging?.id
+                : undefined,
           packingQty:
-            isStockIn && !isMultiplePackaging
+            isStockIn &&
+            !isMultiplePackaging &&
+            defaultPackaging?.packingQty !== null &&
+            defaultPackaging?.packingQty !== undefined
               ? String(defaultPackaging?.packingQty ?? "")
               : undefined,
           quantity: 1,
@@ -200,46 +222,75 @@ export default function StockMovementModal({
         requiredMark={false}
       >
         {isStockIn ? (
-          <Form.Item label="装箱数" required>
-            <Space.Compact style={{ width: "100%" }}>
-              <Form.Item
-                name="packingQty"
-                noStyle
-                rules={[
-                  { required: true, message: "请选择或输入装箱数" },
-                  {
-                    validator: async (_rule, value: string | undefined) => {
-                      if (!value) {
-                        return;
-                      }
-                      if (parsePositiveInteger(value) === null) {
-                        throw new Error(
-                          "装箱数必须是大于 0 的整数，只能输入数字",
-                        );
-                      }
-                    },
-                  },
-                ]}
-              >
-                <AutoComplete
-                  options={packagingOptions}
-                  placeholder="请选择或输入装箱数"
-                  filterOption={(inputValue, option) =>
-                    String(option?.value ?? "").includes(inputValue)
-                  }
-                  style={{ flex: 1 }}
-                  aria-label="装箱数"
-                />
+          !isMultiplePackaging && defaultPackaging?.packingQty === null ? (
+            <>
+              <Form.Item name="packagingId" hidden>
+                <InputNumber />
               </Form.Item>
-              <Input
-                readOnly
-              value={`${product.unit ?? "—"}/箱`}
-                aria-label="装箱数单位"
-                tabIndex={-1}
-                style={{ width: 72, flex: "0 0 72px", textAlign: "center" }}
-              />
-            </Space.Compact>
-          </Form.Item>
+              <div className="stock-packaging-fixed" aria-label="装箱数">
+                <span>装箱数</span>
+                <strong>装箱数未填写</strong>
+              </div>
+            </>
+          ) : (
+            <Form.Item label="装箱数" required>
+              <Space.Compact style={{ width: "100%" }}>
+                <Form.Item
+                  name="packingQty"
+                  noStyle
+                  rules={[
+                    {
+                      validator: async (_rule, value: string | undefined) => {
+                        if (!value && form.getFieldValue("packagingId")) {
+                          return;
+                        }
+                        if (!value) {
+                          throw new Error("请选择或输入装箱数");
+                        }
+                        if (parsePositiveInteger(value) === null) {
+                          throw new Error(
+                            "装箱数必须是大于 0 的整数，只能输入数字",
+                          );
+                        }
+                      },
+                    },
+                  ]}
+                >
+                  <AutoComplete
+                    options={packagingOptions}
+                    placeholder="请选择或输入装箱数"
+                    filterOption={(inputValue, option) =>
+                      String(option?.label ?? option?.value ?? "")
+                        .toLowerCase()
+                        .includes(inputValue.toLowerCase())
+                    }
+                    onSelect={(value: string) => {
+                      if (value.startsWith("__packaging_")) {
+                        form.setFieldsValue({
+                          packagingId: Number(value.slice("__packaging_".length)),
+                          packingQty: undefined,
+                        });
+                      }
+                    }}
+                    onChange={(value: string) => {
+                      if (!value.startsWith("__packaging_")) {
+                        form.setFieldValue("packagingId", undefined);
+                      }
+                    }}
+                    style={{ flex: 1 }}
+                    aria-label="装箱数"
+                  />
+                </Form.Item>
+                <Input
+                  readOnly
+                  value={`${product.unit ?? "—"}/箱`}
+                  aria-label="装箱数单位"
+                  tabIndex={-1}
+                  style={{ width: 72, flex: "0 0 72px", textAlign: "center" }}
+                />
+              </Space.Compact>
+            </Form.Item>
+          )
         ) : isMultiplePackaging ? (
           <Form.Item
             name="packagingId"

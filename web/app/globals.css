@@ -889,6 +889,24 @@ textarea {
   width: 125px;
 }
 
+.packaging-editor-stock-readonly {
+  display: flex;
+  min-height: 32px;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  color: #87909e;
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.packaging-editor-stock-readonly strong {
+  color: #354052;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .packaging-editor-unit {
   flex: 0 0 auto;
   padding-top: 6px;
@@ -909,6 +927,60 @@ textarea {
 
 .stock-prototype-note {
   margin-block: 12px 18px;
+  font-size: 12px;
+}
+
+.inventory-movements-modal {
+  min-height: 120px;
+}
+
+.inventory-movements-initial-note {
+  margin-bottom: 12px;
+}
+
+.inventory-movements-loading {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+}
+
+.inventory-movements-table .ant-table-cell {
+  vertical-align: top;
+}
+
+.movement-type {
+  font-weight: 600;
+}
+
+.movement-type-in,
+.movement-quantity-in {
+  color: #3f7b57;
+}
+
+.movement-type-out,
+.movement-quantity-out {
+  color: #9b5a5a;
+}
+
+.movement-quantity {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.movement-remark {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.inventory-movements-pagination {
+  margin-top: 14px;
+  text-align: right;
+}
+
+.inventory-movements-footnote {
+  display: block;
+  margin-top: 14px;
   font-size: 12px;
 }
 

@@ -84,6 +84,15 @@ class ProductPackagingWrite(ProductPackagingCreate):
     id: PositiveInt | None = None
 
 
+class ProductPackagingUpdate(BaseModel):
+    """Public product-edit payload: packaging data, never stock quantity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: PositiveInt | None = None
+    packing_qty: PositiveInt | None = None
+
+
 class ProductPackagingRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -164,7 +173,7 @@ class ProductUpdate(BaseModel):
     image_path: str | None = Field(default=None, max_length=500)
     thumbnail_path: str | None = Field(default=None, max_length=500)
     size: ProductSize | None = None
-    packagings: list[ProductPackagingWrite] | None = Field(
+    packagings: list[ProductPackagingUpdate] | None = Field(
         default=None, min_length=1
     )
     unit: ProductUnit | None = None
@@ -244,3 +253,48 @@ class ProductImageUploadRead(BaseModel):
     thumbnail_path: str
     image_url: str
     thumbnail_url: str
+
+
+MovementType = Literal["IN", "OUT"]
+
+
+class StockMovementCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_packaging_id: PositiveInt | None = None
+    packing_qty: PositiveInt | None = None
+    quantity: PositiveInt
+    remark: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("remark")
+    @classmethod
+    def empty_remark_is_null(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        # Keep internal spaces and line breaks exactly as entered.
+        return value
+
+
+class InventoryMovementRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    product_id: int
+    product_code: str | None = None
+    product_packaging_id: int | None
+    warehouse_id: int | None
+    movement_type: MovementType
+    quantity: int
+    before_carton_count: int
+    after_carton_count: int
+    packing_qty_snapshot: int | None
+    unit_snapshot: str | None
+    remark: str | None
+    created_at: datetime
+
+
+class InventoryMovementListRead(BaseModel):
+    items: list[InventoryMovementRead]
+    total: int
+    page: int
+    page_size: int

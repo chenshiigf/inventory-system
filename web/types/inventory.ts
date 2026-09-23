@@ -52,11 +52,9 @@ export interface ProductPackagingApiRecord {
 
 export interface ProductPackagingCreatePayload {
   packing_qty: number | null;
-  carton_count: number;
 }
 
-export interface ProductPackagingUpdatePayload
-  extends ProductPackagingCreatePayload {
+export interface ProductPackagingUpdatePayload extends ProductPackagingCreatePayload {
   id?: number;
 }
 
@@ -129,10 +127,35 @@ export type StockMovementDirection = "in" | "out";
 
 export interface StockMovementValues {
   packagingId?: number;
-  packingQty: number;
+  packingQty?: number | null;
   quantity: number;
   note?: string;
   isNewPackaging?: boolean;
+}
+
+export type InventoryMovementType = "IN" | "OUT";
+
+export interface InventoryMovementApiRecord {
+  id: number;
+  product_id: number;
+  product_code: string | null;
+  product_packaging_id: number | null;
+  warehouse_id: number | null;
+  movement_type: InventoryMovementType;
+  quantity: number;
+  before_carton_count: number;
+  after_carton_count: number;
+  packing_qty_snapshot: number | null;
+  unit_snapshot: string | null;
+  remark: string | null;
+  created_at: string;
+}
+
+export interface InventoryMovementListResponse {
+  items: InventoryMovementApiRecord[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 export interface ProductPackagingFormValue {

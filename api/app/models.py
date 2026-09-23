@@ -196,3 +196,70 @@ class ProductImportBatch(Base):
     source_row_count: Mapped[int] = mapped_column(Integer, nullable=False)
     product_count: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False, default=utc_now)
+
+
+class InventoryMovement(Base):
+    """A historical record of one persisted IN or OUT stock operation."""
+
+    __tablename__ = "inventory_movements"
+    __table_args__ = (
+        CheckConstraint(
+            "movement_type IN ('IN', 'OUT')",
+            name="ck_inventory_movements_type_valid",
+        ),
+        CheckConstraint(
+            "quantity > 0",
+            name="ck_inventory_movements_quantity_positive",
+        ),
+        CheckConstraint(
+            "before_carton_count >= 0",
+            name="ck_inventory_movements_before_nonnegative",
+        ),
+        CheckConstraint(
+            "after_carton_count >= 0",
+            name="ck_inventory_movements_after_nonnegative",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product_id: Mapped[int] = mapped_column(
+        ForeignKey(
+            "products.id",
+            name="fk_inventory_movements_product_id_products",
+        ),
+        nullable=False,
+        index=True,
+    )
+    product_packaging_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "product_packagings.id",
+            name="fk_inventory_movements_product_packaging_id_product_packagings",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
+    warehouse_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "warehouses.id",
+            name="fk_inventory_movements_warehouse_id_warehouses",
+        ),
+        nullable=True,
+        index=True,
+    )
+    movement_type: Mapped[str] = mapped_column(String(3), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    before_carton_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    after_carton_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    packing_qty_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    unit_snapshot: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    remark: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), nullable=False, default=utc_now, index=True
+    )
+
+    product: Mapped[Product] = relationship()
+
+    @property
+    def product_code(self) -> str | None:
+        return self.product.product_code if self.product is not None else None

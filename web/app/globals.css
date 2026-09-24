@@ -336,6 +336,23 @@ textarea {
   margin-top: 12px;
 }
 
+.batch-quote-export-modal-content > p {
+  margin: 0 0 16px;
+  color: #4d5b73;
+}
+
+.batch-quote-export-field {
+  display: block;
+  margin-top: 14px;
+  color: #253654;
+  font-size: 13px;
+}
+
+.batch-quote-export-field > span {
+  display: block;
+  margin-bottom: 6px;
+}
+
 .inventory-panel {
   overflow: hidden;
   background: var(--surface);

@@ -1,0 +1,621 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e11]:
+          - strong [ref=e12]: 商品库存
+          - generic [ref=e13]: 家庭库存工作台
+        - menu [ref=e14]:
+          - menuitem [ref=e15] [cursor=pointer]:
+            - img "dashboard" [ref=e16]
+            - link "概览" [ref=e20]:
+              - /url: /
+          - menuitem [ref=e21] [cursor=pointer]:
+            - img "appstore" [ref=e22]
+            - link "商品库存" [ref=e26]:
+              - /url: /products
+          - menuitem [ref=e27] [cursor=pointer]:
+            - img "history" [ref=e28]
+            - link "库存流水" [ref=e32]:
+              - /url: /inventory-movements
+          - menuitem [ref=e33] [cursor=pointer]:
+            - img "tags" [ref=e34]
+            - link "分类管理" [ref=e38]:
+              - /url: /categories
+          - menuitem [ref=e39] [cursor=pointer]:
+            - img "shop" [ref=e40]
+            - link "仓库管理" [ref=e44]:
+              - /url: /warehouses
+          - menuitem [ref=e45] [cursor=pointer]:
+            - img "file-excel" [ref=e46]
+            - link "批量导入" [ref=e50]:
+              - /url: /products/import
+        - generic [ref=e51]: 商品与分类分开管理
+    - generic [ref=e52]:
+      - banner [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]: 系统功能
+          - generic [aria-hidden] [ref=e56]: /
+          - strong [ref=e57]: 商品库存
+        - generic [ref=e58]:
+          - generic [ref=e59]: SQLite 商品数据
+          - generic [ref=e60]: 入库 / 出库已保存到数据库
+      - main [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - heading "商品库存" [level=1] [ref=e64]
+            - button "plus 新增商品" [ref=e68] [cursor=pointer]:
+              - img "plus" [ref=e136]
+              - generic [ref=e140]: 新增商品
+          - generic "仓库、商品分类、状态、库存与搜索" [ref=e69]:
+            - generic [ref=e70] [cursor=pointer]:
+              - generic "全部仓库" [ref=e71]:
+                - text: 全部仓库
+                - combobox "选择仓库" [ref=e72]
+              - img "down" [ref=e74]
+            - generic [ref=e77]:
+              - generic "全部分类" [ref=e78]:
+                - text: 全部分类
+                - combobox "选择商品分类" [ref=e79]
+              - img "down" [ref=e81]
+              - button "Clear" [ref=e141] [cursor=pointer]:
+                - img "close-circle" [ref=e142]
+            - generic [ref=e84] [cursor=pointer]:
+              - generic "在用商品" [ref=e85]:
+                - text: 在用商品
+                - combobox "选择商品状态" [ref=e86]
+              - img "down" [ref=e88]
+            - generic [ref=e91] [cursor=pointer]:
+              - generic "全部库存" [ref=e92]:
+                - text: 全部库存
+                - combobox "选择库存状态" [ref=e93]
+              - img "down" [ref=e95]
+            - textbox "搜索商品" [ref=e103]:
+              - /placeholder: 搜索编号、尺寸或备注
+            - generic [ref=e105]: 共 31 个商品
+          - generic "商品批量操作" [ref=e863]:
+            - generic [ref=e864]:
+              - strong [ref=e865]: 已选择 0 / 100 个
+              - generic [ref=e866]: 当前页已选择 0 个
+            - generic [ref=e867]:
+              - button "全选当前页" [ref=e868] [cursor=pointer]
+              - button "取消当前页" [disabled] [ref=e870]
+              - button "清空全部" [disabled] [ref=e871]
+              - button "修改分类" [disabled] [ref=e872]
+              - button "导出报价单" [disabled] [ref=e873]
+              - button "停 用" [disabled] [ref=e874]
+              - button "启 用" [disabled] [ref=e875]
+            - button "退出批量模式" [ref=e876] [cursor=pointer]
+          - region "商品库存列表" [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]:
+                - generic [ref=e109]: 当前范围
+                - strong [ref=e110]: 全部仓库 / 全部分类
+              - radiogroup "切换库存视图" [ref=e111]:
+                - generic [ref=e112]:
+                  - generic [ref=e113] [cursor=pointer]:
+                    - radio "表格视图" [checked]
+                    - generic "表格视图" [ref=e114]
+                  - generic [ref=e115] [cursor=pointer]:
+                    - radio "画廊视图"
+                    - generic "画廊视图" [ref=e116]
+            - generic [ref=e145]:
+              - table [ref=e149]:
+                - rowgroup [ref=e159]:
+                  - row [ref=e880]:
+                    - columnheader [ref=e881]:
+                      - checkbox "Select all" [ref=e885] [cursor=pointer]
+                    - columnheader "商品编号" [ref=e161]
+                    - columnheader "商品图片" [ref=e162]
+                    - columnheader "尺寸" [ref=e163]
+                    - columnheader "装箱数" [ref=e164]
+                    - columnheader "单位" [ref=e165]
+                    - columnheader "单价" [ref=e166]
+                    - columnheader "当前箱数" [ref=e167]
+                    - columnheader "备注"
+                    - columnheader "操作" [ref=e168]
+                - rowgroup [ref=e169]:
+                  - row [ref=e886]:
+                    - cell [ref=e887]:
+                      - checkbox "Select row 1" [ref=e890] [cursor=pointer]
+                    - cell "01-03-019" [ref=e891]:
+                      - generic "01-03-019" [ref=e173]
+                    - cell [ref=e892]:
+                      - img "01-03-019商品图片" [ref=e895]
+                    - cell "3.5*5cm" [ref=e181]
+                    - cell "240 / 120 / 96 3种包装" [ref=e182]:
+                      - generic [ref=e183]:
+                        - generic [ref=e184]: 240 / 120 / 96
+                        - generic [ref=e185]: 3种包装
+                    - cell "pcs" [ref=e186]
+                    - cell "¥ 1.50" [ref=e187]
+                    - cell "10 箱" [ref=e188]:
+                      - generic [ref=e189]:
+                        - strong [ref=e190]: "10"
+                        - generic [ref=e191]: 箱
+                    - cell "—"
+                    - cell [ref=e192]:
+                      - generic [ref=e193]:
+                        - button "入库尺寸 3.5*5cm 的商品" [ref=e195] [cursor=pointer]:
+                          - generic [ref=e196]: 入库
+                        - button "出库尺寸 3.5*5cm 的商品" [ref=e198] [cursor=pointer]:
+                          - generic [ref=e199]: 出库
+                        - button "3.5*5cm的操作菜单" [ref=e201] [cursor=pointer]:
+                          - img "more" [ref=e203]
+                  - row [ref=e896]:
+                    - cell [ref=e897]:
+                      - checkbox "Select row 2" [ref=e900] [cursor=pointer]
+                    - cell "01-03-018" [ref=e901]:
+                      - generic "01-03-018" [ref=e209]
+                    - cell [ref=e902]:
+                      - img "01-03-018商品图片" [ref=e905]
+                    - cell "4.5*3.5cm" [ref=e217]
+                    - cell "240" [ref=e218]
+                    - cell "pcs" [ref=e219]
+                    - cell "¥ 1.50" [ref=e220]
+                    - cell "2 箱" [ref=e221]:
+                      - generic [ref=e222]:
+                        - strong [ref=e223]: "2"
+                        - generic [ref=e224]: 箱
+                    - cell "—"
+                    - cell [ref=e225]:
+                      - generic [ref=e226]:
+                        - button "入库尺寸 4.5*3.5cm 的商品" [ref=e228] [cursor=pointer]:
+                          - generic [ref=e229]: 入库
+                        - button "出库尺寸 4.5*3.5cm 的商品" [ref=e231] [cursor=pointer]:
+                          - generic [ref=e232]: 出库
+                        - button "4.5*3.5cm的操作菜单" [ref=e234] [cursor=pointer]:
+                          - img "more" [ref=e236]
+                  - row [ref=e906]:
+                    - cell [ref=e907]:
+                      - checkbox "Select row 3" [ref=e910] [cursor=pointer]
+                    - cell "01-03-017" [ref=e911]:
+                      - generic "01-03-017" [ref=e242]
+                    - cell [ref=e912]:
+                      - img "01-03-017商品图片" [ref=e915]
+                    - cell "7*3*4cm" [ref=e250]
+                    - cell "240" [ref=e251]
+                    - cell "pcs" [ref=e252]
+                    - cell "—" [ref=e253]
+                    - cell "2 箱" [ref=e254]:
+                      - generic [ref=e255]:
+                        - strong [ref=e256]: "2"
+                        - generic [ref=e257]: 箱
+                    - cell "—"
+                    - cell [ref=e258]:
+                      - generic [ref=e259]:
+                        - button "入库尺寸 7*3*4cm 的商品" [ref=e261] [cursor=pointer]:
+                          - generic [ref=e262]: 入库
+                        - button "出库尺寸 7*3*4cm 的商品" [ref=e264] [cursor=pointer]:
+                          - generic [ref=e265]: 出库
+                        - button "7*3*4cm的操作菜单" [ref=e267] [cursor=pointer]:
+                          - img "more" [ref=e269]
+                  - row [ref=e916]:
+                    - cell [ref=e917]:
+                      - checkbox "Select row 4" [ref=e920] [cursor=pointer]
+                    - cell "01-03-016" [ref=e921]:
+                      - generic "01-03-016" [ref=e275]
+                    - cell [ref=e922]:
+                      - img "01-03-016商品图片" [ref=e925]
+                    - cell "5*2*9cm" [ref=e283]
+                    - cell "288" [ref=e284]
+                    - cell "pcs" [ref=e285]
+                    - cell "¥ 1.50" [ref=e286]
+                    - cell "3 箱" [ref=e287]:
+                      - generic [ref=e288]:
+                        - strong [ref=e289]: "3"
+                        - generic [ref=e290]: 箱
+                    - cell "—"
+                    - cell [ref=e291]:
+                      - generic [ref=e292]:
+                        - button "入库尺寸 5*2*9cm 的商品" [ref=e294] [cursor=pointer]:
+                          - generic [ref=e295]: 入库
+                        - button "出库尺寸 5*2*9cm 的商品" [ref=e297] [cursor=pointer]:
+                          - generic [ref=e298]: 出库
+                        - button "5*2*9cm的操作菜单" [ref=e300] [cursor=pointer]:
+                          - img "more" [ref=e302]
+                  - row [ref=e926]:
+                    - cell [ref=e927]:
+                      - checkbox "Select row 5" [ref=e930] [cursor=pointer]
+                    - cell "01-03-015" [ref=e931]:
+                      - generic "01-03-015" [ref=e308]
+                    - cell [ref=e932]:
+                      - img "01-03-015商品图片" [ref=e935]
+                    - cell "—" [ref=e316]
+                    - cell "336" [ref=e317]
+                    - cell "pcs" [ref=e318]
+                    - cell "—" [ref=e319]
+                    - cell "1 箱" [ref=e320]:
+                      - generic [ref=e321]:
+                        - strong [ref=e322]: "1"
+                        - generic [ref=e323]: 箱
+                    - cell "—"
+                    - cell [ref=e324]:
+                      - generic [ref=e325]:
+                        - button "入库尺寸 的商品" [ref=e327] [cursor=pointer]:
+                          - generic [ref=e328]: 入库
+                        - button "出库尺寸 的商品" [ref=e330] [cursor=pointer]:
+                          - generic [ref=e331]: 出库
+                        - button "01-03-015的操作菜单" [ref=e333] [cursor=pointer]:
+                          - img "more" [ref=e335]
+                  - row [ref=e936]:
+                    - cell [ref=e937]:
+                      - checkbox "Select row 6" [ref=e940] [cursor=pointer]
+                    - cell "01-03-014" [ref=e941]:
+                      - generic "01-03-014" [ref=e341]
+                    - cell [ref=e942]:
+                      - img "01-03-014商品图片" [ref=e945]
+                    - cell "—" [ref=e349]
+                    - cell "240" [ref=e350]
+                    - cell "pcs" [ref=e351]
+                    - cell "¥ 1.50" [ref=e352]
+                    - cell "2 箱" [ref=e353]:
+                      - generic [ref=e354]:
+                        - strong [ref=e355]: "2"
+                        - generic [ref=e356]: 箱
+                    - cell "—"
+                    - cell [ref=e357]:
+                      - generic [ref=e358]:
+                        - button "入库尺寸 的商品" [ref=e360] [cursor=pointer]:
+                          - generic [ref=e361]: 入库
+                        - button "出库尺寸 的商品" [ref=e363] [cursor=pointer]:
+                          - generic [ref=e364]: 出库
+                        - button "01-03-014的操作菜单" [ref=e366] [cursor=pointer]:
+                          - img "more" [ref=e368]
+                  - row [ref=e946]:
+                    - cell [ref=e947]:
+                      - checkbox "Select row 7" [ref=e950] [cursor=pointer]
+                    - cell "01-03-013" [ref=e951]:
+                      - generic "01-03-013" [ref=e374]
+                    - cell [ref=e952]:
+                      - img "01-03-013商品图片" [ref=e955]
+                    - cell "3.5*3*6cm" [ref=e382]
+                    - cell "336" [ref=e383]
+                    - cell "pcs" [ref=e384]
+                    - cell "¥ 1.50" [ref=e385]
+                    - cell "1 箱" [ref=e386]:
+                      - generic [ref=e387]:
+                        - strong [ref=e388]: "1"
+                        - generic [ref=e389]: 箱
+                    - cell "—"
+                    - cell [ref=e390]:
+                      - generic [ref=e391]:
+                        - button "入库尺寸 3.5*3*6cm 的商品" [ref=e393] [cursor=pointer]:
+                          - generic [ref=e394]: 入库
+                        - button "出库尺寸 3.5*3*6cm 的商品" [ref=e396] [cursor=pointer]:
+                          - generic [ref=e397]: 出库
+                        - button "3.5*3*6cm的操作菜单" [ref=e399] [cursor=pointer]:
+                          - img "more" [ref=e401]
+                  - row [ref=e956]:
+                    - cell [ref=e957]:
+                      - checkbox "Select row 8" [ref=e960] [cursor=pointer]
+                    - cell "01-03-012" [ref=e961]:
+                      - generic "01-03-012" [ref=e407]
+                    - cell [ref=e962]:
+                      - img "01-03-012商品图片" [ref=e965]
+                    - cell "7*3.5*7cm" [ref=e415]
+                    - cell "236" [ref=e416]
+                    - cell "pcs" [ref=e417]
+                    - cell "¥ 1.50" [ref=e418]
+                    - cell "1 箱" [ref=e419]:
+                      - generic [ref=e420]:
+                        - strong [ref=e421]: "1"
+                        - generic [ref=e422]: 箱
+                    - cell "—"
+                    - cell [ref=e423]:
+                      - generic [ref=e424]:
+                        - button "入库尺寸 7*3.5*7cm 的商品" [ref=e426] [cursor=pointer]:
+                          - generic [ref=e427]: 入库
+                        - button "出库尺寸 7*3.5*7cm 的商品" [ref=e429] [cursor=pointer]:
+                          - generic [ref=e430]: 出库
+                        - button "7*3.5*7cm的操作菜单" [ref=e432] [cursor=pointer]:
+                          - img "more" [ref=e434]
+                  - row [ref=e966]:
+                    - cell [ref=e967]:
+                      - checkbox "Select row 9" [ref=e970] [cursor=pointer]
+                    - cell "01-03-011" [ref=e971]:
+                      - generic "01-03-011" [ref=e440]
+                    - cell [ref=e972]:
+                      - img "01-03-011商品图片" [ref=e975]
+                    - cell "5*2.5*7cm" [ref=e448]
+                    - cell "240" [ref=e449]
+                    - cell "pcs" [ref=e450]
+                    - cell "¥ 1.50" [ref=e451]
+                    - cell "3 箱" [ref=e452]:
+                      - generic [ref=e453]:
+                        - strong [ref=e454]: "3"
+                        - generic [ref=e455]: 箱
+                    - cell "—"
+                    - cell [ref=e456]:
+                      - generic [ref=e457]:
+                        - button "入库尺寸 5*2.5*7cm 的商品" [ref=e459] [cursor=pointer]:
+                          - generic [ref=e460]: 入库
+                        - button "出库尺寸 5*2.5*7cm 的商品" [ref=e462] [cursor=pointer]:
+                          - generic [ref=e463]: 出库
+                        - button "5*2.5*7cm的操作菜单" [ref=e465] [cursor=pointer]:
+                          - img "more" [ref=e467]
+                  - row [ref=e976]:
+                    - cell [ref=e977]:
+                      - checkbox "Select row 10" [ref=e980] [cursor=pointer]
+                    - cell "01-03-010" [ref=e981]:
+                      - generic "01-03-010" [ref=e473]
+                    - cell [ref=e982]:
+                      - img "01-03-010商品图片" [ref=e985]
+                    - cell "6*11cm" [ref=e481]
+                    - cell "120" [ref=e482]
+                    - cell "pcs" [ref=e483]
+                    - cell "—" [ref=e484]
+                    - cell "2 箱" [ref=e485]:
+                      - generic [ref=e486]:
+                        - strong [ref=e487]: "2"
+                        - generic [ref=e488]: 箱
+                    - cell "—"
+                    - cell [ref=e489]:
+                      - generic [ref=e490]:
+                        - button "入库尺寸 6*11cm 的商品" [ref=e492] [cursor=pointer]:
+                          - generic [ref=e493]: 入库
+                        - button "出库尺寸 6*11cm 的商品" [ref=e495] [cursor=pointer]:
+                          - generic [ref=e496]: 出库
+                        - button "6*11cm的操作菜单" [ref=e498] [cursor=pointer]:
+                          - img "more" [ref=e500]
+                  - row [ref=e986]:
+                    - cell [ref=e987]:
+                      - checkbox "Select row 11" [ref=e990] [cursor=pointer]
+                    - cell "01-03-009" [ref=e991]:
+                      - generic "01-03-009" [ref=e506]
+                    - cell [ref=e992]:
+                      - img "01-03-009商品图片" [ref=e995]
+                    - cell "8*3*6.5cm" [ref=e514]
+                    - cell "288" [ref=e515]
+                    - cell "pcs" [ref=e516]
+                    - cell "—" [ref=e517]
+                    - cell "1 箱" [ref=e518]:
+                      - generic [ref=e519]:
+                        - strong [ref=e520]: "1"
+                        - generic [ref=e521]: 箱
+                    - cell "—"
+                    - cell [ref=e522]:
+                      - generic [ref=e523]:
+                        - button "入库尺寸 8*3*6.5cm 的商品" [ref=e525] [cursor=pointer]:
+                          - generic [ref=e526]: 入库
+                        - button "出库尺寸 8*3*6.5cm 的商品" [ref=e528] [cursor=pointer]:
+                          - generic [ref=e529]: 出库
+                        - button "8*3*6.5cm的操作菜单" [ref=e531] [cursor=pointer]:
+                          - img "more" [ref=e533]
+                  - row [ref=e996]:
+                    - cell [ref=e997]:
+                      - checkbox "Select row 12" [ref=e1000] [cursor=pointer]
+                    - cell "01-03-008" [ref=e1001]:
+                      - generic "01-03-008" [ref=e539]
+                    - cell [ref=e1002]:
+                      - img "01-03-008商品图片" [ref=e1005]
+                    - cell "5*4*7cm" [ref=e547]
+                    - cell "176" [ref=e548]
+                    - cell "pcs" [ref=e549]
+                    - cell "¥ 1.50" [ref=e550]
+                    - cell "1 箱" [ref=e551]:
+                      - generic [ref=e552]:
+                        - strong [ref=e553]: "1"
+                        - generic [ref=e554]: 箱
+                    - cell "—"
+                    - cell [ref=e555]:
+                      - generic [ref=e556]:
+                        - button "入库尺寸 5*4*7cm 的商品" [ref=e558] [cursor=pointer]:
+                          - generic [ref=e559]: 入库
+                        - button "出库尺寸 5*4*7cm 的商品" [ref=e561] [cursor=pointer]:
+                          - generic [ref=e562]: 出库
+                        - button "5*4*7cm的操作菜单" [ref=e564] [cursor=pointer]:
+                          - img "more" [ref=e566]
+                  - row [ref=e1006]:
+                    - cell [ref=e1007]:
+                      - checkbox "Select row 13" [ref=e1010] [cursor=pointer]
+                    - cell "01-03-007" [ref=e1011]:
+                      - generic "01-03-007" [ref=e572]
+                    - cell [ref=e1012]:
+                      - img "01-03-007商品图片" [ref=e1015]
+                    - cell "4*4*5cm" [ref=e580]
+                    - cell "144" [ref=e581]
+                    - cell "pcs" [ref=e582]
+                    - cell "¥ 3.00" [ref=e583]
+                    - cell "8 箱" [ref=e584]:
+                      - generic [ref=e585]:
+                        - strong [ref=e586]: "8"
+                        - generic [ref=e587]: 箱
+                    - cell "—"
+                    - cell [ref=e588]:
+                      - generic [ref=e589]:
+                        - button "入库尺寸 4*4*5cm 的商品" [ref=e591] [cursor=pointer]:
+                          - generic [ref=e592]: 入库
+                        - button "出库尺寸 4*4*5cm 的商品" [ref=e594] [cursor=pointer]:
+                          - generic [ref=e595]: 出库
+                        - button "4*4*5cm的操作菜单" [ref=e597] [cursor=pointer]:
+                          - img "more" [ref=e599]
+                  - row [ref=e1016]:
+                    - cell [ref=e1017]:
+                      - checkbox "Select row 14" [ref=e1020] [cursor=pointer]
+                    - cell "01-03-006" [ref=e1021]:
+                      - generic "01-03-006" [ref=e605]
+                    - cell [ref=e1022]:
+                      - img "01-03-006商品图片" [ref=e1025]
+                    - cell "11.5*7.5*6cm" [ref=e613]
+                    - cell "72" [ref=e614]
+                    - cell "set" [ref=e615]
+                    - cell "¥ 4.00" [ref=e616]
+                    - cell "19 箱" [ref=e617]:
+                      - generic [ref=e618]:
+                        - strong [ref=e619]: "19"
+                        - generic [ref=e620]: 箱
+                    - cell "—"
+                    - cell [ref=e621]:
+                      - generic [ref=e622]:
+                        - button "入库尺寸 11.5*7.5*6cm 的商品" [ref=e624] [cursor=pointer]:
+                          - generic [ref=e625]: 入库
+                        - button "出库尺寸 11.5*7.5*6cm 的商品" [ref=e627] [cursor=pointer]:
+                          - generic [ref=e628]: 出库
+                        - button "11.5*7.5*6cm的操作菜单" [ref=e630] [cursor=pointer]:
+                          - img "more" [ref=e632]
+                  - row [ref=e1026]:
+                    - cell [ref=e1027]:
+                      - checkbox "Select row 15" [ref=e1030] [cursor=pointer]
+                    - cell "01-03-005" [ref=e1031]:
+                      - generic "01-03-005" [ref=e638]
+                    - cell [ref=e1032]:
+                      - img "01-03-005商品图片" [ref=e1035]
+                    - cell "4.5*4.5*7cm" [ref=e646]
+                    - cell "240 / 96 2种包装" [ref=e647]:
+                      - generic [ref=e648]:
+                        - generic [ref=e649]: 240 / 96
+                        - generic [ref=e650]: 2种包装
+                    - cell "pcs" [ref=e651]
+                    - cell "¥ 1.50" [ref=e652]
+                    - cell "19 箱" [ref=e653]:
+                      - generic [ref=e654]:
+                        - strong [ref=e655]: "19"
+                        - generic [ref=e656]: 箱
+                    - cell "—"
+                    - cell [ref=e657]:
+                      - generic [ref=e658]:
+                        - button "入库尺寸 4.5*4.5*7cm 的商品" [ref=e660] [cursor=pointer]:
+                          - generic [ref=e661]: 入库
+                        - button "出库尺寸 4.5*4.5*7cm 的商品" [ref=e663] [cursor=pointer]:
+                          - generic [ref=e664]: 出库
+                        - button "4.5*4.5*7cm的操作菜单" [ref=e666] [cursor=pointer]:
+                          - img "more" [ref=e668]
+                  - row [ref=e1036]:
+                    - cell [ref=e1037]:
+                      - checkbox "Select row 16" [ref=e1040] [cursor=pointer]
+                    - cell "01-03-004" [ref=e1041]:
+                      - generic "01-03-004" [ref=e674]
+                    - cell [ref=e1042]:
+                      - img "01-03-004商品图片" [ref=e1045]
+                    - cell "8*8*7cm" [ref=e682]
+                    - cell "16" [ref=e683]
+                    - cell "pcs" [ref=e684]
+                    - cell "¥ 3.50" [ref=e685]
+                    - cell "75 箱" [ref=e686]:
+                      - generic [ref=e687]:
+                        - strong [ref=e688]: "75"
+                        - generic [ref=e689]: 箱
+                    - cell "—"
+                    - cell [ref=e690]:
+                      - generic [ref=e691]:
+                        - button "入库尺寸 8*8*7cm 的商品" [ref=e693] [cursor=pointer]:
+                          - generic [ref=e694]: 入库
+                        - button "出库尺寸 8*8*7cm 的商品" [ref=e696] [cursor=pointer]:
+                          - generic [ref=e697]: 出库
+                        - button "8*8*7cm的操作菜单" [ref=e699] [cursor=pointer]:
+                          - img "more" [ref=e701]
+                  - row [ref=e1046]:
+                    - cell [ref=e1047]:
+                      - checkbox "Select row 17" [ref=e1050] [cursor=pointer]
+                    - cell "01-03-003" [ref=e1051]:
+                      - generic "01-03-003" [ref=e707]
+                    - cell [ref=e1052]:
+                      - img "01-03-003商品图片" [ref=e1055]
+                    - cell "8.5*5*5cm" [ref=e715]
+                    - cell "32" [ref=e716]
+                    - cell "pcs" [ref=e717]
+                    - cell "—" [ref=e718]
+                    - cell "14 箱" [ref=e719]:
+                      - generic [ref=e720]:
+                        - strong [ref=e721]: "14"
+                        - generic [ref=e722]: 箱
+                    - cell "—"
+                    - cell [ref=e723]:
+                      - generic [ref=e724]:
+                        - button "入库尺寸 8.5*5*5cm 的商品" [ref=e726] [cursor=pointer]:
+                          - generic [ref=e727]: 入库
+                        - button "出库尺寸 8.5*5*5cm 的商品" [ref=e729] [cursor=pointer]:
+                          - generic [ref=e730]: 出库
+                        - button "8.5*5*5cm的操作菜单" [ref=e732] [cursor=pointer]:
+                          - img "more" [ref=e734]
+                  - row [ref=e1056]:
+                    - cell [ref=e1057]:
+                      - checkbox "Select row 18" [ref=e1060] [cursor=pointer]
+                    - cell "01-03-002" [ref=e1061]:
+                      - generic "01-03-002" [ref=e740]
+                    - cell [ref=e1062]:
+                      - img "01-03-002商品图片" [ref=e1065]
+                    - cell "10*5.5*8.5cm" [ref=e748]
+                    - cell "28" [ref=e749]
+                    - cell "set" [ref=e750]
+                    - cell "¥ 3.00" [ref=e751]
+                    - cell "37 箱" [ref=e752]:
+                      - generic [ref=e753]:
+                        - strong [ref=e754]: "37"
+                        - generic [ref=e755]: 箱
+                    - cell "—"
+                    - cell [ref=e756]:
+                      - generic [ref=e757]:
+                        - button "入库尺寸 10*5.5*8.5cm 的商品" [ref=e759] [cursor=pointer]:
+                          - generic [ref=e760]: 入库
+                        - button "出库尺寸 10*5.5*8.5cm 的商品" [ref=e762] [cursor=pointer]:
+                          - generic [ref=e763]: 出库
+                        - button "10*5.5*8.5cm的操作菜单" [ref=e765] [cursor=pointer]:
+                          - img "more" [ref=e767]
+                  - row [ref=e1066]:
+                    - cell [ref=e1067]:
+                      - checkbox "Select row 19" [ref=e1070] [cursor=pointer]
+                    - cell "01-03-001" [ref=e1071]:
+                      - generic "01-03-001" [ref=e773]
+                    - cell [ref=e1072]:
+                      - img "01-03-001商品图片" [ref=e1075]
+                    - cell "15*15*8cm" [ref=e781]
+                    - cell "72" [ref=e782]
+                    - cell "set" [ref=e783]
+                    - cell "¥ 5.50" [ref=e784]
+                    - cell "11 箱" [ref=e785]:
+                      - generic [ref=e786]:
+                        - strong [ref=e787]: "11"
+                        - generic [ref=e788]: 箱
+                    - cell "—"
+                    - cell [ref=e789]:
+                      - generic [ref=e790]:
+                        - button "入库尺寸 15*15*8cm 的商品" [ref=e792] [cursor=pointer]:
+                          - generic [ref=e793]: 入库
+                        - button "出库尺寸 15*15*8cm 的商品" [ref=e795] [cursor=pointer]:
+                          - generic [ref=e796]: 出库
+                        - button "15*15*8cm的操作菜单" [ref=e798] [cursor=pointer]:
+                          - img "more" [ref=e800]
+                  - row [ref=e1076]:
+                    - cell [ref=e1077]:
+                      - checkbox "Select row 20" [ref=e1080] [cursor=pointer]
+                    - cell "01-01-009" [ref=e1081]:
+                      - generic "01-01-009" [ref=e806]
+                    - cell [ref=e1082]:
+                      - generic "暂无图片" [ref=e1083]
+                    - cell "15cm" [ref=e816]
+                    - cell "18" [ref=e817]
+                    - cell "pcs" [ref=e818]
+                    - cell "¥ 2.60" [ref=e819]
+                    - cell "5 箱" [ref=e820]:
+                      - generic [ref=e821]:
+                        - strong [ref=e822]: "5"
+                        - generic [ref=e823]: 箱
+                    - cell "无图警告且公式有缓存"
+                    - cell [ref=e824]:
+                      - generic [ref=e825]:
+                        - button "入库尺寸 15cm 的商品" [ref=e827] [cursor=pointer]:
+                          - generic [ref=e828]: 入库
+                        - button "出库尺寸 15cm 的商品" [ref=e830] [cursor=pointer]:
+                          - generic [ref=e831]: 出库
+                        - button "15cm的操作菜单" [ref=e833] [cursor=pointer]:
+                          - img "more" [ref=e835]
+              - list [ref=e838]:
+                - listitem [ref=e839]: 1-20 条，共 31 条
+                - listitem "上一页" [ref=e840]:
+                  - button [disabled] [ref=e841]:
+                    - img "left" [ref=e842]
+                - listitem "1" [ref=e845] [cursor=pointer]
+                - listitem "2" [ref=e847] [cursor=pointer]
+                - listitem "下一页" [ref=e849] [cursor=pointer]:
+                  - button [ref=e850]:
+                    - img "right" [ref=e851]
+                - listitem [ref=e854]:
+                  - generic [ref=e855]:
+                    - generic "20 条/页" [ref=e856]:
+                      - text: 20 条/页
+                      - combobox "页码" [ref=e857]
+                    - img "down" [ref=e859]
+  - button "Open Next.js Dev Tools" [ref=e131] [cursor=pointer]
+  - alert [ref=e862]

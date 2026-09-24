@@ -1,9 +1,10 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
+from starlette.responses import StreamingResponse
 
 from app.database import begin_write_transaction, get_db
 from app.models import Category, Product, ProductPackaging, Warehouse
@@ -14,8 +15,14 @@ from app.schemas import (
     ProductCreate,
     ProductDetailRead,
     ProductListRead,
+    ProductQuoteExportRequest,
     ProductRead,
     ProductUpdate,
+)
+from app.services.quote_export import (
+    XLSX_MEDIA_TYPE,
+    build_quote_filename,
+    build_quote_workbook,
 )
 from app.services.products import ProductCreationError, create_product_record
 
@@ -130,6 +137,33 @@ def batch_activate(
     db: Annotated[Session, Depends(get_db)],
 ) -> ProductBatchResult:
     return _batch_set_active(db, payload.product_ids, is_active=True)
+
+
+@router.post("/batch/export-quote")
+def batch_export_quote(
+    payload: ProductQuoteExportRequest,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+) -> StreamingResponse:
+    products = _get_batch_products(db, payload.product_ids, with_packagings=True)
+    quote_date = payload.quote_date or date.today()
+    workbook = build_quote_workbook(
+        products,
+        customer_name=payload.customer_name,
+        quote_date=quote_date,
+        image_root=request.app.state.uploads_directory,
+    )
+    filename = build_quote_filename(payload.customer_name, quote_date)
+    from urllib.parse import quote
+
+    content_disposition = (
+        f'attachment; filename="quote.xlsx"; filename*=UTF-8\'\'{quote(filename)}'
+    )
+    return StreamingResponse(
+        workbook,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": content_disposition},
+    )
 
 
 @router.post("/{product_id}/deactivate", response_model=ProductRead)
@@ -252,11 +286,17 @@ def _set_product_active(db: Session, product_id: int, *, is_active: bool) -> Pro
     return refreshed_product
 
 
-def _get_batch_products(db: Session, product_ids: list[int]) -> list[Product]:
+def _get_batch_products(
+    db: Session,
+    product_ids: list[int],
+    *,
+    with_packagings: bool = False,
+) -> list[Product]:
     unique_product_ids = list(dict.fromkeys(product_ids))
-    products = db.scalars(
-        select(Product).where(Product.id.in_(unique_product_ids))
-    ).all()
+    statement = select(Product).where(Product.id.in_(unique_product_ids))
+    if with_packagings:
+        statement = statement.options(selectinload(Product.packagings))
+    products = db.scalars(statement).all()
     products_by_id = {product.id: product for product in products}
     missing_ids = [
         product_id

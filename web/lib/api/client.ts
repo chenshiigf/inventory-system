@@ -85,3 +85,36 @@ export async function apiUpload<T>(path: string, body: FormData): Promise<T> {
 
   return (await response.json()) as T;
 }
+
+export async function apiBlobRequest(
+  path: string,
+  init: RequestInit = {},
+): Promise<Blob> {
+  const url = `${getApiBaseUrl()}${path}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+        ...init.headers,
+      },
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw error;
+    }
+    throw new Error("无法连接 FastAPI 服务，请确认后端已在运行。");
+  }
+
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    throw new Error(
+      getErrorDetail(payload) ?? `后端请求失败（HTTP ${response.status}）`,
+    );
+  }
+
+  return response.blob();
+}

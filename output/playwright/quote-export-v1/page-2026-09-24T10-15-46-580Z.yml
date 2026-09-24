@@ -1,0 +1,110 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e11]:
+          - strong [ref=e12]: 商品库存
+          - generic [ref=e13]: 家庭库存工作台
+        - menu [ref=e14]:
+          - menuitem [ref=e15] [cursor=pointer]:
+            - img "dashboard" [ref=e16]
+            - link "概览" [ref=e20]:
+              - /url: /
+          - menuitem [ref=e21] [cursor=pointer]:
+            - img "appstore" [ref=e22]
+            - link "商品库存" [ref=e26]:
+              - /url: /products
+          - menuitem [ref=e27] [cursor=pointer]:
+            - img "history" [ref=e28]
+            - link "库存流水" [ref=e32]:
+              - /url: /inventory-movements
+          - menuitem [ref=e33] [cursor=pointer]:
+            - img "tags" [ref=e34]
+            - link "分类管理" [ref=e38]:
+              - /url: /categories
+          - menuitem [ref=e39] [cursor=pointer]:
+            - img "shop" [ref=e40]
+            - link "仓库管理" [ref=e44]:
+              - /url: /warehouses
+          - menuitem [ref=e45] [cursor=pointer]:
+            - img "file-excel" [ref=e46]
+            - link "批量导入" [ref=e50]:
+              - /url: /products/import
+        - generic [ref=e51]: 商品与分类分开管理
+    - generic [ref=e52]:
+      - banner [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]: 系统功能
+          - generic [aria-hidden] [ref=e56]: /
+          - strong [ref=e57]: 商品库存
+        - generic [ref=e58]:
+          - generic [ref=e59]: SQLite 商品数据
+          - generic [ref=e60]: 入库 / 出库已保存到数据库
+      - main [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - heading "商品库存" [level=1] [ref=e64]
+            - generic [ref=e65]:
+              - button "批量操作" [ref=e66] [cursor=pointer]
+              - button "plus 新增商品" [disabled] [ref=e68]:
+                - generic:
+                  - img "plus"
+                - generic: 新增商品
+          - generic "仓库、商品分类、状态、库存与搜索" [ref=e69]:
+            - generic [ref=e70]:
+              - generic "全部仓库" [ref=e71]:
+                - text: 全部仓库
+                - combobox "选择仓库" [disabled] [ref=e72]
+              - img "down" [ref=e74]
+            - generic [ref=e77]:
+              - generic "全部分类" [ref=e78]:
+                - text: 全部分类
+                - combobox "选择商品分类" [disabled] [ref=e79]
+              - img "down" [ref=e81]
+            - generic [ref=e84] [cursor=pointer]:
+              - generic "在用商品" [ref=e85]:
+                - text: 在用商品
+                - combobox "选择商品状态" [ref=e86]
+              - img "down" [ref=e88]
+            - generic [ref=e91] [cursor=pointer]:
+              - generic "全部库存" [ref=e92]:
+                - text: 全部库存
+                - combobox "选择库存状态" [ref=e93]
+              - img "down" [ref=e95]
+            - textbox "搜索商品" [ref=e103]:
+              - /placeholder: 搜索编号、尺寸或备注
+            - generic [ref=e105]: 共 0 个商品
+          - region "商品库存列表" [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]:
+                - generic [ref=e109]: 当前范围
+                - strong [ref=e110]: 全部仓库 / 全部分类
+              - radiogroup "切换库存视图" [ref=e111]:
+                - generic [ref=e112]:
+                  - generic [ref=e113] [cursor=pointer]:
+                    - radio "表格视图" [checked]
+                    - generic "表格视图" [ref=e114]
+                  - generic [ref=e115] [cursor=pointer]:
+                    - radio "画廊视图"
+                    - generic "画廊视图" [ref=e116]
+            - generic [ref=e118]:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - table:
+                        - rowgroup:
+                          - row "商品编号 商品图片 尺寸 装箱数 单位 单价 当前箱数 备注 操作":
+                            - columnheader "商品编号"
+                            - columnheader "商品图片"
+                            - columnheader "尺寸"
+                            - columnheader "装箱数"
+                            - columnheader "单位"
+                            - columnheader "单价"
+                            - columnheader "当前箱数"
+                            - columnheader "备注"
+                            - columnheader "操作"
+                        - rowgroup:
+                          - row "没有符合条件的商品":
+                            - cell "没有符合条件的商品"
+  - button "Open Next.js Dev Tools" [ref=e131] [cursor=pointer]

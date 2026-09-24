@@ -1,9 +1,10 @@
-import { apiRequest } from "@/lib/api/client";
+import { apiBlobRequest, apiRequest } from "@/lib/api/client";
 import type {
   ProductApiRecord,
   ProductBatchResult,
   ProductCreatePayload,
   ProductListResponse,
+  ProductQuoteExportPayload,
   ProductStatus,
   ProductUpdatePayload,
   StockStatus,
@@ -114,5 +115,19 @@ export function batchActivateProducts(
   return apiRequest<ProductBatchResult>("/api/products/batch/activate", {
     method: "POST",
     body: JSON.stringify({ product_ids: productIds }),
+  });
+}
+
+export function exportBatchQuote(
+  productIds: number[],
+  payload: ProductQuoteExportPayload,
+): Promise<Blob> {
+  return apiBlobRequest("/api/products/batch/export-quote", {
+    method: "POST",
+    body: JSON.stringify({
+      product_ids: productIds,
+      ...(payload.customerName ? { customer_name: payload.customerName } : {}),
+      ...(payload.quoteDate ? { quote_date: payload.quoteDate } : {}),
+    }),
   });
 }

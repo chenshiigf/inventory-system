@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import PurePosixPath
 from typing import Annotated, Literal
@@ -285,6 +285,18 @@ class ProductBatchIdsRequest(BaseModel):
 
 class ProductBatchCategoryRequest(ProductBatchIdsRequest):
     category_id: CategoryId
+
+
+class ProductQuoteExportRequest(ProductBatchIdsRequest):
+    customer_name: str | None = Field(default=None, max_length=200)
+    quote_date: date | None = None
+
+    @field_validator("customer_name")
+    @classmethod
+    def trim_customer_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
 
 class ProductBatchResult(BaseModel):

@@ -15,6 +15,7 @@ interface BatchActionBarProps {
   onRemoveCurrentPage: () => void;
   onClearAll: () => void;
   onChangeCategory: () => void;
+  onExportQuote: () => void;
   onDeactivate: () => void;
   onActivate: () => void;
   onExit: () => void;
@@ -48,6 +49,7 @@ export default function BatchActionBar({
   onRemoveCurrentPage,
   onClearAll,
   onChangeCategory,
+  onExportQuote,
   onDeactivate,
   onActivate,
   onExit,
@@ -84,6 +86,9 @@ export default function BatchActionBar({
         </Button>
         <Button size="small" disabled={!hasSelection} onClick={onChangeCategory}>
           修改分类
+        </Button>
+        <Button size="small" disabled={!hasSelection} onClick={onExportQuote}>
+          导出报价单
         </Button>
         <ActionTooltip title={statusHint}>
           <Button

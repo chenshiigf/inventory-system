@@ -1,0 +1,387 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e11]:
+          - strong [ref=e12]: 商品库存
+          - generic [ref=e13]: 家庭库存工作台
+        - menu [ref=e14]:
+          - menuitem [ref=e15] [cursor=pointer]:
+            - img "dashboard" [ref=e16]
+            - link "概览" [ref=e20]:
+              - /url: /
+          - menuitem [ref=e21] [cursor=pointer]:
+            - img "appstore" [ref=e22]
+            - link "商品库存" [ref=e26]:
+              - /url: /products
+          - menuitem [ref=e27] [cursor=pointer]:
+            - img "history" [ref=e28]
+            - link "库存流水" [ref=e32]:
+              - /url: /inventory-movements
+          - menuitem [ref=e33] [cursor=pointer]:
+            - img "tags" [ref=e34]
+            - link "分类管理" [ref=e38]:
+              - /url: /categories
+          - menuitem [ref=e39] [cursor=pointer]:
+            - img "shop" [ref=e40]
+            - link "仓库管理" [ref=e44]:
+              - /url: /warehouses
+          - menuitem [ref=e45] [cursor=pointer]:
+            - img "file-excel" [ref=e46]
+            - link "批量导入" [ref=e50]:
+              - /url: /products/import
+        - generic [ref=e51]: 商品与分类分开管理
+    - generic [ref=e52]:
+      - banner [ref=e53]:
+        - generic [ref=e54]:
+          - generic [ref=e55]: 系统功能
+          - generic [aria-hidden] [ref=e56]: /
+          - strong [ref=e57]: 商品库存
+        - generic [ref=e58]:
+          - generic [ref=e59]: SQLite 商品数据
+          - generic [ref=e60]: 入库 / 出库已保存到数据库
+      - main [ref=e61]:
+        - generic [ref=e62]:
+          - generic [ref=e63]:
+            - heading "商品库存" [level=1] [ref=e64]
+            - button "plus 新增商品" [ref=e68] [cursor=pointer]:
+              - img "plus" [ref=e136]
+              - generic [ref=e140]: 新增商品
+          - generic "仓库、商品分类、状态、库存与搜索" [ref=e69]:
+            - generic [ref=e70] [cursor=pointer]:
+              - generic "全部仓库" [ref=e71]:
+                - text: 全部仓库
+                - combobox "选择仓库" [ref=e72]
+              - img "down" [ref=e74]
+            - generic [ref=e77]:
+              - generic "全部分类" [ref=e78]:
+                - text: 全部分类
+                - combobox "选择商品分类" [ref=e79]
+              - img "down" [ref=e81]
+              - button "Clear" [ref=e141] [cursor=pointer]:
+                - img "close-circle" [ref=e142]
+            - generic [ref=e84] [cursor=pointer]:
+              - generic "在用商品" [ref=e85]:
+                - text: 在用商品
+                - combobox "选择商品状态" [ref=e86]
+              - img "down" [ref=e88]
+            - generic [ref=e91] [cursor=pointer]:
+              - generic "全部库存" [ref=e92]:
+                - text: 全部库存
+                - combobox "选择库存状态" [ref=e93]
+              - img "down" [ref=e95]
+            - textbox "搜索商品" [ref=e103]:
+              - /placeholder: 搜索编号、尺寸或备注
+            - generic [ref=e105]: 共 31 个商品
+          - generic "商品批量操作" [ref=e863]:
+            - generic [ref=e864]:
+              - strong [ref=e865]: 已选择 0 / 100 个
+              - generic [ref=e866]: 当前页已选择 0 个
+            - generic [ref=e867]:
+              - button "全选当前页" [ref=e868] [cursor=pointer]
+              - button "取消当前页" [disabled] [ref=e870]
+              - button "清空全部" [disabled] [ref=e871]
+              - button "修改分类" [disabled] [ref=e872]
+              - button "导出报价单" [disabled] [ref=e873]
+              - button "停 用" [disabled] [ref=e874]
+              - button "启 用" [disabled] [ref=e875]
+            - button "退出批量模式" [ref=e876] [cursor=pointer]
+          - region "商品库存列表" [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]:
+                - generic [ref=e109]: 当前范围
+                - strong [ref=e110]: 全部仓库 / 全部分类
+              - radiogroup "切换库存视图" [ref=e111]:
+                - generic [ref=e112]:
+                  - generic [ref=e113] [cursor=pointer]:
+                    - radio "表格视图"
+                    - generic "表格视图" [ref=e114]
+                  - generic [ref=e115] [cursor=pointer]:
+                    - radio "画廊视图" [checked] [active]
+                    - generic "画廊视图" [ref=e116]
+            - generic [ref=e1159]:
+              - generic "商品画廊" [ref=e1160]:
+                - checkbox "01-03-019，当前库存 10 箱" [ref=e1161] [cursor=pointer]:
+                  - generic [ref=e1162]:
+                    - checkbox "选择商品 01-03-019" [ref=e1165]
+                    - img "01-03-019商品图片" [ref=e1167]
+                  - generic [ref=e1168]:
+                    - generic [ref=e1169]:
+                      - generic [ref=e1170]: 01-03-019
+                      - generic [ref=e1171]:
+                        - strong [ref=e1172]: "10"
+                        - generic [ref=e1173]: 箱
+                    - generic [ref=e1174]:
+                      - button "入库" [ref=e1175]
+                      - button "出库" [ref=e1177]
+                - checkbox "01-03-018，当前库存 2 箱" [ref=e1179] [cursor=pointer]:
+                  - generic [ref=e1180]:
+                    - checkbox "选择商品 01-03-018" [ref=e1183]
+                    - img "01-03-018商品图片" [ref=e1185]
+                  - generic [ref=e1186]:
+                    - generic [ref=e1187]:
+                      - generic [ref=e1188]: 01-03-018
+                      - generic [ref=e1189]:
+                        - strong [ref=e1190]: "2"
+                        - generic [ref=e1191]: 箱
+                    - generic [ref=e1192]:
+                      - button "入库" [ref=e1193]
+                      - button "出库" [ref=e1195]
+                - checkbox "01-03-017，当前库存 2 箱" [ref=e1197] [cursor=pointer]:
+                  - generic [ref=e1198]:
+                    - checkbox "选择商品 01-03-017" [ref=e1201]
+                    - img "01-03-017商品图片" [ref=e1203]
+                  - generic [ref=e1204]:
+                    - generic [ref=e1205]:
+                      - generic [ref=e1206]: 01-03-017
+                      - generic [ref=e1207]:
+                        - strong [ref=e1208]: "2"
+                        - generic [ref=e1209]: 箱
+                    - generic [ref=e1210]:
+                      - button "入库" [ref=e1211]
+                      - button "出库" [ref=e1213]
+                - checkbox "01-03-016，当前库存 3 箱" [ref=e1215] [cursor=pointer]:
+                  - generic [ref=e1216]:
+                    - checkbox "选择商品 01-03-016" [ref=e1219]
+                    - img "01-03-016商品图片" [ref=e1221]
+                  - generic [ref=e1222]:
+                    - generic [ref=e1223]:
+                      - generic [ref=e1224]: 01-03-016
+                      - generic [ref=e1225]:
+                        - strong [ref=e1226]: "3"
+                        - generic [ref=e1227]: 箱
+                    - generic [ref=e1228]:
+                      - button "入库" [ref=e1229]
+                      - button "出库" [ref=e1231]
+                - checkbox "01-03-015，当前库存 1 箱" [ref=e1233] [cursor=pointer]:
+                  - generic [ref=e1234]:
+                    - checkbox "选择商品 01-03-015" [ref=e1237]
+                    - img "01-03-015商品图片" [ref=e1239]
+                  - generic [ref=e1240]:
+                    - generic [ref=e1241]:
+                      - generic [ref=e1242]: 01-03-015
+                      - generic [ref=e1243]:
+                        - strong [ref=e1244]: "1"
+                        - generic [ref=e1245]: 箱
+                    - generic [ref=e1246]:
+                      - button "入库" [ref=e1247]
+                      - button "出库" [ref=e1249]
+                - checkbox "01-03-014，当前库存 2 箱" [ref=e1251] [cursor=pointer]:
+                  - generic [ref=e1252]:
+                    - checkbox "选择商品 01-03-014" [ref=e1255]
+                    - img "01-03-014商品图片" [ref=e1257]
+                  - generic [ref=e1258]:
+                    - generic [ref=e1259]:
+                      - generic [ref=e1260]: 01-03-014
+                      - generic [ref=e1261]:
+                        - strong [ref=e1262]: "2"
+                        - generic [ref=e1263]: 箱
+                    - generic [ref=e1264]:
+                      - button "入库" [ref=e1265]
+                      - button "出库" [ref=e1267]
+                - checkbox "01-03-013，当前库存 1 箱" [ref=e1269] [cursor=pointer]:
+                  - generic [ref=e1270]:
+                    - checkbox "选择商品 01-03-013" [ref=e1273]
+                    - img "01-03-013商品图片" [ref=e1275]
+                  - generic [ref=e1276]:
+                    - generic [ref=e1277]:
+                      - generic [ref=e1278]: 01-03-013
+                      - generic [ref=e1279]:
+                        - strong [ref=e1280]: "1"
+                        - generic [ref=e1281]: 箱
+                    - generic [ref=e1282]:
+                      - button "入库" [ref=e1283]
+                      - button "出库" [ref=e1285]
+                - checkbox "01-03-012，当前库存 1 箱" [ref=e1287] [cursor=pointer]:
+                  - generic [ref=e1288]:
+                    - checkbox "选择商品 01-03-012" [ref=e1291]
+                    - img "01-03-012商品图片" [ref=e1293]
+                  - generic [ref=e1294]:
+                    - generic [ref=e1295]:
+                      - generic [ref=e1296]: 01-03-012
+                      - generic [ref=e1297]:
+                        - strong [ref=e1298]: "1"
+                        - generic [ref=e1299]: 箱
+                    - generic [ref=e1300]:
+                      - button "入库" [ref=e1301]
+                      - button "出库" [ref=e1303]
+                - checkbox "01-03-011，当前库存 3 箱" [ref=e1305] [cursor=pointer]:
+                  - generic [ref=e1306]:
+                    - checkbox "选择商品 01-03-011" [ref=e1309]
+                    - img "01-03-011商品图片" [ref=e1311]
+                  - generic [ref=e1312]:
+                    - generic [ref=e1313]:
+                      - generic [ref=e1314]: 01-03-011
+                      - generic [ref=e1315]:
+                        - strong [ref=e1316]: "3"
+                        - generic [ref=e1317]: 箱
+                    - generic [ref=e1318]:
+                      - button "入库" [ref=e1319]
+                      - button "出库" [ref=e1321]
+                - checkbox "01-03-010，当前库存 2 箱" [ref=e1323] [cursor=pointer]:
+                  - generic [ref=e1324]:
+                    - checkbox "选择商品 01-03-010" [ref=e1327]
+                    - img "01-03-010商品图片" [ref=e1329]
+                  - generic [ref=e1330]:
+                    - generic [ref=e1331]:
+                      - generic [ref=e1332]: 01-03-010
+                      - generic [ref=e1333]:
+                        - strong [ref=e1334]: "2"
+                        - generic [ref=e1335]: 箱
+                    - generic [ref=e1336]:
+                      - button "入库" [ref=e1337]
+                      - button "出库" [ref=e1339]
+                - checkbox "01-03-009，当前库存 1 箱" [ref=e1341] [cursor=pointer]:
+                  - generic [ref=e1342]:
+                    - checkbox "选择商品 01-03-009" [ref=e1345]
+                    - img "01-03-009商品图片" [ref=e1347]
+                  - generic [ref=e1348]:
+                    - generic [ref=e1349]:
+                      - generic [ref=e1350]: 01-03-009
+                      - generic [ref=e1351]:
+                        - strong [ref=e1352]: "1"
+                        - generic [ref=e1353]: 箱
+                    - generic [ref=e1354]:
+                      - button "入库" [ref=e1355]
+                      - button "出库" [ref=e1357]
+                - checkbox "01-03-008，当前库存 1 箱" [ref=e1359] [cursor=pointer]:
+                  - generic [ref=e1360]:
+                    - checkbox "选择商品 01-03-008" [ref=e1363]
+                    - img "01-03-008商品图片" [ref=e1365]
+                  - generic [ref=e1366]:
+                    - generic [ref=e1367]:
+                      - generic [ref=e1368]: 01-03-008
+                      - generic [ref=e1369]:
+                        - strong [ref=e1370]: "1"
+                        - generic [ref=e1371]: 箱
+                    - generic [ref=e1372]:
+                      - button "入库" [ref=e1373]
+                      - button "出库" [ref=e1375]
+                - checkbox "01-03-007，当前库存 8 箱" [ref=e1377] [cursor=pointer]:
+                  - generic [ref=e1378]:
+                    - checkbox "选择商品 01-03-007" [ref=e1381]
+                    - img "01-03-007商品图片" [ref=e1383]
+                  - generic [ref=e1384]:
+                    - generic [ref=e1385]:
+                      - generic [ref=e1386]: 01-03-007
+                      - generic [ref=e1387]:
+                        - strong [ref=e1388]: "8"
+                        - generic [ref=e1389]: 箱
+                    - generic [ref=e1390]:
+                      - button "入库" [ref=e1391]
+                      - button "出库" [ref=e1393]
+                - checkbox "01-03-006，当前库存 19 箱" [ref=e1395] [cursor=pointer]:
+                  - generic [ref=e1396]:
+                    - checkbox "选择商品 01-03-006" [ref=e1399]
+                    - img "01-03-006商品图片" [ref=e1401]
+                  - generic [ref=e1402]:
+                    - generic [ref=e1403]:
+                      - generic [ref=e1404]: 01-03-006
+                      - generic [ref=e1405]:
+                        - strong [ref=e1406]: "19"
+                        - generic [ref=e1407]: 箱
+                    - generic [ref=e1408]:
+                      - button "入库" [ref=e1409]
+                      - button "出库" [ref=e1411]
+                - checkbox "01-03-005，当前库存 19 箱" [ref=e1413] [cursor=pointer]:
+                  - generic [ref=e1414]:
+                    - checkbox "选择商品 01-03-005" [ref=e1417]
+                    - img "01-03-005商品图片" [ref=e1419]
+                  - generic [ref=e1420]:
+                    - generic [ref=e1421]:
+                      - generic [ref=e1422]: 01-03-005
+                      - generic [ref=e1423]:
+                        - strong [ref=e1424]: "19"
+                        - generic [ref=e1425]: 箱
+                    - generic [ref=e1426]:
+                      - button "入库" [ref=e1427]
+                      - button "出库" [ref=e1429]
+                - checkbox "01-03-004，当前库存 75 箱" [ref=e1431] [cursor=pointer]:
+                  - generic [ref=e1432]:
+                    - checkbox "选择商品 01-03-004" [ref=e1435]
+                    - img "01-03-004商品图片" [ref=e1437]
+                  - generic [ref=e1438]:
+                    - generic [ref=e1439]:
+                      - generic [ref=e1440]: 01-03-004
+                      - generic [ref=e1441]:
+                        - strong [ref=e1442]: "75"
+                        - generic [ref=e1443]: 箱
+                    - generic [ref=e1444]:
+                      - button "入库" [ref=e1445]
+                      - button "出库" [ref=e1447]
+                - checkbox "01-03-003，当前库存 14 箱" [ref=e1449] [cursor=pointer]:
+                  - generic [ref=e1450]:
+                    - checkbox "选择商品 01-03-003" [ref=e1453]
+                    - img "01-03-003商品图片" [ref=e1455]
+                  - generic [ref=e1456]:
+                    - generic [ref=e1457]:
+                      - generic [ref=e1458]: 01-03-003
+                      - generic [ref=e1459]:
+                        - strong [ref=e1460]: "14"
+                        - generic [ref=e1461]: 箱
+                    - generic [ref=e1462]:
+                      - button "入库" [ref=e1463]
+                      - button "出库" [ref=e1465]
+                - checkbox "01-03-002，当前库存 37 箱" [ref=e1467] [cursor=pointer]:
+                  - generic [ref=e1468]:
+                    - checkbox "选择商品 01-03-002" [ref=e1471]
+                    - img "01-03-002商品图片" [ref=e1473]
+                  - generic [ref=e1474]:
+                    - generic [ref=e1475]:
+                      - generic [ref=e1476]: 01-03-002
+                      - generic [ref=e1477]:
+                        - strong [ref=e1478]: "37"
+                        - generic [ref=e1479]: 箱
+                    - generic [ref=e1480]:
+                      - button "入库" [ref=e1481]
+                      - button "出库" [ref=e1483]
+                - checkbox "01-03-001，当前库存 11 箱" [ref=e1485] [cursor=pointer]:
+                  - generic [ref=e1486]:
+                    - checkbox "选择商品 01-03-001" [ref=e1489]
+                    - img "01-03-001商品图片" [ref=e1491]
+                  - generic [ref=e1492]:
+                    - generic [ref=e1493]:
+                      - generic [ref=e1494]: 01-03-001
+                      - generic [ref=e1495]:
+                        - strong [ref=e1496]: "11"
+                        - generic [ref=e1497]: 箱
+                    - generic [ref=e1498]:
+                      - button "入库" [ref=e1499]
+                      - button "出库" [ref=e1501]
+                - checkbox "01-01-009，当前库存 5 箱" [ref=e1503] [cursor=pointer]:
+                  - generic [ref=e1504]:
+                    - checkbox "选择商品 01-01-009" [ref=e1507]
+                    - generic "暂无图片" [ref=e1508]
+                  - generic [ref=e1513]:
+                    - generic [ref=e1514]:
+                      - generic [ref=e1515]: 01-01-009
+                      - generic [ref=e1516]:
+                        - strong [ref=e1517]: "5"
+                        - generic [ref=e1518]: 箱
+                    - generic [ref=e1519]:
+                      - button "入库" [ref=e1520]
+                      - button "出库" [ref=e1522]
+              - list [ref=e1524]:
+                - listitem [ref=e1525]: 1-20 条，共 31 条
+                - listitem "上一页" [ref=e1526]:
+                  - button [disabled] [ref=e1527]:
+                    - img "left" [ref=e1528]
+                - listitem "1" [ref=e1531] [cursor=pointer]
+                - listitem "2" [ref=e1533] [cursor=pointer]
+                - listitem "下一页" [ref=e1535] [cursor=pointer]:
+                  - button [ref=e1536]:
+                    - img "right" [ref=e1537]
+                - listitem [ref=e1540]:
+                  - generic [ref=e1541]:
+                    - generic "20 条/页" [ref=e1542]:
+                      - text: 20 条/页
+                      - combobox "页码" [ref=e1543]
+                    - img "down" [ref=e1545]
+  - button "Open Next.js Dev Tools" [ref=e1548] [cursor=pointer]:
+    - generic [ref=e1551]:
+      - text: Rendering
+      - generic [ref=e1552]:
+        - generic [ref=e1553]: .
+        - generic [ref=e1554]: .
+        - generic [ref=e1555]: .
+  - alert [ref=e862]: 商品库存

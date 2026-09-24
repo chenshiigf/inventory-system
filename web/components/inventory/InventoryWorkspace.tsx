@@ -9,6 +9,9 @@ import BatchActionBar, {
   type BatchStatusSelection,
 } from "@/components/inventory/BatchActionBar";
 import BatchCategoryModal from "@/components/inventory/BatchCategoryModal";
+import BatchQuoteExportModal, {
+  type BatchQuoteExportValues,
+} from "@/components/inventory/BatchQuoteExportModal";
 import InventoryAdjustmentModal from "@/components/inventory/InventoryAdjustmentModal";
 import InventoryMovementsModal from "@/components/inventory/InventoryMovementsModal";
 import ProductGallery from "@/components/inventory/ProductGallery";
@@ -23,6 +26,7 @@ import {
   createProduct as createProductRequest,
   activateProduct,
   deactivateProduct,
+  exportBatchQuote,
   listProducts,
   updateProduct as updateProductRequest,
 } from "@/lib/api/products";
@@ -144,6 +148,8 @@ export default function InventoryWorkspace({
   const [batchMode, setBatchMode] = useState(false);
   const [batchCategoryModalOpen, setBatchCategoryModalOpen] = useState(false);
   const [batchCategorySubmitting, setBatchCategorySubmitting] = useState(false);
+  const [batchQuoteModalOpen, setBatchQuoteModalOpen] = useState(false);
+  const [batchQuoteSubmitting, setBatchQuoteSubmitting] = useState(false);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
   const {
@@ -599,6 +605,35 @@ export default function InventoryWorkspace({
     }
   }
 
+  async function confirmBatchQuoteExport(values: BatchQuoteExportValues) {
+    const productIds = Array.from(selectedProductIds);
+    if (productIds.length === 0 || !values.quoteDate) {
+      return;
+    }
+
+    setBatchQuoteSubmitting(true);
+    try {
+      const workbook = await exportBatchQuote(productIds, values);
+      const downloadUrl = URL.createObjectURL(workbook);
+      const link = document.createElement("a");
+      const safeCustomerName = values.customerName
+        .replace(/[\\/:*?"<>|]/g, "_")
+        .replace(/\s+/g, " ")
+        .trim();
+      const namePart = safeCustomerName ? `_${safeCustomerName}` : "";
+      link.href = downloadUrl;
+      link.download = `报价单${namePart}_${values.quoteDate}.xlsx`;
+      link.click();
+      URL.revokeObjectURL(downloadUrl);
+      setBatchQuoteModalOpen(false);
+      messageApi.success("报价单已导出");
+    } catch (error) {
+      messageApi.error(getErrorMessage(error));
+    } finally {
+      setBatchQuoteSubmitting(false);
+    }
+  }
+
   function confirmBatchDeactivate() {
     if (selectedStatus !== "active") {
       return;
@@ -895,6 +930,7 @@ export default function InventoryWorkspace({
             }
             onClearAll={clearSelection}
             onChangeCategory={() => setBatchCategoryModalOpen(true)}
+            onExportQuote={() => setBatchQuoteModalOpen(true)}
             onDeactivate={confirmBatchDeactivate}
             onActivate={confirmBatchActivate}
             onExit={exitBatchMode}
@@ -1007,6 +1043,15 @@ export default function InventoryWorkspace({
         confirmLoading={batchCategorySubmitting}
         onCancel={() => setBatchCategoryModalOpen(false)}
         onConfirm={confirmBatchCategory}
+      />
+
+      <BatchQuoteExportModal
+        key={batchQuoteModalOpen ? "batch-quote-open" : "batch-quote-closed"}
+        open={batchQuoteModalOpen}
+        selectedCount={selectedCount}
+        confirmLoading={batchQuoteSubmitting}
+        onCancel={() => setBatchQuoteModalOpen(false)}
+        onConfirm={confirmBatchQuoteExport}
       />
 
       {stockMovement && activeMovementProduct && (

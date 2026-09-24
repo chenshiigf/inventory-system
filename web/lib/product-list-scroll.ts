@@ -1,7 +1,12 @@
 const PRODUCT_LIST_SCROLL_PREFIX = "product-list-scroll:";
+const PRODUCT_LIST_SCROLL_PENDING_PREFIX = "product-list-scroll-pending:";
 
 function getStorageKey(productListHref: string): string {
   return `${PRODUCT_LIST_SCROLL_PREFIX}${productListHref}`;
+}
+
+function getPendingStorageKey(productListHref: string): string {
+  return `${PRODUCT_LIST_SCROLL_PENDING_PREFIX}${productListHref}`;
 }
 
 export function saveProductListScroll(
@@ -42,5 +47,42 @@ export function readProductListScroll(productListHref: string): number | null {
     return Number.isFinite(scrollY) && scrollY >= 0 ? scrollY : null;
   } catch {
     return null;
+  }
+}
+
+export function markProductListScrollPending(productListHref: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.setItem(getPendingStorageKey(productListHref), "1");
+  } catch {
+    // Storage may be unavailable in private browsing or restricted contexts.
+  }
+}
+
+export function isProductListScrollPending(productListHref: string): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    return window.sessionStorage.getItem(getPendingStorageKey(productListHref)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function consumeProductListScroll(productListHref: string): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.sessionStorage.removeItem(getPendingStorageKey(productListHref));
+    window.sessionStorage.removeItem(getStorageKey(productListHref));
+  } catch {
+    // Storage may be unavailable in private browsing or restricted contexts.
   }
 }

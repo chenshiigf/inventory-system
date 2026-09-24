@@ -47,6 +47,9 @@ import {
   type ProductListState,
 } from "@/lib/product-list-state";
 import {
+  consumeProductListScroll,
+  isProductListScrollPending,
+  markProductListScrollPending,
   readProductListScroll,
   saveProductListScroll,
 } from "@/lib/product-list-scroll";
@@ -142,7 +145,6 @@ export default function InventoryWorkspace({
   const [batchCategorySubmitting, setBatchCategorySubmitting] = useState(false);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
-  const restoredScrollUrlsRef = useRef(new Set<string>());
   const warehouseValue: WarehouseSelection = urlState.warehouseId ?? "all";
   const warehouseId = urlState.warehouseId ?? undefined;
   const categoryValue = useMemo<CategorySelection>(() => {
@@ -191,12 +193,14 @@ export default function InventoryWorkspace({
     () => buildProductListHref(currentListState),
     [currentListState],
   );
+  const initialProductListHrefRef = useRef(productListHref);
   const getProductDetailHref = useCallback(
     (productId: number) => buildProductDetailHref(productId, productListHref),
     [productListHref],
   );
   const handleBeforeProductDetail = useCallback(() => {
     saveProductListScroll(productListHref);
+    markProductListScrollPending(productListHref);
   }, [productListHref]);
   const selectedWarehouseName =
     warehouseValue === "all"
@@ -210,13 +214,21 @@ export default function InventoryWorkspace({
     loadError?.requestKey === requestKey ? loadError.message : null;
 
   useEffect(() => {
-    if (loading || restoredScrollUrlsRef.current.has(productListHref)) {
+    if (isProductListScrollPending(initialProductListHrefRef.current)) {
+      return;
+    }
+
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, []);
+
+  useEffect(() => {
+    if (loading || !isProductListScrollPending(productListHref)) {
       return;
     }
 
     const savedScrollY = readProductListScroll(productListHref);
     if (savedScrollY === null) {
-      restoredScrollUrlsRef.current.add(productListHref);
+      consumeProductListScroll(productListHref);
       return;
     }
 
@@ -237,9 +249,19 @@ export default function InventoryWorkspace({
           viewMode === "gallery" ? ".product-gallery" : ".inventory-table",
         ),
       );
+      const listImages = listRendered
+        ? Array.from(
+            document.querySelectorAll<HTMLImageElement>(
+              viewMode === "gallery"
+                ? ".product-gallery img"
+                : ".inventory-table img",
+            ),
+          )
+        : [];
+      const listImagesReady = listImages.every((image) => image.complete);
 
       if (
-        (listRendered && maxScrollY >= savedScrollY) ||
+        (listRendered && listImagesReady && maxScrollY >= savedScrollY) ||
         frameCount >= 120
       ) {
         window.scrollTo({
@@ -247,7 +269,7 @@ export default function InventoryWorkspace({
           left: 0,
           behavior: "auto",
         });
-        restoredScrollUrlsRef.current.add(productListHref);
+        consumeProductListScroll(productListHref);
         return;
       }
 
@@ -391,7 +413,14 @@ export default function InventoryWorkspace({
     ? products.find((product) => product.id === stockMovement.product.id)
     : undefined;
 
-  function replaceProductListUrl(overrides: Partial<ProductListState>) {
+  function replaceProductListUrl(
+    overrides: Partial<ProductListState>,
+    options: { scrollToTop?: boolean } = {},
+  ) {
+    if (options.scrollToTop) {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+
     router.replace(
       buildProductListHref({ ...currentListState, ...overrides }),
       { scroll: false },
@@ -402,46 +431,55 @@ export default function InventoryWorkspace({
     clearSelection();
     const nextCategoryValue = value.length > 0 ? value : ["all"];
     const nextCategory = nextCategoryValue[nextCategoryValue.length - 1];
-    replaceProductListUrl({
-      categoryId: typeof nextCategory === "number" ? nextCategory : null,
-      page: 1,
-    });
+    replaceProductListUrl(
+      {
+        categoryId: typeof nextCategory === "number" ? nextCategory : null,
+        page: 1,
+      },
+      { scrollToTop: true },
+    );
   }
 
   function handleWarehouseChange(value: WarehouseSelection) {
     clearSelection();
     setFilterCategoriesLoading(true);
     setFilterCategoriesError(null);
-    replaceProductListUrl({
-      warehouseId: value === "all" ? null : value,
-      categoryId: null,
-      page: 1,
-    });
+    replaceProductListUrl(
+      {
+        warehouseId: value === "all" ? null : value,
+        categoryId: null,
+        page: 1,
+      },
+      { scrollToTop: true },
+    );
   }
 
   function handleSearchChange(value: string) {
     clearSelection();
-    replaceProductListUrl({ search: value, page: 1 });
+    replaceProductListUrl({ search: value, page: 1 }, { scrollToTop: true });
   }
 
   function handleStatusChange(value: ProductStatus) {
     clearSelection();
-    replaceProductListUrl({ status: value, page: 1 });
+    replaceProductListUrl({ status: value, page: 1 }, { scrollToTop: true });
   }
 
   function handleStockStatusChange(value: StockStatus) {
     clearSelection();
-    replaceProductListUrl({ stockStatus: value, page: 1 });
+    replaceProductListUrl({ stockStatus: value, page: 1 }, { scrollToTop: true });
   }
 
   function handlePaginationChange(nextPage: number, nextPageSize: number) {
     clearSelection();
     const resolvedPage = nextPageSize === pageSize ? nextPage : 1;
-    replaceProductListUrl({ page: resolvedPage, pageSize: nextPageSize });
+    replaceProductListUrl(
+      { page: resolvedPage, pageSize: nextPageSize },
+      { scrollToTop: true },
+    );
   }
 
   function handleViewModeChange(value: InventoryViewMode) {
-    replaceProductListUrl({ view: value });
+    replaceProductListUrl({ view: value }, { scrollToTop: true });
   }
 
   function enterBatchMode() {

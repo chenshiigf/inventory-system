@@ -2,11 +2,11 @@
 
 import { SearchOutlined } from "@ant-design/icons";
 import { Cascader, Input, Select } from "antd";
+import StockRangeFilter from "@/components/inventory/StockRangeFilter";
 import type {
   CategorySelection,
   InventoryCategoryOption,
   ProductStatus,
-  StockStatus,
   WarehouseRead,
   WarehouseSelection,
 } from "@/types/inventory";
@@ -23,8 +23,9 @@ interface InventoryToolbarProps {
   onSearchChange: (value: string) => void;
   statusValue: ProductStatus;
   onStatusChange: (value: ProductStatus) => void;
-  stockStatusValue: StockStatus;
-  onStockStatusChange: (value: StockStatus) => void;
+  stockMin: number | null;
+  stockMax: number | null;
+  onStockRangeChange: (stockMin: number | null, stockMax: number | null) => void;
   resultCount: number;
   categoryDisabled?: boolean;
 }
@@ -41,8 +42,9 @@ export default function InventoryToolbar({
   onSearchChange,
   statusValue,
   onStatusChange,
-  stockStatusValue,
-  onStockStatusChange,
+  stockMin,
+  stockMax,
+  onStockRangeChange,
   resultCount,
   categoryDisabled = false,
 }: InventoryToolbarProps) {
@@ -88,16 +90,10 @@ export default function InventoryToolbar({
         ]}
         onChange={onStatusChange}
       />
-      <Select<StockStatus>
-        className="inventory-stock-status-picker"
-        aria-label="选择库存状态"
-        value={stockStatusValue}
-        options={[
-          { label: "全部库存", value: "all" },
-          { label: "有库存", value: "in_stock" },
-          { label: "零库存", value: "zero" },
-        ]}
-        onChange={onStockStatusChange}
+      <StockRangeFilter
+        stockMin={stockMin}
+        stockMax={stockMax}
+        onChange={onStockRangeChange}
       />
       <Input
         className="inventory-search"

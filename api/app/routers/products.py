@@ -44,7 +44,19 @@ def list_products(
     stock_status: Annotated[
         Literal["all", "in_stock", "zero"], Query()
     ] = "all",
+    stock_min: Annotated[int | None, Query(ge=0)] = None,
+    stock_max: Annotated[int | None, Query(ge=0)] = None,
 ) -> ProductListRead:
+    if (
+        stock_min is not None
+        and stock_max is not None
+        and stock_min > stock_max
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="最少箱数不能大于最多箱数",
+        )
+
     statement = select(Product).options(selectinload(Product.packagings))
     count_statement = select(func.count(Product.id))
     filters = []
@@ -88,7 +100,12 @@ def list_products(
         .where(ProductPackaging.product_id == Product.id)
         .scalar_subquery()
     )
-    if stock_status == "in_stock":
+    if stock_min is not None or stock_max is not None:
+        if stock_min is not None:
+            filters.append(total_stock >= stock_min)
+        if stock_max is not None:
+            filters.append(total_stock <= stock_max)
+    elif stock_status == "in_stock":
         filters.append(total_stock > 0)
     elif stock_status == "zero":
         filters.append(total_stock == 0)

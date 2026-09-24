@@ -450,3 +450,135 @@ def test_stock_status_rejects_unknown_value(lifecycle_context) -> None:
     response = client.get("/api/products?stock_status=low")
 
     assert response.status_code == 422
+
+
+def test_stock_range_filters_total_cartons_and_filtered_pagination_total(
+    lifecycle_context,
+) -> None:
+    client, _session_factory, ids = lifecycle_context
+    carton_totals = [0, 1, 10, 11, 13, 20, 50, 51, 100, 101, 1000]
+    products_by_total: dict[int, int] = {}
+
+    for carton_total in carton_totals:
+        packagings = (
+            [
+                {"packing_qty": 240, "carton_count": 8},
+                {"packing_qty": 144, "carton_count": 5},
+            ]
+            if carton_total == 13
+            else [{"packing_qty": 240, "carton_count": carton_total}]
+        )
+        product = create_product(
+            client,
+            ids,
+            size=f"箱数范围-{carton_total}",
+            packagings=packagings,
+        )
+        products_by_total[carton_total] = int(product["id"])
+
+    cases = [
+        ({}, carton_totals),
+        ({"stock_min": 0, "stock_max": 0}, [0]),
+        ({"stock_min": 1, "stock_max": 10}, [1, 10]),
+        ({"stock_min": 11}, [11, 13, 20, 50, 51, 100, 101, 1000]),
+        ({"stock_min": 51}, [51, 100, 101, 1000]),
+        ({"stock_min": 101}, [101, 1000]),
+        ({"stock_max": 10}, [0, 1, 10]),
+        ({"stock_min": 20, "stock_max": 50}, [20, 50]),
+        ({"stock_min": 1000}, [1000]),
+    ]
+
+    for params, expected_totals in cases:
+        response = client.get("/api/products", params=params)
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        expected_ids = {products_by_total[value] for value in expected_totals}
+        assert payload["total"] == len(expected_ids)
+        assert {item["id"] for item in payload["items"]} == expected_ids
+
+    page_response = client.get(
+        "/api/products",
+        params={"stock_min": 11, "page": 2, "page_size": 3},
+    )
+    assert page_response.status_code == 200
+    assert page_response.json()["total"] == 8
+    assert page_response.json()["page"] == 2
+    assert len(page_response.json()["items"]) == 3
+
+
+def test_stock_range_combines_with_other_filters_and_takes_precedence(
+    lifecycle_context,
+) -> None:
+    client, _session_factory, ids = lifecycle_context
+    target = create_product(
+        client,
+        ids,
+        warehouse_id=ids["tiger_warehouse"],
+        category_id=ids["bowl"],
+        size="范围组合目标",
+        packagings=[
+            {"packing_qty": 240, "carton_count": 8},
+            {"packing_qty": 144, "carton_count": 5},
+        ],
+    )
+    wrong_warehouse = create_product(
+        client,
+        ids,
+        warehouse_id=ids["main_warehouse"],
+        category_id=ids["bowl"],
+        size="范围组合目标",
+        packagings=[{"packing_qty": 240, "carton_count": 13}],
+    )
+    wrong_category = create_product(
+        client,
+        ids,
+        warehouse_id=ids["tiger_warehouse"],
+        size="范围组合目标",
+        packagings=[{"packing_qty": 240, "carton_count": 13}],
+    )
+    inactive = create_product(
+        client,
+        ids,
+        warehouse_id=ids["tiger_warehouse"],
+        category_id=ids["bowl"],
+        size="范围组合目标",
+        packagings=[{"packing_qty": 240, "carton_count": 13}],
+    )
+    assert client.post(f"/api/products/{inactive['id']}/deactivate").status_code == 200
+
+    response = client.get(
+        "/api/products",
+        params={
+            "stock_min": 11,
+            "stock_status": "zero",
+            "status": "active",
+            "warehouse_id": ids["tiger_warehouse"],
+            "category_id": ids["bowl"],
+            "search": "范围组合目标",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert [item["id"] for item in response.json()["items"]] == [target["id"]]
+    assert wrong_warehouse["id"] != target["id"]
+    assert wrong_category["id"] != target["id"]
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {"stock_min": -1},
+        {"stock_max": -1},
+        {"stock_min": "1.5"},
+        {"stock_max": "2.5"},
+        {"stock_min": 20, "stock_max": 10},
+    ],
+)
+def test_stock_range_rejects_invalid_bounds(lifecycle_context, params) -> None:
+    client, _session_factory, _ids = lifecycle_context
+
+    response = client.get("/api/products", params=params)
+
+    assert response.status_code == 422

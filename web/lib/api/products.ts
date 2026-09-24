@@ -7,7 +7,6 @@ import type {
   ProductQuoteExportPayload,
   ProductStatus,
   ProductUpdatePayload,
-  StockStatus,
 } from "@/types/inventory";
 
 interface ProductListParams {
@@ -17,7 +16,8 @@ interface ProductListParams {
   categoryId?: number;
   warehouseId?: number;
   status?: ProductStatus;
-  stockStatus?: StockStatus;
+  stockMin?: number | null;
+  stockMax?: number | null;
 }
 
 export function listProducts(
@@ -40,8 +40,11 @@ export function listProducts(
   if (params.status !== undefined) {
     query.set("status", params.status);
   }
-  if (params.stockStatus !== undefined) {
-    query.set("stock_status", params.stockStatus);
+  if (params.stockMin !== undefined && params.stockMin !== null) {
+    query.set("stock_min", String(params.stockMin));
+  }
+  if (params.stockMax !== undefined && params.stockMax !== null) {
+    query.set("stock_max", String(params.stockMax));
   }
   return apiRequest<ProductListResponse>(`/api/products?${query.toString()}`, {
     method: "GET",

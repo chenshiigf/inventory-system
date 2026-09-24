@@ -69,7 +69,6 @@ import type {
   ProductEditorFormValues,
   ProductUpdatePayload,
   ProductStatus,
-  StockStatus,
   StockMovementDirection,
   StockAdjustmentValues,
   StockMovementValues,
@@ -174,7 +173,8 @@ export default function InventoryWorkspace({
   const categoryId = urlState.categoryId ?? undefined;
   const searchValue = urlState.search;
   const statusValue = urlState.status;
-  const stockStatusValue = urlState.stockStatus;
+  const stockMinValue = urlState.stockMin;
+  const stockMaxValue = urlState.stockMax;
   const viewMode: InventoryViewMode = urlState.view;
   const currentPage = urlState.page;
   const pageSize = urlState.pageSize;
@@ -224,7 +224,7 @@ export default function InventoryWorkspace({
       : warehouses.find((warehouse) => warehouse.id === warehouseValue)?.name ??
         "仓库";
   const currentRangeLabel = `${selectedWarehouseName} / ${currentCategoryLabel}`;
-  const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${statusValue}:${stockStatusValue}:${warehouseId ?? "all"}:${categoryId ?? "all"}`;
+  const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${statusValue}:${stockMinValue ?? "none"}:${stockMaxValue ?? "none"}:${warehouseId ?? "all"}:${categoryId ?? "all"}`;
   const loading = completedRequestKey !== requestKey;
   const visibleLoadError =
     loadError?.requestKey === requestKey ? loadError.message : null;
@@ -386,7 +386,8 @@ export default function InventoryWorkspace({
         categoryId,
         warehouseId,
         status: statusValue,
-        stockStatus: stockStatusValue,
+        stockMin: stockMinValue,
+        stockMax: stockMaxValue,
       },
       controller.signal,
     )
@@ -420,7 +421,8 @@ export default function InventoryWorkspace({
     reloadCounter,
     requestKey,
     searchValue,
-    stockStatusValue,
+    stockMinValue,
+    stockMaxValue,
     statusValue,
     warehouseId,
   ]);
@@ -476,8 +478,14 @@ export default function InventoryWorkspace({
     replaceProductListUrl({ status: value, page: 1 }, { scrollToTop: true });
   }
 
-  function handleStockStatusChange(value: StockStatus) {
-    replaceProductListUrl({ stockStatus: value, page: 1 }, { scrollToTop: true });
+  function handleStockRangeChange(
+    stockMin: number | null,
+    stockMax: number | null,
+  ) {
+    replaceProductListUrl(
+      { stockMin, stockMax, page: 1 },
+      { scrollToTop: true },
+    );
   }
 
   function handlePaginationChange(nextPage: number, nextPageSize: number) {
@@ -906,8 +914,9 @@ export default function InventoryWorkspace({
           onSearchChange={handleSearchChange}
           statusValue={statusValue}
           onStatusChange={handleStatusChange}
-          stockStatusValue={stockStatusValue}
-          onStockStatusChange={handleStockStatusChange}
+          stockMin={stockMinValue}
+          stockMax={stockMaxValue}
+          onStockRangeChange={handleStockRangeChange}
           resultCount={total}
           categoryDisabled={
             categoriesLoading ||

@@ -261,9 +261,75 @@ textarea {
   flex: 0 0 132px;
 }
 
-.inventory-stock-status-picker {
-  width: 132px;
-  flex: 0 0 132px;
+.inventory-stock-range-trigger {
+  min-width: 132px;
+  max-width: 190px;
+  flex: 0 0 auto;
+  justify-content: space-between;
+  gap: 9px;
+  white-space: nowrap;
+}
+
+.stock-range-trigger-caret {
+  color: #8c8c8c;
+  font-size: 10px;
+}
+
+.stock-range-filter-content {
+  width: 272px;
+}
+
+.stock-range-section-label {
+  margin-bottom: 7px;
+  color: #667085;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.stock-range-quick-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.stock-range-quick-grid .ant-btn {
+  width: 100%;
+  height: 28px;
+  padding-inline: 4px;
+  font-size: 12px;
+}
+
+.stock-range-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: #8c8c8c;
+  text-align: center;
+}
+
+.stock-range-input-row .ant-input {
+  height: 30px;
+  text-align: left;
+}
+
+.stock-range-validation-error {
+  margin-top: 5px;
+  color: #cf1322;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.stock-range-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.stock-range-popover .ant-popover-inner {
+  padding: 12px;
 }
 
 .inventory-search {
@@ -2371,7 +2437,7 @@ textarea {
     flex: 1 1 100%;
   }
 
-  .inventory-stock-status-picker {
+  .inventory-stock-range-trigger {
     width: 100%;
     flex: 1 1 100%;
   }

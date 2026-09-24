@@ -1,4 +1,4 @@
-import type { ProductStatus, StockStatus } from "@/types/inventory";
+import type { ProductStatus } from "@/types/inventory";
 
 export type ProductListView = "table" | "gallery";
 
@@ -7,7 +7,8 @@ export interface ProductListState {
   warehouseId: number | null;
   categoryId: number | null;
   status: ProductStatus;
-  stockStatus: StockStatus;
+  stockMin: number | null;
+  stockMax: number | null;
   search: string;
   page: number;
   pageSize: number;
@@ -18,7 +19,8 @@ export const DEFAULT_PRODUCT_LIST_STATE: ProductListState = {
   warehouseId: null,
   categoryId: null,
   status: "active",
-  stockStatus: "all",
+  stockMin: null,
+  stockMax: null,
   search: "",
   page: 1,
   pageSize: 20,
@@ -39,6 +41,13 @@ function getSearchParam(
   return Array.isArray(value) ? value[0] : value;
 }
 
+function hasSearchParam(source: ProductListSearchSource, name: string): boolean {
+  if (source instanceof URLSearchParams) {
+    return source.has(name);
+  }
+  return source[name] !== undefined;
+}
+
 function parsePositiveInteger(value: string | undefined): number | null {
   if (!value || !/^\d+$/.test(value)) {
     return null;
@@ -46,6 +55,15 @@ function parsePositiveInteger(value: string | undefined): number | null {
 
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parseNonNegativeInteger(value: string | undefined): number | null {
+  if (value === undefined || !/^\d+$/.test(value)) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 function parseAllowedInteger(
@@ -62,6 +80,15 @@ export function parseProductListState(
   const view = getSearchParam(source ?? {}, "view");
   const status = getSearchParam(source ?? {}, "status");
   const stockStatus = getSearchParam(source ?? {}, "stock_status");
+  const hasStockRange =
+    hasSearchParam(source ?? {}, "stock_min") ||
+    hasSearchParam(source ?? {}, "stock_max");
+  const stockMin = parseNonNegativeInteger(
+    getSearchParam(source ?? {}, "stock_min"),
+  );
+  const stockMax = parseNonNegativeInteger(
+    getSearchParam(source ?? {}, "stock_max"),
+  );
   const warehouseId = parsePositiveInteger(
     getSearchParam(source ?? {}, "warehouse_id"),
   );
@@ -75,10 +102,18 @@ export function parseProductListState(
     categoryId,
     status:
       status === "inactive" || status === "all" ? status : "active",
-    stockStatus:
-      stockStatus === "in_stock" || stockStatus === "zero"
-        ? stockStatus
-        : "all",
+    stockMin: hasStockRange
+      ? stockMin
+      : stockStatus === "in_stock"
+        ? 1
+        : stockStatus === "zero"
+          ? 0
+          : null,
+    stockMax: hasStockRange
+      ? stockMax
+      : stockStatus === "zero"
+        ? 0
+        : null,
     search: getSearchParam(source ?? {}, "search") ?? "",
     page: parsePositiveInteger(getSearchParam(source ?? {}, "page")) ?? 1,
     pageSize: parseAllowedInteger(
@@ -102,8 +137,11 @@ export function buildProductListQuery(state: ProductListState): string {
   if (state.status !== "active") {
     query.set("status", state.status);
   }
-  if (state.stockStatus !== "all") {
-    query.set("stock_status", state.stockStatus);
+  if (state.stockMin !== null) {
+    query.set("stock_min", String(state.stockMin));
+  }
+  if (state.stockMax !== null) {
+    query.set("stock_max", String(state.stockMax));
   }
   if (state.search.trim()) {
     query.set("search", state.search);

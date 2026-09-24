@@ -50,6 +50,7 @@ import {
 import { listCategories } from "@/lib/api/categories";
 import { listWarehouses } from "@/lib/api/warehouses";
 import { toInventoryProduct } from "@/lib/inventory-products";
+import { getSafeProductListReturnTo } from "@/lib/product-list-state";
 import type {
   CategoryTreeNode,
   InventoryMovementApiRecord,
@@ -64,6 +65,7 @@ import type {
 
 interface ProductDetailWorkspaceProps {
   productId: string;
+  returnTo?: string;
 }
 
 interface StockMovementState {
@@ -124,6 +126,7 @@ function getMovementTone(movement: InventoryMovementApiRecord): string {
 
 export default function ProductDetailWorkspace({
   productId,
+  returnTo,
 }: ProductDetailWorkspaceProps) {
   const parsedProductId = Number(productId);
   const validProductId =
@@ -150,6 +153,7 @@ export default function ProductDetailWorkspace({
   const [warehouses, setWarehouses] = useState<WarehouseRead[]>([]);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
+  const backHref = getSafeProductListReturnTo(returnTo) ?? "/products";
 
   useEffect(() => {
     if (validProductId === null) {
@@ -428,7 +432,7 @@ export default function ProductDetailWorkspace({
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description="商品不存在或已被移除"
           >
-            <Link href="/products">
+            <Link href={backHref} scroll={false}>
               <Button type="primary">返回商品库存</Button>
             </Link>
           </Empty>
@@ -461,7 +465,7 @@ export default function ProductDetailWorkspace({
     <>
       {messageContextHolder}
       <div className="product-detail-page">
-        <Link href="/products" className="product-detail-back-link">
+        <Link href={backHref} scroll={false} className="product-detail-back-link">
           <ArrowLeftOutlined aria-hidden="true" />
           <span>返回商品库存</span>
         </Link>

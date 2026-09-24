@@ -12,6 +12,8 @@ interface ProductGalleryProps {
   loading: boolean;
   currentPage: number;
   pageSize: number;
+  getProductDetailHref: (productId: number) => string;
+  onBeforeProductDetail: () => void;
   onPageChange: (currentPage: number, pageSize: number) => void;
   onStockIn: (product: InventoryProduct) => void;
   onStockOut: (product: InventoryProduct) => void;
@@ -44,6 +46,8 @@ export default function ProductGallery({
   loading,
   currentPage,
   pageSize,
+  getProductDetailHref,
+  onBeforeProductDetail,
   onPageChange,
   onStockIn,
   onStockOut,
@@ -74,11 +78,15 @@ export default function ProductGallery({
               role="link"
               tabIndex={0}
               aria-label={`${label}，当前库存 ${product.totalCartonCount} 箱`}
-              onClick={() => router.push(`/products/${product.id}`)}
+              onClick={() => {
+                onBeforeProductDetail();
+                router.push(getProductDetailHref(product.id));
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
-                  router.push(`/products/${product.id}`);
+                  onBeforeProductDetail();
+                  router.push(getProductDetailHref(product.id));
                 }
               }}
             >

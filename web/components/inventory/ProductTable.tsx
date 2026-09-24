@@ -13,6 +13,8 @@ interface ProductTableProps {
   loading: boolean;
   currentPage: number;
   pageSize: number;
+  getProductDetailHref: (productId: number) => string;
+  onBeforeProductDetail: () => void;
   onPageChange: (currentPage: number, pageSize: number) => void;
   onStockIn: (product: InventoryProduct) => void;
   onStockOut: (product: InventoryProduct) => void;
@@ -49,6 +51,8 @@ export default function ProductTable({
   loading,
   currentPage,
   pageSize,
+  getProductDetailHref,
+  onBeforeProductDetail,
   onPageChange,
   onStockIn,
   onStockOut,
@@ -103,8 +107,9 @@ export default function ProductTable({
             title={value ?? undefined}
           >
             <Link
-              href={`/products/${product.id}`}
+              href={getProductDetailHref(product.id)}
               className="product-detail-link"
+              onClick={onBeforeProductDetail}
               aria-label={`查看商品 ${(value ?? product.size) || "详情"}`}
             >
               {value ?? "—"}
@@ -126,8 +131,9 @@ export default function ProductTable({
       render: (_imagePath, product) => (
         <div className="product-image-frame">
           <Link
-            href={`/products/${product.id}`}
+            href={getProductDetailHref(product.id)}
             className="product-image-detail-link"
+            onClick={onBeforeProductDetail}
             aria-label={`查看商品 ${(product.productCode ?? product.size) || "详情"}`}
           >
             <ProductImage

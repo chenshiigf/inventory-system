@@ -2,7 +2,8 @@
 
 import { PlusOutlined } from "@ant-design/icons";
 import { Alert, App, Button, message, Segmented, Typography } from "antd";
-import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProductEditorModal from "@/components/inventory/ProductEditorModal";
 import InventoryAdjustmentModal from "@/components/inventory/InventoryAdjustmentModal";
 import InventoryMovementsModal from "@/components/inventory/InventoryMovementsModal";
@@ -26,9 +27,22 @@ import {
 } from "@/lib/api/inventory-movements";
 import {
   getCategoryLabel,
+  getCategoryPath,
   hasSecondLevelCategories,
   toCategoryOptions,
 } from "@/lib/categories";
+import {
+  buildProductDetailHref,
+  buildProductListQuery,
+  buildProductListHref,
+  DEFAULT_PRODUCT_LIST_STATE,
+  parseProductListState,
+  type ProductListState,
+} from "@/lib/product-list-state";
+import {
+  readProductListScroll,
+  saveProductListScroll,
+} from "@/lib/product-list-scroll";
 import type {
   CategorySelection,
   CategoryTreeNode,
@@ -60,7 +74,27 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "服务请求失败，请重试。";
 }
 
-export default function InventoryWorkspace() {
+interface InventoryWorkspaceProps {
+  initialState?: ProductListState;
+}
+
+export default function InventoryWorkspace({
+  initialState = DEFAULT_PRODUCT_LIST_STATE,
+}: InventoryWorkspaceProps) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const searchParamsString = searchParams.toString();
+  const initialStateQuery = useMemo(
+    () => buildProductListQuery(initialState),
+    [initialState],
+  );
+  const urlState = useMemo(
+    () =>
+      searchParamsString === initialStateQuery
+        ? initialState
+        : parseProductListState(new URLSearchParams(searchParamsString)),
+    [initialState, initialStateQuery, searchParamsString],
+  );
   const [categories, setCategories] = useState<CategoryTreeNode[]>([]);
   const [filterCategories, setFilterCategories] = useState<CategoryTreeNode[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(true);
@@ -84,14 +118,6 @@ export default function InventoryWorkspace() {
     message: string;
   } | null>(null);
   const [reloadCounter, setReloadCounter] = useState(0);
-  const [warehouseValue, setWarehouseValue] = useState<WarehouseSelection>("all");
-  const [categoryValue, setCategoryValue] = useState<CategorySelection>(["all"]);
-  const [searchValue, setSearchValue] = useState("");
-  const [statusValue, setStatusValue] = useState<ProductStatus>("active");
-  const [stockStatusValue, setStockStatusValue] = useState<StockStatus>("all");
-  const [viewMode, setViewMode] = useState<InventoryViewMode>("table");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(20);
   const [productEditor, setProductEditor] = useState<ProductEditorState | null>(
     null,
   );
@@ -103,11 +129,24 @@ export default function InventoryWorkspace() {
     useState<InventoryProduct | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
-  const warehouseId =
-    typeof warehouseValue === "number" ? warehouseValue : undefined;
-  const selectedCategory = categoryValue[categoryValue.length - 1];
-  const categoryId =
-    typeof selectedCategory === "number" ? selectedCategory : undefined;
+  const restoredScrollUrlsRef = useRef(new Set<string>());
+  const warehouseValue: WarehouseSelection = urlState.warehouseId ?? "all";
+  const warehouseId = urlState.warehouseId ?? undefined;
+  const categoryValue = useMemo<CategorySelection>(() => {
+    if (urlState.categoryId === null) {
+      return ["all"];
+    }
+
+    const categoryPath = getCategoryPath(filterCategories, urlState.categoryId);
+    return categoryPath.length > 0 ? categoryPath : [urlState.categoryId];
+  }, [filterCategories, urlState.categoryId]);
+  const categoryId = urlState.categoryId ?? undefined;
+  const searchValue = urlState.search;
+  const statusValue = urlState.status;
+  const stockStatusValue = urlState.stockStatus;
+  const viewMode: InventoryViewMode = urlState.view;
+  const currentPage = urlState.page;
+  const pageSize = urlState.pageSize;
   const categoryOptions = useMemo(
     () => toCategoryOptions(filterCategories, true),
     [filterCategories],
@@ -115,6 +154,18 @@ export default function InventoryWorkspace() {
   const hasCategories = hasSecondLevelCategories(categories);
   const categoryServiceError = categoriesError ?? filterCategoriesError;
   const currentCategoryLabel = getCategoryLabel(filterCategories, categoryValue);
+  const currentListState = urlState;
+  const productListHref = useMemo(
+    () => buildProductListHref(currentListState),
+    [currentListState],
+  );
+  const getProductDetailHref = useCallback(
+    (productId: number) => buildProductDetailHref(productId, productListHref),
+    [productListHref],
+  );
+  const handleBeforeProductDetail = useCallback(() => {
+    saveProductListScroll(productListHref);
+  }, [productListHref]);
   const selectedWarehouseName =
     warehouseValue === "all"
       ? "全部仓库"
@@ -125,6 +176,59 @@ export default function InventoryWorkspace() {
   const loading = completedRequestKey !== requestKey;
   const visibleLoadError =
     loadError?.requestKey === requestKey ? loadError.message : null;
+
+  useEffect(() => {
+    if (loading || restoredScrollUrlsRef.current.has(productListHref)) {
+      return;
+    }
+
+    const savedScrollY = readProductListScroll(productListHref);
+    if (savedScrollY === null) {
+      restoredScrollUrlsRef.current.add(productListHref);
+      return;
+    }
+
+    let animationFrame = 0;
+    let cancelled = false;
+    let frameCount = 0;
+    const restoreScroll = () => {
+      if (cancelled) {
+        return;
+      }
+
+      const maxScrollY = Math.max(
+        0,
+        document.documentElement.scrollHeight - window.innerHeight,
+      );
+      const listRendered = Boolean(
+        document.querySelector(
+          viewMode === "gallery" ? ".product-gallery" : ".inventory-table",
+        ),
+      );
+
+      if (
+        (listRendered && maxScrollY >= savedScrollY) ||
+        frameCount >= 120
+      ) {
+        window.scrollTo({
+          top: Math.min(savedScrollY, maxScrollY),
+          left: 0,
+          behavior: "auto",
+        });
+        restoredScrollUrlsRef.current.add(productListHref);
+        return;
+      }
+
+      frameCount += 1;
+      animationFrame = window.requestAnimationFrame(restoreScroll);
+    };
+
+    animationFrame = window.requestAnimationFrame(restoreScroll);
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [loading, productListHref, viewMode]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -255,37 +359,51 @@ export default function InventoryWorkspace() {
     ? products.find((product) => product.id === stockMovement.product.id)
     : undefined;
 
+  function replaceProductListUrl(overrides: Partial<ProductListState>) {
+    router.replace(
+      buildProductListHref({ ...currentListState, ...overrides }),
+      { scroll: false },
+    );
+  }
+
   function handleCategoryChange(value: CategorySelection) {
-    setCategoryValue(value.length > 0 ? value : ["all"]);
-    setCurrentPage(1);
+    const nextCategoryValue = value.length > 0 ? value : ["all"];
+    const nextCategory = nextCategoryValue[nextCategoryValue.length - 1];
+    replaceProductListUrl({
+      categoryId: typeof nextCategory === "number" ? nextCategory : null,
+      page: 1,
+    });
   }
 
   function handleWarehouseChange(value: WarehouseSelection) {
-    setWarehouseValue(value);
-    setCategoryValue(["all"]);
-    setCurrentPage(1);
     setFilterCategoriesLoading(true);
     setFilterCategoriesError(null);
+    replaceProductListUrl({
+      warehouseId: value === "all" ? null : value,
+      categoryId: null,
+      page: 1,
+    });
   }
 
   function handleSearchChange(value: string) {
-    setSearchValue(value);
-    setCurrentPage(1);
+    replaceProductListUrl({ search: value, page: 1 });
   }
 
   function handleStatusChange(value: ProductStatus) {
-    setStatusValue(value);
-    setCurrentPage(1);
+    replaceProductListUrl({ status: value, page: 1 });
   }
 
   function handleStockStatusChange(value: StockStatus) {
-    setStockStatusValue(value);
-    setCurrentPage(1);
+    replaceProductListUrl({ stockStatus: value, page: 1 });
   }
 
   function handlePaginationChange(nextPage: number, nextPageSize: number) {
-    setCurrentPage(nextPage);
-    setPageSize(nextPageSize);
+    const resolvedPage = nextPageSize === pageSize ? nextPage : 1;
+    replaceProductListUrl({ page: resolvedPage, pageSize: nextPageSize });
+  }
+
+  function handleViewModeChange(value: InventoryViewMode) {
+    replaceProductListUrl({ view: value });
   }
 
   async function saveProduct(values: ProductEditorFormValues) {
@@ -328,11 +446,9 @@ export default function InventoryWorkspace() {
     }
 
     setProductEditor(null);
-    setSearchValue("");
-    setCategoryValue(["all"]);
-    setCurrentPage(1);
     setFilterCategoriesLoading(true);
     setFilterCategoriesError(null);
+    replaceProductListUrl({ search: "", categoryId: null, page: 1 });
     setReloadCounter((value) => value + 1);
     setFilterCategoriesReloadCounter((value) => value + 1);
     messageApi.success(
@@ -561,7 +677,7 @@ export default function InventoryWorkspace() {
                 { label: "表格视图", value: "table" },
                 { label: "画廊视图", value: "gallery" },
               ]}
-              onChange={(value) => setViewMode(value)}
+              onChange={handleViewModeChange}
             />
           </div>
           {viewMode === "table" ? (
@@ -571,6 +687,8 @@ export default function InventoryWorkspace() {
               loading={loading}
               currentPage={currentPage}
               pageSize={pageSize}
+              getProductDetailHref={getProductDetailHref}
+              onBeforeProductDetail={handleBeforeProductDetail}
               onPageChange={handlePaginationChange}
               onStockIn={(product) =>
                 setStockMovement({ product, direction: "in" })
@@ -591,6 +709,8 @@ export default function InventoryWorkspace() {
               loading={loading}
               currentPage={currentPage}
               pageSize={pageSize}
+              getProductDetailHref={getProductDetailHref}
+              onBeforeProductDetail={handleBeforeProductDetail}
               onPageChange={handlePaginationChange}
               onStockIn={(product) =>
                 setStockMovement({ product, direction: "in" })

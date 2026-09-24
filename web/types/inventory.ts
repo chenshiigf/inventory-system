@@ -91,6 +91,10 @@ export interface ProductListResponse {
   page_size: number;
 }
 
+export interface ProductBatchResult {
+  updated_count: number;
+}
+
 export interface ProductCreatePayload {
   category_id: number;
   warehouse_id: number;

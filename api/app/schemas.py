@@ -277,6 +277,20 @@ class ProductListRead(BaseModel):
     page_size: int
 
 
+class ProductBatchIdsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_ids: list[PositiveInt] = Field(min_length=1, max_length=100)
+
+
+class ProductBatchCategoryRequest(ProductBatchIdsRequest):
+    category_id: CategoryId
+
+
+class ProductBatchResult(BaseModel):
+    updated_count: int = Field(ge=0)
+
+
 class ProductImageUploadRead(BaseModel):
     image_path: str
     thumbnail_path: str

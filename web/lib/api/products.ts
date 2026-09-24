@@ -1,6 +1,7 @@
 import { apiRequest } from "@/lib/api/client";
 import type {
   ProductApiRecord,
+  ProductBatchResult,
   ProductCreatePayload,
   ProductListResponse,
   ProductStatus,
@@ -85,5 +86,33 @@ export function deactivateProduct(id: number): Promise<ProductApiRecord> {
 export function activateProduct(id: number): Promise<ProductApiRecord> {
   return apiRequest<ProductApiRecord>(`/api/products/${id}/activate`, {
     method: "POST",
+  });
+}
+
+export function batchUpdateProductCategory(
+  productIds: number[],
+  categoryId: number,
+): Promise<ProductBatchResult> {
+  return apiRequest<ProductBatchResult>("/api/products/batch/category", {
+    method: "POST",
+    body: JSON.stringify({ product_ids: productIds, category_id: categoryId }),
+  });
+}
+
+export function batchDeactivateProducts(
+  productIds: number[],
+): Promise<ProductBatchResult> {
+  return apiRequest<ProductBatchResult>("/api/products/batch/deactivate", {
+    method: "POST",
+    body: JSON.stringify({ product_ids: productIds }),
+  });
+}
+
+export function batchActivateProducts(
+  productIds: number[],
+): Promise<ProductBatchResult> {
+  return apiRequest<ProductBatchResult>("/api/products/batch/activate", {
+    method: "POST",
+    body: JSON.stringify({ product_ids: productIds }),
   });
 }

@@ -5,6 +5,10 @@ import { Alert, App, Button, message, Segmented, Typography } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ProductEditorModal from "@/components/inventory/ProductEditorModal";
+import BatchActionBar, {
+  type BatchStatusSelection,
+} from "@/components/inventory/BatchActionBar";
+import BatchCategoryModal from "@/components/inventory/BatchCategoryModal";
 import InventoryAdjustmentModal from "@/components/inventory/InventoryAdjustmentModal";
 import InventoryMovementsModal from "@/components/inventory/InventoryMovementsModal";
 import ProductGallery from "@/components/inventory/ProductGallery";
@@ -13,6 +17,9 @@ import InventoryToolbar from "@/components/inventory/InventoryToolbar";
 import StockMovementModal from "@/components/inventory/StockMovementModal";
 import { listCategories } from "@/lib/api/categories";
 import {
+  batchActivateProducts,
+  batchDeactivateProducts,
+  batchUpdateProductCategory,
   createProduct as createProductRequest,
   activateProduct,
   deactivateProduct,
@@ -127,6 +134,12 @@ export default function InventoryWorkspace({
     useState<InventoryProduct | null>(null);
   const [adjustmentProduct, setAdjustmentProduct] =
     useState<InventoryProduct | null>(null);
+  const [batchMode, setBatchMode] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(
+    new Set(),
+  );
+  const [batchCategoryModalOpen, setBatchCategoryModalOpen] = useState(false);
+  const [batchCategorySubmitting, setBatchCategorySubmitting] = useState(false);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
   const restoredScrollUrlsRef = useRef(new Set<string>());
@@ -155,6 +168,25 @@ export default function InventoryWorkspace({
   const categoryServiceError = categoriesError ?? filterCategoriesError;
   const currentCategoryLabel = getCategoryLabel(filterCategories, categoryValue);
   const currentListState = urlState;
+  const selectedProducts = useMemo(
+    () => products.filter((product) => selectedProductIds.has(product.id)),
+    [products, selectedProductIds],
+  );
+  const selectedStatus: BatchStatusSelection = useMemo(() => {
+    if (selectedProducts.length === 0) {
+      return "none";
+    }
+    const activeCount = selectedProducts.filter((product) => product.isActive).length;
+    if (activeCount === selectedProducts.length) {
+      return "active";
+    }
+    if (activeCount === 0) {
+      return "inactive";
+    }
+    return "mixed";
+  }, [selectedProducts]);
+  const allCurrentPageSelected =
+    products.length > 0 && products.every((product) => selectedProductIds.has(product.id));
   const productListHref = useMemo(
     () => buildProductListHref(currentListState),
     [currentListState],
@@ -367,6 +399,7 @@ export default function InventoryWorkspace({
   }
 
   function handleCategoryChange(value: CategorySelection) {
+    clearSelection();
     const nextCategoryValue = value.length > 0 ? value : ["all"];
     const nextCategory = nextCategoryValue[nextCategoryValue.length - 1];
     replaceProductListUrl({
@@ -376,6 +409,7 @@ export default function InventoryWorkspace({
   }
 
   function handleWarehouseChange(value: WarehouseSelection) {
+    clearSelection();
     setFilterCategoriesLoading(true);
     setFilterCategoriesError(null);
     replaceProductListUrl({
@@ -386,24 +420,140 @@ export default function InventoryWorkspace({
   }
 
   function handleSearchChange(value: string) {
+    clearSelection();
     replaceProductListUrl({ search: value, page: 1 });
   }
 
   function handleStatusChange(value: ProductStatus) {
+    clearSelection();
     replaceProductListUrl({ status: value, page: 1 });
   }
 
   function handleStockStatusChange(value: StockStatus) {
+    clearSelection();
     replaceProductListUrl({ stockStatus: value, page: 1 });
   }
 
   function handlePaginationChange(nextPage: number, nextPageSize: number) {
+    clearSelection();
     const resolvedPage = nextPageSize === pageSize ? nextPage : 1;
     replaceProductListUrl({ page: resolvedPage, pageSize: nextPageSize });
   }
 
   function handleViewModeChange(value: InventoryViewMode) {
     replaceProductListUrl({ view: value });
+  }
+
+  function enterBatchMode() {
+    setSelectedProductIds(new Set());
+    setBatchMode(true);
+  }
+
+  function exitBatchMode() {
+    setSelectedProductIds(new Set());
+    setBatchMode(false);
+    setBatchCategoryModalOpen(false);
+  }
+
+  function selectCurrentPage() {
+    setSelectedProductIds(new Set(products.map((product) => product.id)));
+  }
+
+  function clearSelection() {
+    setSelectedProductIds(new Set());
+  }
+
+  async function confirmBatchCategory(categoryId: number) {
+    setBatchCategorySubmitting(true);
+    try {
+      const result = await batchUpdateProductCategory(
+        Array.from(selectedProductIds),
+        categoryId,
+      );
+      setBatchCategoryModalOpen(false);
+      clearSelection();
+      setReloadCounter((value) => value + 1);
+      messageApi.success(`已修改 ${result.updated_count} 个商品的分类`);
+    } catch (error) {
+      messageApi.error(getErrorMessage(error));
+    } finally {
+      setBatchCategorySubmitting(false);
+    }
+  }
+
+  function adjustPageAfterStatusBatch(updatedCount: number) {
+    if (statusValue === "all") {
+      return;
+    }
+
+    const remainingTotal = Math.max(0, total - updatedCount);
+    const lastPage = Math.max(1, Math.ceil(remainingTotal / pageSize));
+    if (currentPage > lastPage) {
+      replaceProductListUrl({ page: lastPage });
+    }
+  }
+
+  async function confirmBatchStatus(isActive: boolean) {
+    const productIds = Array.from(selectedProductIds);
+    if (productIds.length === 0) {
+      return;
+    }
+
+    try {
+      const result = isActive
+        ? await batchActivateProducts(productIds)
+        : await batchDeactivateProducts(productIds);
+      adjustPageAfterStatusBatch(result.updated_count);
+      clearSelection();
+      setReloadCounter((value) => value + 1);
+      messageApi.success(
+        isActive
+          ? `已启用 ${result.updated_count} 个商品`
+          : `已停用 ${result.updated_count} 个商品`,
+      );
+    } catch (error) {
+      messageApi.error(getErrorMessage(error));
+      throw error;
+    }
+  }
+
+  function confirmBatchDeactivate() {
+    if (selectedStatus !== "active") {
+      return;
+    }
+
+    const inStockCount = selectedProducts.filter(
+      (product) => product.totalCartonCount > 0,
+    ).length;
+    const zeroStockCount = selectedProducts.length - inStockCount;
+    modal.confirm({
+      title: `确认停用 ${selectedProducts.length} 个商品？`,
+      content: (
+        <div>
+          <p>有库存商品：{inStockCount} 个</p>
+          <p>零库存商品：{zeroStockCount} 个</p>
+          <p>停用不会删除商品、库存、包装规格或历史流水。</p>
+        </div>
+      ),
+      okText: "确认停用",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: () => confirmBatchStatus(false),
+    });
+  }
+
+  function confirmBatchActivate() {
+    if (selectedStatus !== "inactive") {
+      return;
+    }
+
+    modal.confirm({
+      title: `确认启用 ${selectedProducts.length} 个商品？`,
+      content: "启用后商品会重新出现在正常商品列表中，库存及历史流水不会受到影响。",
+      okText: "确认启用",
+      cancelText: "取消",
+      onOk: () => confirmBatchStatus(true),
+    });
   }
 
   async function saveProduct(values: ProductEditorFormValues) {
@@ -542,17 +692,22 @@ export default function InventoryWorkspace({
       <div className="inventory-page">
         <div className="page-heading">
           <Typography.Title level={1}>商品库存</Typography.Title>
-          <Button
-            className="add-product-button"
-            type="primary"
-            icon={<PlusOutlined />}
-            disabled={
-              warehousesLoading || Boolean(warehousesError) || warehouses.length === 0
-            }
-            onClick={() => setProductEditor({})}
-          >
-            新增商品
-          </Button>
+          <div className="page-heading-actions">
+            {!batchMode && (
+              <Button onClick={enterBatchMode}>批量操作</Button>
+            )}
+            <Button
+              className="add-product-button"
+              type="primary"
+              icon={<PlusOutlined />}
+              disabled={
+                warehousesLoading || Boolean(warehousesError) || warehouses.length === 0
+              }
+              onClick={() => setProductEditor({})}
+            >
+              新增商品
+            </Button>
+          </div>
         </div>
 
         {warehousesError && (
@@ -645,6 +800,21 @@ export default function InventoryWorkspace({
           }
         />
 
+        {batchMode && (
+          <BatchActionBar
+            selectedCount={selectedProductIds.size}
+            currentPageCount={products.length}
+            allCurrentPageSelected={allCurrentPageSelected}
+            statusSelection={selectedStatus}
+            onSelectCurrentPage={selectCurrentPage}
+            onClearSelection={clearSelection}
+            onChangeCategory={() => setBatchCategoryModalOpen(true)}
+            onDeactivate={confirmBatchDeactivate}
+            onActivate={confirmBatchActivate}
+            onExit={exitBatchMode}
+          />
+        )}
+
         {visibleLoadError && (
           <Alert
             className="inventory-load-error"
@@ -685,6 +855,9 @@ export default function InventoryWorkspace({
               products={products}
               total={total}
               loading={loading}
+              batchMode={batchMode}
+              selectedIds={selectedProductIds}
+              onSelectionChange={setSelectedProductIds}
               currentPage={currentPage}
               pageSize={pageSize}
               getProductDetailHref={getProductDetailHref}
@@ -707,6 +880,9 @@ export default function InventoryWorkspace({
               products={products}
               total={total}
               loading={loading}
+              batchMode={batchMode}
+              selectedIds={selectedProductIds}
+              onSelectionChange={setSelectedProductIds}
               currentPage={currentPage}
               pageSize={pageSize}
               getProductDetailHref={getProductDetailHref}
@@ -733,6 +909,18 @@ export default function InventoryWorkspace({
           onSave={saveProduct}
         />
       )}
+
+      <BatchCategoryModal
+        key={batchCategoryModalOpen ? "batch-category-open" : "batch-category-closed"}
+        open={batchCategoryModalOpen}
+        selectedCount={selectedProductIds.size}
+        categories={categories}
+        categoriesLoading={categoriesLoading}
+        categoriesError={categoriesError}
+        confirmLoading={batchCategorySubmitting}
+        onCancel={() => setBatchCategoryModalOpen(false)}
+        onConfirm={confirmBatchCategory}
+      />
 
       {stockMovement && activeMovementProduct && (
         <StockMovementModal

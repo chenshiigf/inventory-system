@@ -4,6 +4,7 @@ import { Button, Dropdown, Popover, Space, Table, Tag, Tooltip } from "antd";
 import { MoreOutlined } from "@ant-design/icons";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import Link from "next/link";
+import type { Key } from "react";
 import ProductImage from "@/components/inventory/ProductImage";
 import type { InventoryProduct } from "@/types/inventory";
 
@@ -11,6 +12,9 @@ interface ProductTableProps {
   products: InventoryProduct[];
   total: number;
   loading: boolean;
+  batchMode: boolean;
+  selectedIds: Set<number>;
+  onSelectionChange: (selectedIds: Set<number>) => void;
   currentPage: number;
   pageSize: number;
   getProductDetailHref: (productId: number) => string;
@@ -49,6 +53,9 @@ export default function ProductTable({
   products,
   total,
   loading,
+  batchMode,
+  selectedIds,
+  onSelectionChange,
   currentPage,
   pageSize,
   getProductDetailHref,
@@ -100,56 +107,76 @@ export default function ProductTable({
       dataIndex: "productCode",
       key: "productCode",
       width: 120,
-      render: (value: string | null, product) => (
-        <div className="product-code-cell">
+      render: (value: string | null, product) => {
+        const productCode = (
           <span
             className={value ? "product-code-value" : "product-code-empty"}
             title={value ?? undefined}
           >
-            <Link
-              href={getProductDetailHref(product.id)}
-              className="product-detail-link"
-              onClick={onBeforeProductDetail}
-              aria-label={`查看商品 ${(value ?? product.size) || "详情"}`}
-            >
-              {value ?? "—"}
-            </Link>
+            {batchMode ? (
+              value ?? "—"
+            ) : (
+              <Link
+                href={getProductDetailHref(product.id)}
+                className="product-detail-link"
+                onClick={onBeforeProductDetail}
+                aria-label={`查看商品 ${(value ?? product.size) || "详情"}`}
+              >
+                {value ?? "—"}
+              </Link>
+            )}
           </span>
-          {!product.isActive && (
-            <Tag className="product-status-tag" color="default">
-              已停用
-            </Tag>
-          )}
-        </div>
-      ),
+        );
+
+        return (
+          <div className="product-code-cell">
+            {productCode}
+            {!product.isActive && (
+              <Tag className="product-status-tag" color="default">
+                已停用
+              </Tag>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: "商品图片",
       dataIndex: "imagePath",
       key: "image",
       width: 120,
-      render: (_imagePath, product) => (
-        <div className="product-image-frame">
-          <Link
-            href={getProductDetailHref(product.id)}
-            className="product-image-detail-link"
-            onClick={onBeforeProductDetail}
-            aria-label={`查看商品 ${(product.productCode ?? product.size) || "详情"}`}
-          >
-            <ProductImage
-              key={`${product.id}:${product.imagePath ?? ""}:${product.thumbnailPath ?? ""}`}
-              imagePath={product.imagePath}
-              thumbnailPath={product.thumbnailPath}
-              alt={`${product.productCode ?? (product.size || "商品")}商品图片`}
-              width={108}
-              height={82}
-              loading="lazy"
-              hoverPreview
-              enablePreview={false}
-            />
-          </Link>
-        </div>
-      ),
+      render: (_imagePath, product) => {
+        const image = (
+          <ProductImage
+            key={`${product.id}:${product.imagePath ?? ""}:${product.thumbnailPath ?? ""}`}
+            imagePath={product.imagePath}
+            thumbnailPath={product.thumbnailPath}
+            alt={`${product.productCode ?? (product.size || "商品")}商品图片`}
+            width={108}
+            height={82}
+            loading="lazy"
+            hoverPreview
+            enablePreview={false}
+          />
+        );
+
+        return (
+          <div className="product-image-frame">
+            {batchMode ? (
+              image
+            ) : (
+              <Link
+                href={getProductDetailHref(product.id)}
+                className="product-image-detail-link"
+                onClick={onBeforeProductDetail}
+                aria-label={`查看商品 ${(product.productCode ?? product.size) || "详情"}`}
+              >
+                {image}
+              </Link>
+            )}
+          </div>
+        );
+      },
     },
     {
       title: "尺寸",
@@ -289,6 +316,15 @@ export default function ProductTable({
     },
   ];
 
+  const rowSelection = batchMode
+    ? {
+        selectedRowKeys: Array.from(selectedIds),
+        onChange: (selectedRowKeys: Key[]) => {
+          onSelectionChange(new Set(selectedRowKeys.map((key) => Number(key))));
+        },
+      }
+    : undefined;
+
   return (
     <Table<InventoryProduct>
       className="inventory-table"
@@ -297,6 +333,7 @@ export default function ProductTable({
       dataSource={products}
       loading={loading}
       tableLayout="fixed"
+      rowSelection={rowSelection}
       pagination={getPaginationConfig(
         currentPage,
         pageSize,

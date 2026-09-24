@@ -44,6 +44,37 @@ def product_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
+def create_category_pair(client: TestClient, suffix: str = "") -> tuple[int, int]:
+    parent = client.post(
+        "/api/categories",
+        json={"name": f"批量一级{suffix}", "parent_id": None},
+    )
+    assert parent.status_code == 201, parent.text
+    child = client.post(
+        "/api/categories",
+        json={"name": f"批量二级{suffix}", "parent_id": parent.json()["id"]},
+    )
+    assert child.status_code == 201, child.text
+    return parent.json()["id"], child.json()["id"]
+
+
+def create_batch_product(
+    client: TestClient,
+    category_id: int,
+    *,
+    carton_count: int = 18,
+) -> dict[str, object]:
+    response = client.post(
+        "/api/products",
+        json=product_payload(
+            category_id=category_id,
+            packagings=[{"packing_qty": 24, "carton_count": carton_count}],
+        ),
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
 def test_create_product_succeeds_with_exact_decimal_price(client: TestClient) -> None:
     response = client.post("/api/products", json=product_payload(price="2.80"))
 
@@ -151,3 +182,155 @@ def test_image_path_rejects_traversal_and_base64(
     )
 
     assert response.status_code == 422
+
+
+def test_batch_category_updates_products_without_changing_codes_or_stock(
+    client: TestClient,
+) -> None:
+    _parent_id, source_category_id = create_category_pair(client, "分类源")
+    _target_parent_id, target_category_id = create_category_pair(client, "分类目标")
+    first = create_batch_product(client, source_category_id, carton_count=18)
+    second = create_batch_product(client, source_category_id, carton_count=7)
+    original_codes = {first["id"]: first["product_code"], second["id"]: second["product_code"]}
+
+    response = client.post(
+        "/api/products/batch/category",
+        json={
+            "product_ids": [first["id"], first["id"], second["id"]],
+            "category_id": target_category_id,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"updated_count": 2}
+    for product_id, carton_count in [(first["id"], 18), (second["id"], 7)]:
+        product = client.get(f"/api/products/{product_id}").json()
+        assert product["category_id"] == target_category_id
+        assert product["product_code"] == original_codes[product_id]
+        assert product["total_carton_count"] == carton_count
+
+
+def test_batch_category_allows_active_and_inactive_products(client: TestClient) -> None:
+    _parent_id, source_category_id = create_category_pair(client, "混合源")
+    _target_parent_id, target_category_id = create_category_pair(client, "混合目标")
+    active = create_batch_product(client, source_category_id)
+    inactive = create_batch_product(client, source_category_id)
+    deactivated = client.post(f"/api/products/{inactive['id']}/deactivate")
+    assert deactivated.status_code == 200
+
+    response = client.post(
+        "/api/products/batch/category",
+        json={"product_ids": [active["id"], inactive["id"]], "category_id": target_category_id},
+    )
+
+    assert response.status_code == 200
+    assert client.get(f"/api/products/{active['id']}").json()["category_id"] == target_category_id
+    assert client.get(f"/api/products/{inactive['id']}").json()["category_id"] == target_category_id
+
+
+def test_batch_category_rejects_parent_category_and_missing_product_atomically(
+    client: TestClient,
+) -> None:
+    parent_id, source_category_id = create_category_pair(client, "原子源")
+    _target_parent_id, target_category_id = create_category_pair(client, "原子目标")
+    product = create_batch_product(client, source_category_id)
+
+    parent_response = client.post(
+        "/api/products/batch/category",
+        json={"product_ids": [product["id"]], "category_id": parent_id},
+    )
+    assert parent_response.status_code == 422
+    assert parent_response.json()["detail"] == "请选择二级分类"
+
+    missing_response = client.post(
+        "/api/products/batch/category",
+        json={
+            "product_ids": [product["id"], 999999],
+            "category_id": target_category_id,
+        },
+    )
+    assert missing_response.status_code == 404
+    assert client.get(f"/api/products/{product['id']}").json()["category_id"] == source_category_id
+
+
+def test_batch_requests_reject_empty_invalid_and_over_limit_ids(client: TestClient) -> None:
+    for product_ids in ([], [0], list(range(1, 102))):
+        response = client.post(
+            "/api/products/batch/deactivate",
+            json={"product_ids": product_ids},
+        )
+        assert response.status_code == 422
+
+
+def test_batch_deactivate_preserves_stock_and_creates_no_movement(
+    client: TestClient,
+) -> None:
+    _parent_id, category_id = create_category_pair(client, "停用")
+    first = create_batch_product(client, category_id, carton_count=3)
+    second = create_batch_product(client, category_id, carton_count=5)
+
+    response = client.post(
+        "/api/products/batch/deactivate",
+        json={"product_ids": [first["id"], second["id"]]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"updated_count": 2}
+    for product_id, carton_count in [(first["id"], 3), (second["id"], 5)]:
+        product = client.get(f"/api/products/{product_id}").json()
+        assert product["is_active"] is False
+        assert product["total_carton_count"] == carton_count
+        movements = client.get(
+            f"/api/inventory-movements?product_id={product_id}"
+        ).json()
+        assert movements["total"] == 0
+
+
+def test_batch_deactivate_rejects_inactive_product_atomically(client: TestClient) -> None:
+    _parent_id, category_id = create_category_pair(client, "停用原子")
+    active = create_batch_product(client, category_id)
+    inactive = create_batch_product(client, category_id)
+    assert client.post(f"/api/products/{inactive['id']}/deactivate").status_code == 200
+
+    response = client.post(
+        "/api/products/batch/deactivate",
+        json={"product_ids": [active["id"], inactive["id"]]},
+    )
+
+    assert response.status_code == 409
+    assert client.get(f"/api/products/{active['id']}").json()["is_active"] is True
+    assert client.get(f"/api/products/{inactive['id']}").json()["is_active"] is False
+
+
+def test_batch_activate_updates_only_inactive_products(client: TestClient) -> None:
+    _parent_id, category_id = create_category_pair(client, "启用")
+    first = create_batch_product(client, category_id)
+    second = create_batch_product(client, category_id)
+    assert client.post(f"/api/products/{first['id']}/deactivate").status_code == 200
+    assert client.post(f"/api/products/{second['id']}/deactivate").status_code == 200
+
+    response = client.post(
+        "/api/products/batch/activate",
+        json={"product_ids": [first["id"], second["id"]]},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"updated_count": 2}
+    assert client.get(f"/api/products/{first['id']}").json()["is_active"] is True
+    assert client.get(f"/api/products/{second['id']}").json()["is_active"] is True
+
+
+def test_batch_activate_rejects_active_product_atomically(client: TestClient) -> None:
+    _parent_id, category_id = create_category_pair(client, "启用原子")
+    active = create_batch_product(client, category_id)
+    inactive = create_batch_product(client, category_id)
+    assert client.post(f"/api/products/{inactive['id']}/deactivate").status_code == 200
+
+    response = client.post(
+        "/api/products/batch/activate",
+        json={"product_ids": [active["id"], inactive["id"]]},
+    )
+
+    assert response.status_code == 409
+    assert client.get(f"/api/products/{active['id']}").json()["is_active"] is True
+    assert client.get(f"/api/products/{inactive['id']}").json()["is_active"] is False

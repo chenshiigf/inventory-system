@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Empty, Pagination, Skeleton, Tag } from "antd";
+import { Button, Checkbox, Empty, Pagination, Skeleton, Tag } from "antd";
 import { useRouter } from "next/navigation";
 import type { SyntheticEvent } from "react";
 import ProductImage from "@/components/inventory/ProductImage";
@@ -10,6 +10,9 @@ interface ProductGalleryProps {
   products: InventoryProduct[];
   total: number;
   loading: boolean;
+  batchMode: boolean;
+  selectedIds: Set<number>;
+  onSelectionChange: (selectedIds: Set<number>) => void;
   currentPage: number;
   pageSize: number;
   getProductDetailHref: (productId: number) => string;
@@ -44,6 +47,9 @@ export default function ProductGallery({
   products,
   total,
   loading,
+  batchMode,
+  selectedIds,
+  onSelectionChange,
   currentPage,
   pageSize,
   getProductDetailHref,
@@ -53,6 +59,16 @@ export default function ProductGallery({
   onStockOut,
 }: ProductGalleryProps) {
   const router = useRouter();
+
+  function toggleProductSelection(productId: number) {
+    const nextSelectedIds = new Set(selectedIds);
+    if (nextSelectedIds.has(productId)) {
+      nextSelectedIds.delete(productId);
+    } else {
+      nextSelectedIds.add(productId);
+    }
+    onSelectionChange(nextSelectedIds);
+  }
 
   if (loading && products.length === 0) {
     return <GalleryLoading />;
@@ -71,26 +87,45 @@ export default function ProductGallery({
       <div className="product-gallery-grid" aria-label="商品画廊">
         {products.map((product) => {
           const label = getProductLabel(product);
+          const selected = selectedIds.has(product.id);
           return (
             <article
               key={product.id}
-              className={`product-gallery-card${product.isActive ? "" : " product-gallery-card-inactive"}`}
-              role="link"
+              className={`product-gallery-card${product.isActive ? "" : " product-gallery-card-inactive"}${batchMode && selected ? " product-gallery-card-selected" : ""}`}
+              role={batchMode ? "checkbox" : "link"}
               tabIndex={0}
+              aria-checked={batchMode ? selected : undefined}
               aria-label={`${label}，当前库存 ${product.totalCartonCount} 箱`}
               onClick={() => {
+                if (batchMode) {
+                  toggleProductSelection(product.id);
+                  return;
+                }
                 onBeforeProductDetail();
                 router.push(getProductDetailHref(product.id));
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
+                  if (batchMode) {
+                    toggleProductSelection(product.id);
+                    return;
+                  }
                   onBeforeProductDetail();
                   router.push(getProductDetailHref(product.id));
                 }
               }}
             >
               <div className="product-gallery-image">
+                {batchMode && (
+                  <Checkbox
+                    className="product-gallery-checkbox"
+                    checked={selected}
+                    aria-label={`选择商品 ${label}`}
+                    onClick={stopCardInteraction}
+                    onChange={() => toggleProductSelection(product.id)}
+                  />
+                )}
                 <ProductImage
                   imagePath={product.imagePath}
                   thumbnailPath={product.thumbnailPath}

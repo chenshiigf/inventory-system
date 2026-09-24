@@ -8,6 +8,9 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.database import begin_write_transaction, get_db
 from app.models import Category, Product, ProductPackaging, Warehouse
 from app.schemas import (
+    ProductBatchCategoryRequest,
+    ProductBatchIdsRequest,
+    ProductBatchResult,
     ProductCreate,
     ProductDetailRead,
     ProductListRead,
@@ -94,6 +97,39 @@ def list_products(
         .limit(page_size)
     ).all()
     return ProductListRead(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post("/batch/category", response_model=ProductBatchResult)
+def batch_update_category(
+    payload: ProductBatchCategoryRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> ProductBatchResult:
+    begin_write_transaction(db)
+    _validate_batch_category(db, payload.category_id)
+    products = _get_batch_products(db, payload.product_ids)
+    updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    for product in products:
+        product.category_id = payload.category_id
+        product.updated_at = updated_at
+
+    db.commit()
+    return ProductBatchResult(updated_count=len(products))
+
+
+@router.post("/batch/deactivate", response_model=ProductBatchResult)
+def batch_deactivate(
+    payload: ProductBatchIdsRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> ProductBatchResult:
+    return _batch_set_active(db, payload.product_ids, is_active=False)
+
+
+@router.post("/batch/activate", response_model=ProductBatchResult)
+def batch_activate(
+    payload: ProductBatchIdsRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> ProductBatchResult:
+    return _batch_set_active(db, payload.product_ids, is_active=True)
 
 
 @router.post("/{product_id}/deactivate", response_model=ProductRead)
@@ -214,6 +250,67 @@ def _set_product_active(db: Session, product_id: int, *, is_active: bool) -> Pro
     )
     assert refreshed_product is not None
     return refreshed_product
+
+
+def _get_batch_products(db: Session, product_ids: list[int]) -> list[Product]:
+    unique_product_ids = list(dict.fromkeys(product_ids))
+    products = db.scalars(
+        select(Product).where(Product.id.in_(unique_product_ids))
+    ).all()
+    products_by_id = {product.id: product for product in products}
+    missing_ids = [
+        product_id
+        for product_id in unique_product_ids
+        if product_id not in products_by_id
+    ]
+    if missing_ids:
+        missing = ", ".join(str(product_id) for product_id in missing_ids)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"商品不存在：{missing}",
+        )
+
+    return [products_by_id[product_id] for product_id in unique_product_ids]
+
+
+def _validate_batch_category(db: Session, category_id: int) -> None:
+    category = db.get(Category, category_id)
+    if category is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="category_id does not reference an existing category",
+        )
+    if category.parent_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="请选择二级分类",
+        )
+
+
+def _batch_set_active(
+    db: Session,
+    product_ids: list[int],
+    *,
+    is_active: bool,
+) -> ProductBatchResult:
+    begin_write_transaction(db)
+    products = _get_batch_products(db, product_ids)
+    invalid_products = [product for product in products if product.is_active == is_active]
+    if invalid_products:
+        current_state = "启用" if is_active else "停用"
+        expected_state = "已停用" if is_active else "在用"
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"批量{current_state}要求所选商品全部为{expected_state}状态",
+        )
+
+    updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    for product in products:
+        product.is_active = is_active
+        product.updated_at = updated_at
+
+    db.commit()
+    return ProductBatchResult(updated_count=len(products))
 
 
 def _replace_product_packagings(

@@ -3,6 +3,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import begin_write_transaction, get_db
@@ -122,6 +123,54 @@ def update_category(
     db.commit()
     db.refresh(category)
     return category
+
+
+@router.delete("/{category_id}")
+def delete_category(
+    category_id: Annotated[int, Path(ge=1)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, str]:
+    begin_write_transaction(db)
+    category = db.get(Category, category_id)
+    if category is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="分类不存在。",
+        )
+
+    child_exists = db.scalar(
+        select(Category.id)
+        .where(Category.parent_id == category.id)
+        .limit(1)
+    )
+    if child_exists is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该分类下仍有子分类，请先删除子分类。",
+        )
+
+    product_exists = db.scalar(
+        select(Product.id)
+        .where(Product.category_id == category.id)
+        .limit(1)
+    )
+    if product_exists is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该分类仍有关联商品，无法删除。",
+        )
+
+    db.delete(category)
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该分类仍有关联数据，无法删除。",
+        ) from error
+
+    return {"message": "分类已删除。"}
 
 
 def _validate_parent(db: Session, parent_id: int | None) -> None:

@@ -135,7 +135,9 @@ def test_warehouse_management_creates_trims_sorts_and_rejects_duplicate_names(
     assert renamed.status_code == 200
     assert renamed.json()["id"] == created.json()["id"]
     assert renamed.json()["name"] == "新仓库"
-    assert client.delete(f"/api/warehouses/{created.json()['id']}").status_code == 405
+    deleted = client.delete(f"/api/warehouses/{created.json()['id']}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"message": "仓库已删除。"}
 
 
 def test_warehouse_summary_counts_all_products_and_multiple_packagings(
@@ -503,3 +505,88 @@ def test_category_tree_rejects_unknown_warehouse(
     response = client.get("/api/categories?warehouse_id=999")
 
     assert response.status_code == 404
+
+
+def test_delete_missing_warehouse_returns_not_found(
+    warehouse_context: tuple[TestClient, sessionmaker],
+) -> None:
+    client, _session_factory = warehouse_context
+
+    response = client.delete("/api/warehouses/999")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "仓库不存在。"
+
+
+def test_delete_empty_warehouse_succeeds(
+    warehouse_context: tuple[TestClient, sessionmaker],
+) -> None:
+    client, _session_factory = warehouse_context
+    warehouse = client.post("/api/warehouses", json={"name": "待删除空仓"}).json()
+
+    response = client.delete(f"/api/warehouses/{warehouse['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == {"message": "仓库已删除。"}
+    assert all(
+        item["id"] != warehouse["id"]
+        for item in client.get("/api/warehouses").json()
+    )
+
+
+@pytest.mark.parametrize(
+    ("deactivate", "carton_count"),
+    [(False, 10), (True, 10), (False, 0)],
+    ids=["active-product", "inactive-product", "zero-stock-product"],
+)
+def test_delete_warehouse_rejects_any_referencing_product(
+    warehouse_context: tuple[TestClient, sessionmaker],
+    deactivate: bool,
+    carton_count: int,
+) -> None:
+    client, _session_factory = warehouse_context
+    warehouse = client.post("/api/warehouses", json={"name": "商品占用仓"}).json()
+    product = create_product(
+        client,
+        warehouse_id=warehouse["id"],
+        packagings=[{"packing_qty": 24, "carton_count": carton_count}],
+    )
+    if deactivate:
+        deactivate_response = client.post(
+            f"/api/products/{product['id']}/deactivate"
+        )
+        assert deactivate_response.status_code == 200
+
+    response = client.delete(f"/api/warehouses/{warehouse['id']}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "该仓库仍有关联商品，无法删除。"
+
+
+def test_delete_warehouse_rejects_historical_movement_without_product_reference(
+    warehouse_context: tuple[TestClient, sessionmaker],
+) -> None:
+    client, _session_factory = warehouse_context
+    warehouse = client.post("/api/warehouses", json={"name": "有历史流水仓"}).json()
+    product = create_product(
+        client,
+        warehouse_id=warehouse["id"],
+        packagings=[{"packing_qty": 24, "carton_count": 0}],
+    )
+    movement = client.post(
+        f"/api/products/{product['id']}/stock/in",
+        json={
+            "product_packaging_id": product["packagings"][0]["id"],
+            "quantity": 1,
+        },
+    )
+    assert movement.status_code == 201
+    assert client.patch(
+        f"/api/products/{product['id']}",
+        json={"warehouse_id": None},
+    ).status_code == 200
+
+    response = client.delete(f"/api/warehouses/{warehouse['id']}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "该仓库已有库存流水，无法删除。"

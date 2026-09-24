@@ -39,3 +39,9 @@ export function updateCategory(
     body: JSON.stringify(payload),
   });
 }
+
+export function deleteCategory(id: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/api/categories/${id}`, {
+    method: "DELETE",
+  });
+}

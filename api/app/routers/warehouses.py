@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import begin_write_transaction, get_db
-from app.models import Product, ProductPackaging, Warehouse
+from app.models import InventoryMovement, Product, ProductPackaging, Warehouse
 from app.schemas import (
     WarehouseCreate,
     WarehouseRead,
@@ -104,6 +104,54 @@ def update_warehouse(
         raise _duplicate_name_error() from error
     db.refresh(warehouse)
     return warehouse
+
+
+@router.delete("/{warehouse_id}")
+def delete_warehouse(
+    warehouse_id: Annotated[int, Path(ge=1)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, str]:
+    begin_write_transaction(db)
+    warehouse = db.get(Warehouse, warehouse_id)
+    if warehouse is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="仓库不存在。",
+        )
+
+    product_exists = db.scalar(
+        select(Product.id)
+        .where(Product.warehouse_id == warehouse.id)
+        .limit(1)
+    )
+    if product_exists is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该仓库仍有关联商品，无法删除。",
+        )
+
+    movement_exists = db.scalar(
+        select(InventoryMovement.id)
+        .where(InventoryMovement.warehouse_id == warehouse.id)
+        .limit(1)
+    )
+    if movement_exists is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该仓库已有库存流水，无法删除。",
+        )
+
+    db.delete(warehouse)
+    try:
+        db.commit()
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="该仓库仍有关联数据，无法删除。",
+        ) from error
+
+    return {"message": "仓库已删除。"}
 
 
 def _ensure_name_is_available(

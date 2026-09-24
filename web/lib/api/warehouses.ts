@@ -33,3 +33,9 @@ export function updateWarehouse(
     body: JSON.stringify({ name }),
   });
 }
+
+export function deleteWarehouse(warehouseId: number): Promise<{ message: string }> {
+  return apiRequest<{ message: string }>(`/api/warehouses/${warehouseId}`, {
+    method: "DELETE",
+  });
+}

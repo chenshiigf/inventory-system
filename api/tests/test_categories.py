@@ -313,3 +313,49 @@ def test_product_category_can_be_updated(test_client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json()["category_id"] == second_child["id"]
+
+
+def test_delete_missing_category_returns_not_found(test_client: TestClient) -> None:
+    response = test_client.delete("/api/categories/999")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "分类不存在。"
+
+
+def test_delete_empty_category_tree_requires_child_first(
+    test_client: TestClient,
+) -> None:
+    parent = create_category(test_client, "待删除一级分类")
+    child = create_category(test_client, "待删除二级分类", parent_id=parent["id"])
+
+    blocked = test_client.delete(f"/api/categories/{parent['id']}")
+
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"] == "该分类下仍有子分类，请先删除子分类。"
+
+    assert test_client.delete(f"/api/categories/{child['id']}").status_code == 200
+    deleted_parent = test_client.delete(f"/api/categories/{parent['id']}")
+    assert deleted_parent.status_code == 200
+    assert deleted_parent.json() == {"message": "分类已删除。"}
+    assert test_client.get("/api/categories").json() == []
+
+
+@pytest.mark.parametrize(
+    "deactivate",
+    [False, True],
+    ids=["active-product", "inactive-product"],
+)
+def test_delete_category_rejects_any_referencing_product(
+    test_client: TestClient,
+    deactivate: bool,
+) -> None:
+    parent = create_category(test_client, "商品引用一级分类")
+    child = create_category(test_client, "商品引用二级分类", parent_id=parent["id"])
+    product = create_product(test_client, child["id"])
+    if deactivate:
+        assert test_client.post(f"/api/products/{product['id']}/deactivate").status_code == 200
+
+    response = test_client.delete(f"/api/categories/{child['id']}")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "该分类仍有关联商品，无法删除。"

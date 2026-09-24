@@ -1,6 +1,6 @@
 "use client";
 
-import { EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   Alert,
   App,
@@ -9,13 +9,17 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
+  Space,
   Table,
+  Tooltip,
   Typography,
 } from "antd";
 import type { TableProps } from "antd";
 import { useEffect, useState } from "react";
 import {
   createWarehouse,
+  deleteWarehouse,
   listWarehouseSummaries,
   updateWarehouse,
 } from "@/lib/api/warehouses";
@@ -140,6 +144,9 @@ export default function WarehouseManagement() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadCounter, setReloadCounter] = useState(0);
   const [editor, setEditor] = useState<WarehouseEditorState | null>(null);
+  const [deletingWarehouseId, setDeletingWarehouseId] = useState<number | null>(
+    null,
+  );
   const { message } = App.useApp();
 
   useEffect(() => {
@@ -193,22 +200,74 @@ export default function WarehouseManagement() {
     }
   }
 
+  async function removeWarehouse(warehouse: WarehouseSummaryRead): Promise<void> {
+    setDeletingWarehouseId(warehouse.id);
+    try {
+      await deleteWarehouse(warehouse.id);
+      message.success("仓库已删除");
+      setLoading(true);
+      setReloadCounter((value) => value + 1);
+    } catch (error) {
+      message.error(getErrorMessage(error));
+    } finally {
+      setDeletingWarehouseId(null);
+    }
+  }
+
   const tableColumns: WarehouseColumns = [
     ...columns,
     {
       title: "操作",
       key: "actions",
-      width: 110,
+      width: 180,
       render: (_value, warehouse) => (
-        <Button
-          type="text"
-          size="small"
-          icon={<EditOutlined />}
-          aria-label={`编辑仓库 ${warehouse.name}`}
-          onClick={() => setEditor({ mode: "edit", warehouse })}
-        >
-          编辑
-        </Button>
+        <Space size={4}>
+          <Button
+            type="text"
+            size="small"
+            icon={<EditOutlined />}
+            aria-label={`编辑仓库 ${warehouse.name}`}
+            onClick={() => setEditor({ mode: "edit", warehouse })}
+          >
+            编辑
+          </Button>
+          {warehouse.product_count > 0 ? (
+            <Tooltip title="该仓库仍有关联商品，无法删除">
+              <span>
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  disabled
+                  aria-label={`删除仓库 ${warehouse.name}`}
+                >
+                  删除
+                </Button>
+              </span>
+            </Tooltip>
+          ) : (
+            <Popconfirm
+              title="删除仓库？"
+              description={`确定删除“${warehouse.name}”吗？删除后无法恢复。`}
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={() => removeWarehouse(warehouse)}
+            >
+              <Button
+                type="text"
+                danger
+                size="small"
+                icon={<DeleteOutlined />}
+                loading={deletingWarehouseId === warehouse.id}
+                aria-label={`删除仓库 ${warehouse.name}`}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
       ),
     },
   ];

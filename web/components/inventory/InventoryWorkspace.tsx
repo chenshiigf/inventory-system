@@ -29,6 +29,10 @@ import {
 import { listWarehouses } from "@/lib/api/warehouses";
 import { toInventoryProduct } from "@/lib/inventory-products";
 import {
+  MAX_PRODUCT_BATCH_SELECTION,
+  useProductBatchSelection,
+} from "@/hooks/useProductBatchSelection";
+import {
   createStockAdjustment,
   createStockMovement,
 } from "@/lib/api/inventory-movements";
@@ -138,13 +142,19 @@ export default function InventoryWorkspace({
   const [adjustmentProduct, setAdjustmentProduct] =
     useState<InventoryProduct | null>(null);
   const [batchMode, setBatchMode] = useState(false);
-  const [selectedProductIds, setSelectedProductIds] = useState<Set<number>>(
-    new Set(),
-  );
   const [batchCategoryModalOpen, setBatchCategoryModalOpen] = useState(false);
   const [batchCategorySubmitting, setBatchCategorySubmitting] = useState(false);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
+  const {
+    selectedProducts,
+    selectedProductIds,
+    selectedCount,
+    setProductSelected,
+    addProducts,
+    removeProducts,
+    clear: clearSelectedProducts,
+  } = useProductBatchSelection();
   const warehouseValue: WarehouseSelection = urlState.warehouseId ?? "all";
   const warehouseId = urlState.warehouseId ?? undefined;
   const categoryValue = useMemo<CategorySelection>(() => {
@@ -170,10 +180,6 @@ export default function InventoryWorkspace({
   const categoryServiceError = categoriesError ?? filterCategoriesError;
   const currentCategoryLabel = getCategoryLabel(filterCategories, categoryValue);
   const currentListState = urlState;
-  const selectedProducts = useMemo(
-    () => products.filter((product) => selectedProductIds.has(product.id)),
-    [products, selectedProductIds],
-  );
   const selectedStatus: BatchStatusSelection = useMemo(() => {
     if (selectedProducts.length === 0) {
       return "none";
@@ -187,6 +193,10 @@ export default function InventoryWorkspace({
     }
     return "mixed";
   }, [selectedProducts]);
+  const currentPageSelectedCount = useMemo(
+    () => products.filter((product) => selectedProductIds.has(product.id)).length,
+    [products, selectedProductIds],
+  );
   const allCurrentPageSelected =
     products.length > 0 && products.every((product) => selectedProductIds.has(product.id));
   const productListHref = useMemo(
@@ -428,7 +438,6 @@ export default function InventoryWorkspace({
   }
 
   function handleCategoryChange(value: CategorySelection) {
-    clearSelection();
     const nextCategoryValue = value.length > 0 ? value : ["all"];
     const nextCategory = nextCategoryValue[nextCategoryValue.length - 1];
     replaceProductListUrl(
@@ -441,7 +450,6 @@ export default function InventoryWorkspace({
   }
 
   function handleWarehouseChange(value: WarehouseSelection) {
-    clearSelection();
     setFilterCategoriesLoading(true);
     setFilterCategoriesError(null);
     replaceProductListUrl(
@@ -455,22 +463,18 @@ export default function InventoryWorkspace({
   }
 
   function handleSearchChange(value: string) {
-    clearSelection();
     replaceProductListUrl({ search: value, page: 1 }, { scrollToTop: true });
   }
 
   function handleStatusChange(value: ProductStatus) {
-    clearSelection();
     replaceProductListUrl({ status: value, page: 1 }, { scrollToTop: true });
   }
 
   function handleStockStatusChange(value: StockStatus) {
-    clearSelection();
     replaceProductListUrl({ stockStatus: value, page: 1 }, { scrollToTop: true });
   }
 
   function handlePaginationChange(nextPage: number, nextPageSize: number) {
-    clearSelection();
     const resolvedPage = nextPageSize === pageSize ? nextPage : 1;
     replaceProductListUrl(
       { page: resolvedPage, pageSize: nextPageSize },
@@ -483,22 +487,62 @@ export default function InventoryWorkspace({
   }
 
   function enterBatchMode() {
-    setSelectedProductIds(new Set());
     setBatchMode(true);
   }
 
   function exitBatchMode() {
-    setSelectedProductIds(new Set());
+    clearSelection();
     setBatchMode(false);
     setBatchCategoryModalOpen(false);
   }
 
   function selectCurrentPage() {
-    setSelectedProductIds(new Set(products.map((product) => product.id)));
+    handleCurrentPageSelectionChange(products, true);
   }
 
   function clearSelection() {
-    setSelectedProductIds(new Set());
+    clearSelectedProducts();
+  }
+
+  function handleProductSelectionChange(
+    product: InventoryProduct,
+    selected: boolean,
+  ) {
+    if (
+      selected &&
+      !selectedProductIds.has(product.id) &&
+      selectedCount >= MAX_PRODUCT_BATCH_SELECTION
+    ) {
+      messageApi.warning("单次批量操作最多选择 100 个商品，请先取消已选商品。");
+      return;
+    }
+
+    setProductSelected(product, selected);
+  }
+
+  function handleCurrentPageSelectionChange(
+    pageProducts: InventoryProduct[],
+    selected: boolean,
+  ) {
+    if (!selected) {
+      removeProducts(pageProducts.map((product) => product.id));
+      return;
+    }
+
+    const uniquePageProducts = Array.from(
+      new Map(pageProducts.map((product) => [product.id, product])).values(),
+    );
+    const productsToAdd = uniquePageProducts.filter(
+      (product) => !selectedProductIds.has(product.id),
+    );
+    if (selectedCount + productsToAdd.length > MAX_PRODUCT_BATCH_SELECTION) {
+      messageApi.warning(
+        `当前已选择 ${selectedCount} 个，本页还有 ${productsToAdd.length} 个未选择商品，单次最多选择 100 个，请先减少选择；本次全选未生效。`,
+      );
+      return;
+    }
+
+    addProducts(uniquePageProducts);
   }
 
   async function confirmBatchCategory(categoryId: number) {
@@ -840,12 +884,16 @@ export default function InventoryWorkspace({
 
         {batchMode && (
           <BatchActionBar
-            selectedCount={selectedProductIds.size}
+            selectedCount={selectedCount}
+            currentPageSelectedCount={currentPageSelectedCount}
             currentPageCount={products.length}
             allCurrentPageSelected={allCurrentPageSelected}
             statusSelection={selectedStatus}
             onSelectCurrentPage={selectCurrentPage}
-            onClearSelection={clearSelection}
+            onRemoveCurrentPage={() =>
+              removeProducts(products.map((product) => product.id))
+            }
+            onClearAll={clearSelection}
             onChangeCategory={() => setBatchCategoryModalOpen(true)}
             onDeactivate={confirmBatchDeactivate}
             onActivate={confirmBatchActivate}
@@ -895,7 +943,8 @@ export default function InventoryWorkspace({
               loading={loading}
               batchMode={batchMode}
               selectedIds={selectedProductIds}
-              onSelectionChange={setSelectedProductIds}
+              onProductSelectionChange={handleProductSelectionChange}
+              onCurrentPageSelectionChange={handleCurrentPageSelectionChange}
               currentPage={currentPage}
               pageSize={pageSize}
               getProductDetailHref={getProductDetailHref}
@@ -920,7 +969,7 @@ export default function InventoryWorkspace({
               loading={loading}
               batchMode={batchMode}
               selectedIds={selectedProductIds}
-              onSelectionChange={setSelectedProductIds}
+              onProductSelectionChange={handleProductSelectionChange}
               currentPage={currentPage}
               pageSize={pageSize}
               getProductDetailHref={getProductDetailHref}
@@ -951,7 +1000,7 @@ export default function InventoryWorkspace({
       <BatchCategoryModal
         key={batchCategoryModalOpen ? "batch-category-open" : "batch-category-closed"}
         open={batchCategoryModalOpen}
-        selectedCount={selectedProductIds.size}
+        selectedCount={selectedCount}
         categories={categories}
         categoriesLoading={categoriesLoading}
         categoriesError={categoriesError}

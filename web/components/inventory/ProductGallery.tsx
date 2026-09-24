@@ -12,7 +12,7 @@ interface ProductGalleryProps {
   loading: boolean;
   batchMode: boolean;
   selectedIds: Set<number>;
-  onSelectionChange: (selectedIds: Set<number>) => void;
+  onProductSelectionChange: (product: InventoryProduct, selected: boolean) => void;
   currentPage: number;
   pageSize: number;
   getProductDetailHref: (productId: number) => string;
@@ -49,7 +49,7 @@ export default function ProductGallery({
   loading,
   batchMode,
   selectedIds,
-  onSelectionChange,
+  onProductSelectionChange,
   currentPage,
   pageSize,
   getProductDetailHref,
@@ -60,14 +60,8 @@ export default function ProductGallery({
 }: ProductGalleryProps) {
   const router = useRouter();
 
-  function toggleProductSelection(productId: number) {
-    const nextSelectedIds = new Set(selectedIds);
-    if (nextSelectedIds.has(productId)) {
-      nextSelectedIds.delete(productId);
-    } else {
-      nextSelectedIds.add(productId);
-    }
-    onSelectionChange(nextSelectedIds);
+  function toggleProductSelection(product: InventoryProduct) {
+    onProductSelectionChange(product, !selectedIds.has(product.id));
   }
 
   if (loading && products.length === 0) {
@@ -98,7 +92,7 @@ export default function ProductGallery({
               aria-label={`${label}，当前库存 ${product.totalCartonCount} 箱`}
               onClick={() => {
                 if (batchMode) {
-                  toggleProductSelection(product.id);
+                  toggleProductSelection(product);
                   return;
                 }
                 onBeforeProductDetail();
@@ -108,7 +102,7 @@ export default function ProductGallery({
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
                   if (batchMode) {
-                    toggleProductSelection(product.id);
+                    toggleProductSelection(product);
                     return;
                   }
                   onBeforeProductDetail();
@@ -123,7 +117,7 @@ export default function ProductGallery({
                     checked={selected}
                     aria-label={`选择商品 ${label}`}
                     onClick={stopCardInteraction}
-                    onChange={() => toggleProductSelection(product.id)}
+                    onChange={() => toggleProductSelection(product)}
                   />
                 )}
                 <ProductImage

@@ -4,7 +4,6 @@ import { Button, Dropdown, Popover, Space, Table, Tag, Tooltip } from "antd";
 import { MoreOutlined } from "@ant-design/icons";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import Link from "next/link";
-import type { Key } from "react";
 import ProductImage from "@/components/inventory/ProductImage";
 import type { InventoryProduct } from "@/types/inventory";
 
@@ -14,7 +13,11 @@ interface ProductTableProps {
   loading: boolean;
   batchMode: boolean;
   selectedIds: Set<number>;
-  onSelectionChange: (selectedIds: Set<number>) => void;
+  onProductSelectionChange: (product: InventoryProduct, selected: boolean) => void;
+  onCurrentPageSelectionChange: (
+    products: InventoryProduct[],
+    selected: boolean,
+  ) => void;
   currentPage: number;
   pageSize: number;
   getProductDetailHref: (productId: number) => string;
@@ -55,7 +58,8 @@ export default function ProductTable({
   loading,
   batchMode,
   selectedIds,
-  onSelectionChange,
+  onProductSelectionChange,
+  onCurrentPageSelectionChange,
   currentPage,
   pageSize,
   getProductDetailHref,
@@ -318,9 +322,17 @@ export default function ProductTable({
 
   const rowSelection = batchMode
     ? {
+        preserveSelectedRowKeys: true,
         selectedRowKeys: Array.from(selectedIds),
-        onChange: (selectedRowKeys: Key[]) => {
-          onSelectionChange(new Set(selectedRowKeys.map((key) => Number(key))));
+        onSelect: (product: InventoryProduct, selected: boolean) => {
+          onProductSelectionChange(product, selected);
+        },
+        onSelectAll: (
+          selected: boolean,
+          _selectedRows: InventoryProduct[],
+          changeRows: InventoryProduct[],
+        ) => {
+          onCurrentPageSelectionChange(changeRows, selected);
         },
       }
     : undefined;

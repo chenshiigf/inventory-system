@@ -7,11 +7,13 @@ export type BatchStatusSelection = "none" | "active" | "inactive" | "mixed";
 
 interface BatchActionBarProps {
   selectedCount: number;
+  currentPageSelectedCount: number;
   currentPageCount: number;
   allCurrentPageSelected: boolean;
   statusSelection: BatchStatusSelection;
   onSelectCurrentPage: () => void;
-  onClearSelection: () => void;
+  onRemoveCurrentPage: () => void;
+  onClearAll: () => void;
   onChangeCategory: () => void;
   onDeactivate: () => void;
   onActivate: () => void;
@@ -38,11 +40,13 @@ function ActionTooltip({
 
 export default function BatchActionBar({
   selectedCount,
+  currentPageSelectedCount,
   currentPageCount,
   allCurrentPageSelected,
   statusSelection,
   onSelectCurrentPage,
-  onClearSelection,
+  onRemoveCurrentPage,
+  onClearAll,
   onChangeCategory,
   onDeactivate,
   onActivate,
@@ -57,8 +61,8 @@ export default function BatchActionBar({
   return (
     <div className="batch-action-bar" aria-label="商品批量操作">
       <div className="batch-action-summary">
-        <strong>已选择 {selectedCount} 个商品</strong>
-        <span>仅限当前页</span>
+        <strong>已选择 {selectedCount} / 100 个</strong>
+        <span>当前页已选择 {currentPageSelectedCount} 个</span>
       </div>
       <div className="batch-action-buttons">
         <Button
@@ -68,8 +72,15 @@ export default function BatchActionBar({
         >
           全选当前页
         </Button>
-        <Button size="small" disabled={!hasSelection} onClick={onClearSelection}>
-          取消选择
+        <Button
+          size="small"
+          disabled={currentPageSelectedCount === 0}
+          onClick={onRemoveCurrentPage}
+        >
+          取消当前页
+        </Button>
+        <Button size="small" disabled={!hasSelection} onClick={onClearAll}>
+          清空全部
         </Button>
         <Button size="small" disabled={!hasSelection} onClick={onChangeCategory}>
           修改分类

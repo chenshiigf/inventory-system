@@ -507,6 +507,140 @@ def test_stock_range_filters_total_cartons_and_filtered_pagination_total(
     assert len(page_response.json()["items"]) == 3
 
 
+def test_product_list_orders_numeric_product_codes_before_pagination(
+    lifecycle_context,
+) -> None:
+    client, session_factory, ids = lifecycle_context
+    records = [
+        ("02-01-001", ids["bulb"], ids["tiger_warehouse"], True, 0, "排序匹配"),
+        ("01-02-001", ids["bowl"], ids["main_warehouse"], True, 2, "排序匹配"),
+        ("01-01-1001", ids["plate"], ids["main_warehouse"], True, 1, "排序匹配"),
+        ("01-01-1000", ids["plate"], ids["main_warehouse"], True, 0, "排序其他"),
+        ("01-01-999", ids["plate"], ids["main_warehouse"], True, 1, "排序匹配"),
+        ("01-01-003", ids["plate"], ids["main_warehouse"], True, 2, "排序匹配"),
+        ("01-01-002", ids["plate"], ids["main_warehouse"], False, 1, "排序匹配"),
+        ("01-01-001", ids["plate"], ids["main_warehouse"], True, 0, "排序匹配"),
+        ("01-01-0001", ids["plate"], ids["main_warehouse"], True, 1, "排序其他"),
+        ("LEGACY-9", ids["plate"], ids["tiger_warehouse"], True, 1, "排序匹配"),
+        (None, ids["plate"], ids["main_warehouse"], True, 1, "排序匹配"),
+    ]
+    with session_factory.begin() as db:
+        for code, category_id, warehouse_id, is_active, cartons, remark in records:
+            product = Product(
+                product_code=code,
+                category_id=category_id,
+                warehouse_id=warehouse_id,
+                is_active=is_active,
+                size="编号顺序测试",
+                remark=remark,
+            )
+            if cartons:
+                product.packagings.append(
+                    ProductPackaging(
+                        packing_qty=24,
+                        carton_count=cartons,
+                        sort_order=0,
+                    )
+                )
+            db.add(product)
+
+    expected_codes = [
+        "01-01-001",
+        "01-01-0001",
+        "01-01-002",
+        "01-01-003",
+        "01-01-999",
+        "01-01-1000",
+        "01-01-1001",
+        "01-02-001",
+        "02-01-001",
+        "LEGACY-9",
+        None,
+    ]
+
+    def list_codes(params: dict[str, int | str]) -> list[str | None]:
+        response = client.get(
+            "/api/products",
+            params={"status": "all", "page_size": 100, **params},
+        )
+        assert response.status_code == 200, response.text
+        return [item["product_code"] for item in response.json()["items"]]
+
+    full_list = client.get(
+        "/api/products", params={"status": "all", "page_size": 100}
+    )
+    assert full_list.status_code == 200, full_list.text
+    full_items = full_list.json()["items"]
+    assert [item["product_code"] for item in full_items] == expected_codes
+
+    paginated_ids = []
+    for page in range(1, 5):
+        response = client.get(
+            "/api/products",
+            params={"status": "all", "page": page, "page_size": 3},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["total"] == len(expected_codes)
+        paginated_ids.extend(item["id"] for item in response.json()["items"])
+    assert paginated_ids == [item["id"] for item in full_items]
+
+    assert list_codes({"warehouse_id": ids["main_warehouse"]}) == [
+        "01-01-001",
+        "01-01-0001",
+        "01-01-002",
+        "01-01-003",
+        "01-01-999",
+        "01-01-1000",
+        "01-01-1001",
+        "01-02-001",
+        None,
+    ]
+    assert list_codes({"category_id": ids["plate"]}) == [
+        "01-01-001",
+        "01-01-0001",
+        "01-01-002",
+        "01-01-003",
+        "01-01-999",
+        "01-01-1000",
+        "01-01-1001",
+        "LEGACY-9",
+        None,
+    ]
+    assert list_codes({"status": "active"}) == [
+        "01-01-001",
+        "01-01-0001",
+        "01-01-003",
+        "01-01-999",
+        "01-01-1000",
+        "01-01-1001",
+        "01-02-001",
+        "02-01-001",
+        "LEGACY-9",
+        None,
+    ]
+    assert list_codes({"stock_min": 1}) == [
+        "01-01-0001",
+        "01-01-002",
+        "01-01-003",
+        "01-01-999",
+        "01-01-1001",
+        "01-02-001",
+        "LEGACY-9",
+        None,
+    ]
+    assert list_codes({"search": "排序匹配"}) == [
+        "01-01-001",
+        "01-01-002",
+        "01-01-003",
+        "01-01-999",
+        "01-01-1001",
+        "01-02-001",
+        "02-01-001",
+        "LEGACY-9",
+        None,
+    ]
+
+
 def test_stock_range_combines_with_other_filters_and_takes_precedence(
     lifecycle_context,
 ) -> None:

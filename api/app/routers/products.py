@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import Integer, and_, case, cast, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from starlette.responses import StreamingResponse
 
@@ -28,6 +28,36 @@ from app.services.products import ProductCreationError, create_product_record
 
 
 router = APIRouter(prefix="/api/products", tags=["products"])
+
+
+# Product codes are three numeric components; zero-padding is display-only.
+def _product_code_ordering():
+    code = Product.product_code
+    first_separator = func.instr(code, "-")
+    after_first = func.substr(code, first_separator + 1)
+    second_separator = func.instr(after_first, "-")
+    components = (
+        func.substr(code, 1, first_separator - 1),
+        func.substr(after_first, 1, second_separator - 1),
+        func.substr(after_first, second_separator + 1),
+    )
+    has_numeric_code = and_(
+        first_separator > 0,
+        second_separator > 0,
+        *(
+            and_(component != "", component.op("NOT GLOB")("*[^0-9]*"))
+            for component in components
+        ),
+    )
+
+    return (
+        case((has_numeric_code, 0), else_=1).asc(),
+        *(
+            case((has_numeric_code, cast(component, Integer)), else_=0).asc()
+            for component in components
+        ),
+        Product.id.asc(),
+    )
 
 
 @router.get("", response_model=ProductListRead)
@@ -116,7 +146,7 @@ def list_products(
 
     total = db.scalar(count_statement) or 0
     items = db.scalars(
-        statement.order_by(Product.id.desc())
+        statement.order_by(*_product_code_ordering())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()

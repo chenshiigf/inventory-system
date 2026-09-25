@@ -66,7 +66,7 @@ class CategoryTreeNode(BaseModel):
     parent_id: int | None
     sort_order: int
     code: str
-    children: list[CategoryTreeNode] = Field(default_factory=list)
+    children: list["CategoryTreeNode"] = Field(default_factory=list)
 
 
 class WarehouseRead(BaseModel):

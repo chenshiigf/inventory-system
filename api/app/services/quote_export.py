@@ -44,6 +44,26 @@ def build_quote_filename(customer_name: str | None, quote_date: date) -> str:
     return f"报价单{name_part}_{quote_date.isoformat()}.xlsx"
 
 
+def sanitize_excel_text(value: str | None) -> str | None:
+    """Keep user-controlled values as text when written to an Excel workbook."""
+    if value is None or value == "":
+        return value
+
+    first_effective_character = next(
+        (
+            character
+            for character in value
+            if not character.isspace()
+            and ord(character) >= 0x20
+            and character != "\ufeff"
+        ),
+        "",
+    )
+    if first_effective_character in {"=", "+", "-", "@"}:
+        return f"'{value}"
+    return value
+
+
 def build_quote_workbook(
     products: Sequence[Product],
     *,
@@ -67,7 +87,8 @@ def build_quote_workbook(
     worksheet.merge_cells("A2:D2")
     worksheet.merge_cells("F2:H2")
     customer_cell = worksheet["A2"]
-    customer_cell.value = f"客户名称：{customer_name or ''}"
+    safe_customer_name = sanitize_excel_text(customer_name)
+    customer_cell.value = f"客户名称：{safe_customer_name or ''}"
     customer_cell.font = _META_FONT
     customer_cell.alignment = Alignment(vertical="center")
     date_cell = worksheet["F2"]
@@ -103,12 +124,16 @@ def build_quote_workbook(
         values = [
             sequence,
             None,
-            product.product_code or None,
-            product.size.strip() or None,
-            _format_packing_quantities(product),
-            product.unit or None,
+            sanitize_excel_text(product.product_code) or None,
+            sanitize_excel_text(product.size) if product.size.strip() else None,
+            sanitize_excel_text(_format_packing_quantities(product)),
+            sanitize_excel_text(product.unit) or None,
             _format_price(product.price),
-            product.remark.strip() if product.remark and product.remark.strip() else None,
+            (
+                sanitize_excel_text(product.remark)
+                if product.remark and product.remark.strip()
+                else None
+            ),
         ]
         for column_index, value in enumerate(values, start=1):
             cell = worksheet.cell(row=row_number, column=column_index, value=value)

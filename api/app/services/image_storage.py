@@ -15,6 +15,7 @@ from urllib.parse import unquote
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from app.database import UPLOADS_DIRECTORY
 
 MAX_PRODUCT_IMAGE_BYTES: Final = 10 * 1024 * 1024
 MAX_PRODUCT_IMAGE_PIXELS: Final = 40_000_000
@@ -29,9 +30,7 @@ ALLOWED_IMAGE_FORMATS: Final = {
     "WEBP": ("webp", {".webp"}),
 }
 
-DEFAULT_PRODUCT_IMAGE_DIRECTORY: Final = (
-    Path(__file__).resolve().parents[2] / "data" / "uploads" / "products"
-)
+DEFAULT_PRODUCT_IMAGE_DIRECTORY: Final = UPLOADS_DIRECTORY / "products"
 
 
 class ProductImageProcessingError(Exception):

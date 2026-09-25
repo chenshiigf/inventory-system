@@ -1,9 +1,5 @@
 export function getApiBaseUrl(): string {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  if (!baseUrl) {
-    throw new Error("未配置 NEXT_PUBLIC_API_BASE_URL，请先设置 FastAPI 地址。");
-  }
-  return baseUrl.replace(/\/+$/, "");
+  return (process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ?? "").replace(/\/+$/, "");
 }
 
 function getErrorDetail(payload: unknown): string | undefined {

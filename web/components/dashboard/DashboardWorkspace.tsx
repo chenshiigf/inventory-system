@@ -1,56 +1,21 @@
 "use client";
 
 import {
-  AppstoreAddOutlined,
-  DashboardOutlined,
-  FileExcelOutlined,
-  HistoryOutlined,
-  PlusOutlined,
-  TagsOutlined,
+  AppstoreOutlined,
+  ExclamationCircleOutlined,
+  InboxOutlined,
 } from "@ant-design/icons";
-import {
-  Alert,
-  App,
-  Card,
-  Empty,
-  Progress,
-  Skeleton,
-  Table,
-  Tag,
-  Tooltip,
-  Typography,
-} from "antd";
-import type { ColumnsType } from "antd/es/table";
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import ProductImage from "@/components/inventory/ProductImage";
-import {
-  formatMovementQuantity,
-  formatMovementTime,
-  getMovementDelta,
-  getMovementLabel,
-} from "@/components/inventory/inventory-movement-utils";
+import { Alert, App, Card, Empty, Skeleton, Typography } from "antd";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { getDashboardSummary } from "@/lib/api/dashboard";
 import type {
   DashboardCategoryDistribution,
   DashboardSummary,
   DashboardWarehouseDistribution,
-  DashboardZeroStockProduct,
-  InventoryMovementApiRecord,
 } from "@/types/inventory";
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "概览数据加载失败，请重试。";
-}
-
-function getMovementTagColor(type: InventoryMovementApiRecord["movement_type"]): string {
-  if (type === "IN") {
-    return "green";
-  }
-  if (type === "OUT") {
-    return "red";
-  }
-  return "blue";
 }
 
 function DashboardCardSkeleton({ rows = 2 }: { rows?: number }) {
@@ -61,130 +26,220 @@ function MetricCard({
   label,
   value,
   suffix,
+  hint,
+  icon,
+  tone,
   loading,
 }: {
   label: string;
   value: number | null;
   suffix?: string;
+  hint: string;
+  icon: ReactNode;
+  tone: "blue" | "green" | "orange";
   loading: boolean;
 }) {
   return (
-    <Card className="dashboard-metric-card" size="small">
-      {loading ? (
-        <Skeleton active title={{ width: "44%" }} paragraph={{ rows: 1 }} />
-      ) : (
-        <div className="dashboard-metric-content">
+    <Card className="dashboard-metric-card" size="small" variant="outlined">
+      <div className="dashboard-metric-content">
+        <span className={`dashboard-metric-icon dashboard-metric-icon-${tone}`} aria-hidden="true">
+          {icon}
+        </span>
+        <div className="dashboard-metric-copy">
           <span className="dashboard-metric-label">{label}</span>
-          <span className="dashboard-metric-value">
-            {value === null ? "—" : value.toLocaleString("zh-CN")}
-            {suffix && <small>{suffix}</small>}
-          </span>
+          {loading ? (
+            <Skeleton active title={false} paragraph={{ rows: 1, width: "58%" }} />
+          ) : (
+            <>
+              <span className="dashboard-metric-value">
+                {value === null ? "—" : value.toLocaleString("zh-CN")}
+                {suffix && <small>{suffix}</small>}
+              </span>
+              <span className="dashboard-metric-hint">{hint}</span>
+            </>
+          )}
         </div>
-      )}
+      </div>
     </Card>
   );
 }
 
-function MovementProduct({ movement }: { movement: InventoryMovementApiRecord }) {
-  return (
-    <div className="dashboard-movement-product">
-      <div className="dashboard-movement-image">
-        <ProductImage
-          imagePath={movement.image_path}
-          thumbnailPath={movement.thumbnail_path}
-          alt={`${movement.product_code ?? "商品"}图片`}
-          width={38}
-          height={38}
-        />
-      </div>
-      <span
-        className={movement.product_code ? "product-code-value" : "product-code-empty"}
-        title={movement.product_code ?? undefined}
-      >
-        {movement.product_code ?? "未编号商品"}
-      </span>
-    </div>
-  );
+function formatShare(value: number, total: number): string {
+  return `${(total > 0 ? (value / total) * 100 : 0).toFixed(1)}%`;
 }
 
-function ZeroStockProductRow({ product }: { product: DashboardZeroStockProduct }) {
-  return (
-    <div className="dashboard-zero-stock-row">
-      <div className="dashboard-zero-stock-image">
-        <ProductImage
-          imagePath={product.image_path}
-          thumbnailPath={product.thumbnail_path}
-          alt={`${product.product_code ?? "商品"}图片`}
-          width={42}
-          height={42}
-        />
-      </div>
-      <div className="dashboard-zero-stock-info">
-        <strong className={product.product_code ? "product-code-value" : "product-code-empty"}>
-          {product.product_code ?? "未编号商品"}
-        </strong>
-        <span>{product.category_name}</span>
-      </div>
-      <span className="dashboard-zero-stock-warehouse">
-        {product.warehouse_name ?? "未指定"}
-      </span>
-    </div>
-  );
-}
-
-type DistributionItem =
-  | DashboardCategoryDistribution
-  | DashboardWarehouseDistribution;
-
-function DistributionRows<T extends DistributionItem>({
+function CategoryDistribution({
   items,
-  getName,
-  getValue,
-  formatValue,
-  progressTotal,
-  emptyDescription,
 }: {
-  items: T[];
-  getName: (item: T) => string;
-  getValue: (item: T) => number;
-  formatValue: (value: number, percent: number) => string;
-  progressTotal?: number;
-  emptyDescription: string;
+  items: DashboardCategoryDistribution[];
 }) {
   if (items.length === 0) {
-    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyDescription} />;
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无分类数据" />;
   }
 
-  const maxValue = Math.max(...items.map(getValue), 1);
-  const total = progressTotal ?? maxValue;
+  const total = items.reduce((sum, item) => sum + item.product_count, 0);
+  const maxValue = Math.max(...items.map((item) => item.product_count), 0);
+
   return (
-    <div className="dashboard-distribution-list">
-      {items.map((item) => {
-        const value = getValue(item);
-        const percent = total > 0 ? Math.round((value / total) * 100) : 0;
-        return (
-          <div
-            className="dashboard-distribution-row"
-            key={`${getName(item)}-${value}`}
-          >
-            <div className="dashboard-distribution-heading">
-              <span className="dashboard-distribution-name" title={getName(item)}>
-                {getName(item)}
+    <div className="dashboard-category-content">
+      <div className="dashboard-category-columns" aria-hidden="true">
+        <span>#</span>
+        <span>分类名称</span>
+        <span />
+        <span>商品数</span>
+        <span>占比</span>
+      </div>
+      <div className="dashboard-category-list" role="list">
+        {items.map((item, index) => {
+          const barWidth = maxValue > 0 ? (item.product_count / maxValue) * 100 : 0;
+          return (
+            <div
+              className="dashboard-category-row"
+              key={item.category_id ?? `uncategorized-${item.category_name}`}
+              role="listitem"
+            >
+              <span className={`dashboard-category-rank${index === 0 ? " is-leading" : ""}`}>
+                {index + 1}
               </span>
-              <span className="dashboard-distribution-value">
-                {formatValue(value, percent)}
+              <span className="dashboard-category-name" title={item.category_name}>
+                {item.category_name}
+              </span>
+              <span
+                className="dashboard-category-bar-track"
+                role="img"
+                aria-label={`${item.category_name}，${item.product_count} 个商品`}
+              >
+                <span style={{ width: `${barWidth}%` }} />
+              </span>
+              <span className="dashboard-category-count">
+                {item.product_count.toLocaleString("zh-CN")}
+              </span>
+              <span className="dashboard-category-share">
+                {formatShare(item.product_count, total)}
               </span>
             </div>
-            <Progress
-              percent={progressTotal === undefined ? Math.round((value / maxValue) * 100) : percent}
-              showInfo={false}
-              size="small"
-              strokeColor="#002fa7"
-              railColor="#edf0f5"
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const warehouseColors = [
+  "#1677ff",
+  "#23a26d",
+  "#f59e0b",
+  "#8b72d9",
+  "#22a7a1",
+  "#e56d55",
+  "#5969db",
+  "#8a9aa9",
+];
+
+function getWarehouseColor(index: number): string {
+  return warehouseColors[index % warehouseColors.length];
+}
+
+function pieSlicePath(startAngle: number, endAngle: number): string {
+  const center = 110;
+  const radius = 102;
+  const startX = center + radius * Math.cos(startAngle);
+  const startY = center + radius * Math.sin(startAngle);
+  const endX = center + radius * Math.cos(endAngle);
+  const endY = center + radius * Math.sin(endAngle);
+  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+
+  return `M ${center} ${center} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY} Z`;
+}
+
+function WarehouseDistribution({
+  items,
+}: {
+  items: DashboardWarehouseDistribution[];
+}) {
+  if (items.length === 0) {
+    return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无仓库数据" />;
+  }
+
+  const total = items.reduce((sum, item) => sum + item.carton_count, 0);
+  const positiveItems = items
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => item.carton_count > 0);
+  const slices = positiveItems.reduce<{
+    endAngle: number;
+    slices: Array<{
+      warehouse: DashboardWarehouseDistribution;
+      color: string;
+      path: string;
+    }>;
+  }>(
+    (result, { item, index }) => {
+      const endAngle = result.endAngle + (item.carton_count / total) * Math.PI * 2;
+      return {
+        endAngle,
+        slices: [
+          ...result.slices,
+          {
+            warehouse: item,
+            color: getWarehouseColor(index),
+            path: pieSlicePath(result.endAngle, endAngle),
+          },
+        ],
+      };
+    },
+    { endAngle: -Math.PI / 2, slices: [] },
+  ).slices;
+
+  return (
+    <div className="dashboard-warehouse-content">
+      <div
+        className={`dashboard-pie-chart${total === 0 ? " is-empty" : ""}`}
+        role="img"
+        aria-label={`仓库库存分布，共 ${total.toLocaleString("zh-CN")} 箱`}
+      >
+        <svg viewBox="0 0 220 220" aria-hidden="true">
+          {total === 0 ? (
+            <circle cx="110" cy="110" r="102" fill="#edf0f5" />
+          ) : positiveItems.length === 1 ? (
+            <circle cx="110" cy="110" r="102" fill={slices[0].color} />
+          ) : (
+            slices.map((slice) => (
+              <path
+                key={slice.warehouse.warehouse_id}
+                d={slice.path}
+                fill={slice.color}
+                stroke="#ffffff"
+                strokeWidth="1.5"
+              />
+            ))
+          )}
+        </svg>
+        {total === 0 && <span>0 箱</span>}
+      </div>
+      <div className="dashboard-warehouse-legend" role="list" aria-label="仓库库存图例">
+        {items.map((item, index) => (
+          <div
+            className="dashboard-warehouse-legend-row"
+            key={item.warehouse_id}
+            role="listitem"
+          >
+            <span
+              className="dashboard-warehouse-legend-dot"
+              style={{ backgroundColor: getWarehouseColor(index) }}
+              aria-hidden="true"
             />
+            <span className="dashboard-warehouse-name" title={item.warehouse_name}>
+              {item.warehouse_name}
+            </span>
+            <span className="dashboard-warehouse-count">
+              {item.carton_count.toLocaleString("zh-CN")} 箱
+            </span>
+            <span className="dashboard-warehouse-share">
+              {formatShare(item.carton_count, total)}
+            </span>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
 }
@@ -197,117 +252,54 @@ export default function DashboardWorkspace() {
   const { message: messageApi } = App.useApp();
 
   useEffect(() => {
-    let isCurrentRequest = true;
-
     void getDashboardSummary()
       .then((summary) => {
-        if (isCurrentRequest) {
-          setData(summary);
-          setError(null);
-        }
+        setData(summary);
+        setError(null);
       })
       .catch((requestError: unknown) => {
-        if (isCurrentRequest) {
-          const message = getErrorMessage(requestError);
-          setData(null);
-          setError(message);
-          messageApi.error(message);
-        }
+        const message = getErrorMessage(requestError);
+        setData(null);
+        setError(message);
+        messageApi.error(message);
       })
       .finally(() => {
-        if (isCurrentRequest) {
-          setLoading(false);
-        }
+        setLoading(false);
       });
-
-    return () => {
-      isCurrentRequest = false;
-    };
   }, [messageApi, reloadKey]);
 
-  const movementColumns = useMemo<ColumnsType<InventoryMovementApiRecord>>(
-    () => [
-      {
-        title: "时间",
-        dataIndex: "created_at",
-        key: "created_at",
-        width: 130,
-        render: (value: string) => (
-          <span className="dashboard-movement-time">{formatMovementTime(value)}</span>
-        ),
-      },
-      {
-        title: "商品",
-        key: "product",
-        width: 156,
-        render: (_value: unknown, movement) => <MovementProduct movement={movement} />,
-      },
-      {
-        title: "类型",
-        dataIndex: "movement_type",
-        key: "movement_type",
-        width: 86,
-        render: (value: InventoryMovementApiRecord["movement_type"]) => (
-          <Tag color={getMovementTagColor(value)}>{getMovementLabel(value)}</Tag>
-        ),
-      },
-      {
-        title: "变化箱数",
-        key: "quantity",
-        width: 92,
-        render: (_value: unknown, movement) => {
-          const delta = getMovementDelta(movement);
-          return (
-            <span
-              className={`dashboard-movement-delta ${
-                delta > 0
-                  ? "dashboard-movement-delta-increase"
-                  : delta < 0
-                    ? "dashboard-movement-delta-decrease"
-                    : "dashboard-movement-delta-zero"
-              }`}
-            >
-              {formatMovementQuantity(movement)}
-            </span>
-          );
-        },
-      },
-      {
-        title: "库存变化",
-        key: "stock",
-        width: 104,
-        render: (_value: unknown, movement) =>
-          `${movement.before_carton_count} → ${movement.after_carton_count}箱`,
-      },
-      {
-        title: "备注",
-        dataIndex: "remark",
-        key: "remark",
-        ellipsis: true,
-        render: (value: string | null) =>
-          value ? (
-            <Tooltip title={value} placement="topLeft">
-              <span className="dashboard-movement-remark">{value}</span>
-            </Tooltip>
-          ) : (
-            <span className="table-note-empty">—</span>
-          ),
-      },
-    ],
-    [],
+  const categoryDistribution = useMemo(
+    () =>
+      [...(data?.category_distribution ?? [])].sort(
+        (a, b) => b.product_count - a.product_count,
+      ),
+    [data?.category_distribution],
   );
-
-  const warehouseTotal =
-    data?.warehouse_distribution.reduce((total, item) => total + item.carton_count, 0) ?? 0;
+  const warehouseDistribution = useMemo(
+    () =>
+      [...(data?.warehouse_distribution ?? [])].sort(
+        (a, b) => b.carton_count - a.carton_count,
+      ),
+    [data?.warehouse_distribution],
+  );
+  const categoryTotal = categoryDistribution.reduce(
+    (total, item) => total + item.product_count,
+    0,
+  );
+  const warehouseTotal = warehouseDistribution.reduce(
+    (total, item) => total + item.carton_count,
+    0,
+  );
 
   return (
     <div className="dashboard-page">
       <div className="page-heading dashboard-heading">
         <div>
           <Typography.Title level={1}>概览</Typography.Title>
-          <p className="dashboard-subtitle">快速了解当前库存情况和最近的库存动态</p>
+          <p className="dashboard-subtitle">
+            快速了解当前库存情况、商品分类和仓库分布
+          </p>
         </div>
-        <DashboardOutlined className="dashboard-heading-icon" aria-hidden="true" />
       </div>
 
       {error && (
@@ -336,131 +328,65 @@ export default function DashboardWorkspace() {
         <MetricCard
           label="在用商品"
           value={data?.active_product_count ?? (error ? null : 0)}
+          hint="当前启用的商品数量"
+          icon={<AppstoreOutlined />}
+          tone="blue"
           loading={loading}
         />
         <MetricCard
           label="当前总库存"
           value={data?.total_carton_count ?? (error ? null : 0)}
           suffix="箱"
+          hint="所有仓库的库存总量"
+          icon={<InboxOutlined />}
+          tone="green"
           loading={loading}
         />
         <MetricCard
           label="零库存商品"
           value={data?.zero_stock_product_count ?? (error ? null : 0)}
-          loading={loading}
-        />
-        <MetricCard
-          label="已停用商品"
-          value={data?.inactive_product_count ?? (error ? null : 0)}
+          hint="当前库存为 0 的商品"
+          icon={<ExclamationCircleOutlined />}
+          tone="orange"
           loading={loading}
         />
       </div>
 
-      <div className="dashboard-main-grid">
+      <div className="dashboard-distribution-grid">
         <Card
-          className="dashboard-section-card dashboard-movement-card"
-          title="最近库存动态"
-          extra={<Link href="/inventory-movements">查看全部</Link>}
+          className="dashboard-section-card dashboard-category-card"
+          title="商品分类分布"
+          extra={
+            !loading && data ? (
+              <span className="dashboard-panel-total">
+                共 {categoryTotal.toLocaleString("zh-CN")} 个商品
+              </span>
+            ) : null
+          }
         >
-          <Table<InventoryMovementApiRecord>
-            className="dashboard-movement-table"
-            rowKey="id"
-            columns={movementColumns}
-            dataSource={data?.recent_movements ?? []}
-            loading={loading}
-            size="small"
-            tableLayout="fixed"
-            pagination={false}
-            scroll={{ x: 650 }}
-            locale={{
-              emptyText: (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="暂无库存动态"
-                />
-              ),
-            }}
-          />
+          {loading ? (
+            <DashboardCardSkeleton rows={7} />
+          ) : (
+            <CategoryDistribution items={categoryDistribution} />
+          )}
         </Card>
 
         <Card
-          className="dashboard-section-card dashboard-zero-stock-card"
-          title="零库存商品"
-          extra={<Link href="/products">查看全部</Link>}
+          className="dashboard-section-card dashboard-warehouse-card"
+          title="仓库库存分布"
+          extra={
+            !loading && data ? (
+              <span className="dashboard-panel-total">
+                共 {warehouseTotal.toLocaleString("zh-CN")} 箱
+              </span>
+            ) : null
+          }
         >
           {loading ? (
-            <DashboardCardSkeleton rows={5} />
-          ) : data?.zero_stock_products.length ? (
-            <div className="dashboard-zero-stock-list">
-              {data.zero_stock_products.map((product) => (
-                <ZeroStockProductRow key={product.id} product={product} />
-              ))}
-            </div>
+            <DashboardCardSkeleton rows={4} />
           ) : (
-            <Empty
-              image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="当前没有零库存商品"
-            />
+            <WarehouseDistribution items={warehouseDistribution} />
           )}
-        </Card>
-      </div>
-
-      <div className="dashboard-bottom-grid">
-        <Card className="dashboard-section-card" title="商品分类分布">
-          {loading ? (
-            <DashboardCardSkeleton rows={5} />
-          ) : (
-            <DistributionRows
-              items={data?.category_distribution ?? []}
-              getName={(item) => item.category_name}
-              getValue={(item) => item.product_count}
-              formatValue={(value) => `${value} 个商品`}
-              emptyDescription="暂无分类数据"
-            />
-          )}
-        </Card>
-
-        <Card className="dashboard-section-card" title="仓库库存分布">
-          {loading ? (
-            <DashboardCardSkeleton rows={5} />
-          ) : (
-            <DistributionRows
-              items={data?.warehouse_distribution ?? []}
-              getName={(item) => item.warehouse_name}
-              getValue={(item) => item.carton_count}
-              formatValue={(value, percent) => `${value}箱 ${percent}%`}
-              progressTotal={warehouseTotal}
-              emptyDescription="暂无仓库数据"
-            />
-          )}
-          {!loading && data?.warehouse_distribution.length && warehouseTotal === 0 ? (
-            <p className="dashboard-distribution-note">当前所有仓库均为零库存</p>
-          ) : null}
-        </Card>
-
-        <Card className="dashboard-section-card dashboard-actions-card" title="快速操作">
-          <div className="dashboard-action-list">
-            <Link className="dashboard-action-link" href="/products">
-              <PlusOutlined aria-hidden="true" />
-              <span>新增商品</span>
-            </Link>
-            <Link className="dashboard-action-link" href="/products/import">
-              <FileExcelOutlined aria-hidden="true" />
-              <span>批量导入</span>
-            </Link>
-            <Link className="dashboard-action-link" href="/inventory-movements">
-              <HistoryOutlined aria-hidden="true" />
-              <span>查看库存流水</span>
-            </Link>
-            <Link className="dashboard-action-link" href="/categories">
-              <TagsOutlined aria-hidden="true" />
-              <span>管理分类</span>
-            </Link>
-          </div>
-          <div className="dashboard-actions-footnote">
-            <AppstoreAddOutlined aria-hidden="true" />
-            <span>常用库存操作集中在这里</span>
-          </div>
         </Card>
       </div>
     </div>

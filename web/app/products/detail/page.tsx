@@ -1,12 +1,12 @@
 import { Suspense } from "react";
 import AppLayout from "@/components/app-layout/AppLayout";
-import InventoryMovementsWorkspace from "@/components/inventory/InventoryMovementsWorkspace";
+import ProductDetailRoute from "@/components/inventory/ProductDetailRoute";
 
-export default function InventoryMovementsPage() {
+export default function ProductDetailPage() {
   return (
     <AppLayout>
       <Suspense fallback={null}>
-        <InventoryMovementsWorkspace />
+        <ProductDetailRoute />
       </Suspense>
     </AppLayout>
   );

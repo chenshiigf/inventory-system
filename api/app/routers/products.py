@@ -295,7 +295,11 @@ def update_product(
         _validate_product_warehouse(db, updates["warehouse_id"])
 
     if payload.packagings is not None:
-        _replace_product_packagings(db, product, payload.packagings)
+        try:
+            _replace_product_packagings(db, product, payload.packagings)
+        except HTTPException:
+            db.rollback()
+            raise
 
     for field_name, value in updates.items():
         setattr(product, field_name, value)
@@ -416,6 +420,19 @@ def _replace_product_packagings(
         )
 
     existing_by_id = {packaging.id: packaging for packaging in product.packagings}
+    removed_with_stock = next(
+        (
+            packaging
+            for packaging in product.packagings
+            if packaging.id not in incoming_ids and packaging.carton_count > 0
+        ),
+        None,
+    )
+    if removed_with_stock is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="包装规格仍有库存，请先盘点调整为 0 后再删除",
+        )
 
     # Validate identities before replacing rows so a mistaken cross-product id
     # cannot remove any packaging from this product.

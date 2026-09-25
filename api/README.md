@@ -10,7 +10,16 @@
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8002
 ```
 
-SQLite 数据库默认位于 `api/data/inventory.db`。修改 SQLAlchemy model 后，先用 Alembic 生成迁移，再执行 `upgrade head`：
+未设置 `INVENTORY_DATA_DIR` 时，数据库、商品图片和导入预览使用 `api/data/` 下的开发数据目录。设置该变量后，商品图片位于 `$INVENTORY_DATA_DIR/uploads/`，导入预览位于 `$INVENTORY_DATA_DIR/import-previews/`；未单独设置数据库 URL 时，SQLite 位于 `$INVENTORY_DATA_DIR/inventory.db`。显式设置的 `DATABASE_URL` 优先决定数据库位置，不改变图片和导入预览根目录。
+
+Ubuntu 持久化目录示例（仅作配置说明，不会由应用自动执行）：
+
+```sh
+INVENTORY_DATA_DIR=/var/lib/inventory-system
+DATABASE_URL=sqlite:////var/lib/inventory-system/inventory.db
+```
+
+应用启动时会创建数据根目录、uploads、图片 main/thumbs 和 import-previews。现有 `api/data/` 数据不会自动搬迁；未设置新变量时仍使用原路径。修改 SQLAlchemy model 后，先用 Alembic 生成迁移，再执行 `upgrade head`：
 
 ```powershell
 .\.venv\Scripts\python.exe -m alembic revision --autogenerate -m "describe change"

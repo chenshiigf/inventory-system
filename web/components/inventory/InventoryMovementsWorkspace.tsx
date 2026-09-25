@@ -18,6 +18,7 @@ import {
   Tooltip,
   Typography,
 } from "antd";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { listInventoryMovements } from "@/lib/api/inventory-movements";
 import { listWarehouses } from "@/lib/api/warehouses";
@@ -38,10 +39,6 @@ import type {
 type MovementFilter = "all" | InventoryMovementType;
 type WarehouseFilter = "all" | number;
 
-interface InventoryMovementsWorkspaceProps {
-  initialSearch?: string;
-}
-
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 function getErrorMessage(error: unknown): string {
@@ -58,9 +55,9 @@ function getMovementTagColor(type: InventoryMovementType): string {
   return "blue";
 }
 
-export default function InventoryMovementsWorkspace({
-  initialSearch = "",
-}: InventoryMovementsWorkspaceProps) {
+export default function InventoryMovementsWorkspace() {
+  const searchParams = useSearchParams();
+  const initialSearch = searchParams.get("search") ?? "";
   const [items, setItems] = useState<InventoryMovementApiRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);

@@ -164,8 +164,11 @@ export function buildProductDetailHref(
   productId: number,
   returnTo: string,
 ): string {
-  const query = new URLSearchParams({ returnTo });
-  return `/products/${productId}?${query.toString()}`;
+  const query = new URLSearchParams({
+    id: String(productId),
+    returnTo,
+  });
+  return `/products/detail?${query.toString()}`;
 }
 
 export function getSafeProductListReturnTo(

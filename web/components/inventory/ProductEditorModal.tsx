@@ -8,7 +8,6 @@ import {
 } from "@ant-design/icons";
 import {
   Alert,
-  App,
   Cascader,
   Button,
   Form,
@@ -65,7 +64,6 @@ export default function ProductEditorModal({
   const [uploading, setUploading] = useState(false);
   const [imagePath, setImagePath] = useState(product?.imagePath ?? null);
   const [messageApi, messageContextHolder] = message.useMessage();
-  const { modal } = App.useApp();
   const selectedUnit = Form.useWatch("unit", form) ?? product?.unit ?? "—";
   const title = product ? "编辑商品" : "新增商品";
   const categoryOptions: InventoryCategoryOption[] = toCategoryOptions(categories);
@@ -357,13 +355,9 @@ export default function ProductEditorModal({
                         return;
                       }
                       if (cartonCount > 0) {
-                        modal.confirm({
-                          title: "确认删除包装规格？",
-                          content: `该包装规格当前还有 ${cartonCount} 箱库存，删除后这部分库存记录将被移除，是否继续？`,
-                          okText: "继续删除",
-                          cancelText: "取消",
-                          onOk: () => remove(field.name),
-                        });
+                        messageApi.warning(
+                          "该包装仍有库存，请先盘点调整为 0 后再删除",
+                        );
                         return;
                       }
                       remove(field.name);

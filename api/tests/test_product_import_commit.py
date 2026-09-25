@@ -478,6 +478,12 @@ def test_committed_product_is_visible_in_inventory_api(import_context) -> None:
     assert inventory.json()["total"] == 1
     assert inventory.json()["items"][0]["product_code"] == "01-01-007"
     assert inventory.json()["items"][0]["total_carton_count"] == 9
+    movements = client.get(
+        "/api/inventory-movements",
+        params={"product_id": inventory.json()["items"][0]["id"]},
+    )
+    assert movements.status_code == 200
+    assert movements.json()["total"] == 0
 
 
 def test_consumed_or_unknown_session_cannot_commit_again(import_context) -> None:

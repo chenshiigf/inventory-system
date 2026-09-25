@@ -78,6 +78,12 @@ def test_create_single_packaging_returns_nested_row_and_total(client: TestClient
     assert product["total_carton_count"] == 10
     assert "packing_qty" not in product
     assert "carton_count" not in product
+    movements = client.get(
+        "/api/inventory-movements",
+        params={"product_id": product["id"]},
+    )
+    assert movements.status_code == 200
+    assert movements.json()["total"] == 0
 
 
 def test_create_multiple_packagings_preserves_client_order(client: TestClient) -> None:
@@ -239,7 +245,7 @@ def test_update_can_delete_zero_stock_packaging(client: TestClient) -> None:
     assert [row["packing_qty"] for row in response.json()["packagings"]] == [24]
 
 
-def test_update_can_delete_stocked_packaging_after_ui_confirmation(client: TestClient) -> None:
+def test_update_rejects_deleting_stocked_packaging(client: TestClient) -> None:
     created = create_product(
         client,
         packagings=[
@@ -248,13 +254,97 @@ def test_update_can_delete_stocked_packaging_after_ui_confirmation(client: TestC
         ],
     )
 
+    original_packagings = created["packagings"]
     response = client.patch(
         f"/api/products/{created['id']}",
         json={"packagings": [packaging_write(created["packagings"][0])]},
     )
 
-    assert response.status_code == 200
-    assert response.json()["total_carton_count"] == 10
+    assert response.status_code == 409
+    assert response.json()["detail"] == "包装规格仍有库存，请先盘点调整为 0 后再删除"
+    unchanged = client.get(f"/api/products/{created['id']}").json()
+    assert unchanged["packagings"] == original_packagings
+    assert unchanged["total_carton_count"] == 11
+
+
+def test_stocked_packaging_removal_rolls_back_other_product_and_packaging_edits(
+    client: TestClient,
+) -> None:
+    created = create_product(
+        client,
+        size="修改前名称",
+        remark="修改前备注",
+        packagings=[
+            {"packing_qty": 240, "carton_count": 10},
+            {"packing_qty": 144, "carton_count": 0},
+            {"packing_qty": 48, "carton_count": 0},
+        ],
+    )
+    original_packagings = created["packagings"]
+
+    response = client.patch(
+        f"/api/products/{created['id']}",
+        json={
+            "size": "不应保存的新名称",
+            "remark": "不应保存的新备注",
+            "packagings": [
+                {"id": original_packagings[1]["id"], "packing_qty": 72}
+            ],
+        },
+    )
+
+    assert response.status_code == 409
+    unchanged = client.get(f"/api/products/{created['id']}").json()
+    assert unchanged["size"] == "修改前名称"
+    assert unchanged["remark"] == "修改前备注"
+    assert unchanged["packagings"] == original_packagings
+
+
+def test_adjust_to_zero_then_delete_packaging_keeps_movement_snapshot(
+    client: TestClient,
+) -> None:
+    created = create_product(
+        client,
+        packagings=[
+            {"packing_qty": 24, "carton_count": 2},
+            {"packing_qty": 144, "carton_count": 0},
+        ],
+    )
+    stocked_packaging, remaining_packaging = created["packagings"]
+
+    adjustment = client.post(
+        f"/api/products/{created['id']}/stock/adjust",
+        json={
+            "product_packaging_id": stocked_packaging["id"],
+            "actual_carton_count": 0,
+            "remark": "盘点调整为 0",
+        },
+    )
+    assert adjustment.status_code == 201, adjustment.text
+    assert adjustment.json()["movement_type"] == "ADJUST"
+    movement_id = adjustment.json()["id"]
+
+    deletion = client.patch(
+        f"/api/products/{created['id']}",
+        json={"packagings": [packaging_write(remaining_packaging)]},
+    )
+
+    assert deletion.status_code == 200, deletion.text
+    assert [
+        (row["packing_qty"], row["carton_count"])
+        for row in deletion.json()["packagings"]
+    ] == [(144, 0)]
+    history = client.get(
+        "/api/inventory-movements",
+        params={"product_id": created["id"]},
+    )
+    assert history.status_code == 200
+    assert history.json()["total"] == 1
+    movement = history.json()["items"][0]
+    assert movement["id"] == movement_id
+    assert movement["product_packaging_id"] is None
+    assert movement["packing_qty_snapshot"] == 24
+    assert movement["unit_snapshot"] == "pcs"
 
 
 def test_update_rejects_empty_final_packaging_list(client: TestClient) -> None:
@@ -355,7 +445,11 @@ def test_update_does_not_change_product_identity(client: TestClient) -> None:
     created = create_product(client)
     response = client.patch(
         f"/api/products/{created['id']}",
-        json={"packagings": [{"packing_qty": 48}]},
+        json={
+            "packagings": [
+                {"id": created["packagings"][0]["id"], "packing_qty": 48}
+            ]
+        },
     )
 
     assert response.status_code == 200

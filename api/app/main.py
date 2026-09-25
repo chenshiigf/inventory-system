@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import Response
 from starlette.types import Scope
 
-from app.database import DATA_DIR
+from app.database import DATA_DIR, IMPORT_PREVIEWS_DIRECTORY, UPLOADS_DIRECTORY
 from app.routers.categories import router as categories_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.product_images import router as product_images_router
@@ -26,16 +26,32 @@ class CachedStaticFiles(StaticFiles):
 
 def create_app(
     *,
+    data_directory: Path | None = None,
     uploads_directory: Path | None = None,
     product_import_preview_directory: Path | None = None,
 ) -> FastAPI:
-    uploads_root = (uploads_directory or DATA_DIR / "uploads").resolve()
+    data_root = (data_directory or DATA_DIR).expanduser().resolve()
+    default_uploads_directory = (
+        UPLOADS_DIRECTORY if data_directory is None else data_root / "uploads"
+    )
+    default_preview_directory = (
+        IMPORT_PREVIEWS_DIRECTORY
+        if data_directory is None
+        else data_root / "import-previews"
+    )
+    uploads_root = (uploads_directory or default_uploads_directory).expanduser().resolve()
     product_image_directory = uploads_root / "products"
-    product_image_directory.mkdir(parents=True, exist_ok=True)
     product_import_root = (
-        product_import_preview_directory or DATA_DIR / "tmp" / "product-import"
-    ).resolve()
-    product_import_root.mkdir(parents=True, exist_ok=True)
+        product_import_preview_directory or default_preview_directory
+    ).expanduser().resolve()
+    for directory in (
+        data_root,
+        uploads_root,
+        product_image_directory / "main",
+        product_image_directory / "thumbs",
+        product_import_root,
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
 
     application = FastAPI(title="Inventory System API", version="0.1.0")
     application.state.uploads_directory = uploads_root

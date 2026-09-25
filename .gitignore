@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+node_modules/
+.venv/
+
+# Local browser acceptance output and logs
+/output/playwright/
+*.log

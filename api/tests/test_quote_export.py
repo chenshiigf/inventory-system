@@ -1,6 +1,7 @@
 from collections.abc import Generator
 from datetime import date
 from io import BytesIO
+from types import SimpleNamespace
 from urllib.parse import unquote
 
 import pytest
@@ -13,7 +14,7 @@ from sqlalchemy.orm import selectinload, sessionmaker
 from app.database import Base, get_db
 from app.main import app
 from app.models import InventoryMovement, Product
-from app.services.quote_export import build_quote_workbook
+from app.services.quote_export import build_quote_workbook, sanitize_excel_text
 
 
 @pytest.fixture
@@ -68,6 +69,28 @@ def set_product_fields(session_local, product_id: int, **fields: object) -> None
 def read_workbook(response_content: bytes):
     workbook = load_workbook(BytesIO(response_content), data_only=False)
     return workbook, workbook["报价单"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("厨房用品", "厨房用品"),
+        ("Warehouse", "Warehouse"),
+        ("=SUM(1,2)", "'=SUM(1,2)"),
+        ("+1+1", "'+1+1"),
+        ("-1+1", "'-1+1"),
+        ("@SUM(A1:A2)", "'@SUM(A1:A2)"),
+        (" =SUM(...) ", "' =SUM(...) "),
+        ("\t=SUM(...)\t", "'\t=SUM(...)\t"),
+        (None, None),
+        ("", ""),
+    ],
+)
+def test_sanitize_excel_text_preserves_plain_text_and_quotes_formula_prefixes(
+    value: str | None,
+    expected: str | None,
+) -> None:
+    assert sanitize_excel_text(value) == expected
 
 
 def test_batch_quote_export_returns_ordered_customer_workbook(database_client) -> None:
@@ -151,6 +174,71 @@ def test_batch_quote_export_returns_ordered_customer_workbook(database_client) -
     assert worksheet["H6"].value == "第一件备注"
     assert worksheet.max_row == 6
     assert worksheet.freeze_panes == "A5"
+    workbook.close()
+
+
+def test_batch_quote_export_writes_user_text_as_non_formula_cells(database_client) -> None:
+    client, session_local = database_client
+    product = create_product(client, price="12.50")
+    set_product_fields(
+        session_local,
+        product["id"],
+        product_code=" \t=SUM(1,2)",
+        size=" \t+1+1 ",
+        unit="pcs",
+        remark="\t@SUM(A1:A2) ",
+    )
+
+    response = client.post(
+        "/api/products/batch/export-quote",
+        json={
+            "product_ids": [product["id"]],
+            "customer_name": "=HYPERLINK(\"https://example.invalid\")",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    workbook, worksheet = read_workbook(response.content)
+    for address, expected in {
+        "A2": "客户名称：'=HYPERLINK(\"https://example.invalid\")",
+        "C5": "' \t=SUM(1,2)",
+        "D5": "' \t+1+1 ",
+        "H5": "'\t@SUM(A1:A2) ",
+    }.items():
+        cell = worksheet[address]
+        assert cell.value == expected
+        assert cell.data_type != "f"
+    assert worksheet["E5"].value == "240"
+    assert worksheet["E5"].data_type == "s"
+    assert worksheet["F5"].value == "pcs"
+    assert worksheet["F5"].data_type == "s"
+    assert worksheet["G5"].value == 12.5
+    assert worksheet["G5"].data_type == "n"
+    workbook.close()
+
+
+def test_build_quote_workbook_sanitizes_unit_text(tmp_path) -> None:
+    product = SimpleNamespace(
+        product_code=None,
+        size="",
+        packagings=[],
+        unit="-1+1",
+        price=None,
+        remark="",
+        image_path=None,
+        thumbnail_path=None,
+    )
+
+    workbook_stream = build_quote_workbook(
+        [product],
+        customer_name=None,
+        quote_date=date(2026, 9, 24),
+        image_root=tmp_path,
+    )
+
+    workbook, worksheet = read_workbook(workbook_stream.getvalue())
+    assert worksheet["F5"].value == "'-1+1"
+    assert worksheet["F5"].data_type != "f"
     workbook.close()
 
 

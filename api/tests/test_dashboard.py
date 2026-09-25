@@ -169,7 +169,7 @@ def post_adjustment(
     assert response.status_code == 201, response.text
 
 
-def test_dashboard_summary_uses_active_stock_and_returns_related_data(
+def test_dashboard_summary_preserves_active_stock_and_distribution_metrics(
     dashboard_client,
 ) -> None:
     client, session_local = dashboard_client
@@ -207,35 +207,16 @@ def test_dashboard_summary_uses_active_stock_and_returns_related_data(
 
     assert response.status_code == 200, response.text
     payload = response.json()
+    assert set(payload) == {
+        "active_product_count",
+        "total_carton_count",
+        "zero_stock_product_count",
+        "category_distribution",
+        "warehouse_distribution",
+    }
     assert payload["active_product_count"] == 5
-    assert payload["inactive_product_count"] == 1
     assert payload["total_carton_count"] == 36
     assert payload["zero_stock_product_count"] == 2
-
-    recent = payload["recent_movements"]
-    assert len(recent) == 5
-    assert [item["movement_type"] for item in recent] == [
-        "ADJUST",
-        "ADJUST",
-        "OUT",
-        "ADJUST",
-        "IN",
-    ]
-    assert recent[-1]["product_code"] == "01-01-001"
-    assert recent[-1]["image_path"] == "products/main.webp"
-    assert recent[-1]["thumbnail_path"] == "products/thumb.webp"
-
-    zero_products = payload["zero_stock_products"]
-    assert [item["product_code"] for item in zero_products] == [
-        "01-02-001",
-        "04-01-001",
-    ]
-    assert zero_products[0]["category_name"] == "节日装饰"
-    assert zero_products[0]["warehouse_name"] == "主仓"
-    assert zero_products[1]["warehouse_name"] is None
-    assert "02-01-001" not in {
-        item["product_code"] for item in zero_products
-    }
 
     assert payload["category_distribution"] == [
         {"category_id": 1, "category_name": "厨房用品", "product_count": 2},
@@ -249,13 +230,13 @@ def test_dashboard_summary_uses_active_stock_and_returns_related_data(
     ]
 
 
-def test_dashboard_category_distribution_uses_root_categories_and_limits_to_five(
+def test_dashboard_category_distribution_includes_all_eight_root_categories(
     dashboard_client,
 ) -> None:
     client, session_local = dashboard_client
 
     with session_local.begin() as db:
-        for category_index in range(1, 7):
+        for category_index in range(1, 9):
             parent = Category(
                 name=f"一级分类{category_index}",
                 code=f"ROOT{category_index}",
@@ -283,12 +264,8 @@ def test_dashboard_category_distribution_uses_root_categories_and_limits_to_five
 
     assert response.status_code == 200, response.text
     categories = response.json()["category_distribution"]
-    assert len(categories) == 5
+    assert len(categories) == 8
     assert [item["category_name"] for item in categories] == [
-        "一级分类6",
-        "一级分类5",
-        "一级分类4",
-        "一级分类3",
-        "一级分类2",
+        f"一级分类{index}" for index in range(8, 0, -1)
     ]
-    assert [item["product_count"] for item in categories] == [6, 5, 4, 3, 2]
+    assert [item["product_count"] for item in categories] == list(range(8, 0, -1))

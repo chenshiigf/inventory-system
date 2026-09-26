@@ -1,0 +1,48 @@
+{
+  "file_hash": "02e50c1969cd7f181e17215ce9f3def6c5b28dae671e17c882b11ec3b41fde00",
+  "preview": {
+    "preview_session_id": "d2a64e2f414b442aba5247f4a5021582",
+    "file_name": "厨房用品-导入.xlsx",
+    "already_imported": false,
+    "source_row_count": 1,
+    "product_count": 1,
+    "valid_count": 0,
+    "warning_count": 0,
+    "error_count": 1,
+    "products": [
+      {
+        "preview_id": "preview-d2a64e2f414b442aba5247f4a5021582-1",
+        "product_group": null,
+        "excel_rows": [
+          2
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "圣诞系列",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "10235"
+        ],
+        "packagings": [
+          {
+            "excel_row": 2,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "10235"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "二级分类‘盘子’不属于一级分类‘圣诞系列’",
+          "无商品图片"
+        ]
+      }
+    ]
+  }
+}

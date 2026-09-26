@@ -1,0 +1,75 @@
+{
+  "file_hash": "7110a470da2ab38fb4739d62ced5580657d306ab2cf15cafb328113c8c47ae41",
+  "preview": {
+    "preview_session_id": "ac0fdd81e39e407398aa007842845d8f",
+    "file_name": "厨房用品-导入.xlsx",
+    "already_imported": false,
+    "source_row_count": 2,
+    "product_count": 2,
+    "valid_count": 2,
+    "warning_count": 0,
+    "error_count": 0,
+    "products": [
+      {
+        "preview_id": "preview-ac0fdd81e39e407398aa007842845d8f-1",
+        "product_group": null,
+        "excel_rows": [
+          2
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": "/import-previews/ac0fdd81e39e407398aa007842845d8f/image-1.webp",
+        "shared_image": true,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "A"
+        ],
+        "packagings": [
+          {
+            "excel_row": 2,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "A"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "valid",
+        "messages": []
+      },
+      {
+        "preview_id": "preview-ac0fdd81e39e407398aa007842845d8f-2",
+        "product_group": null,
+        "excel_rows": [
+          3
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": "/import-previews/ac0fdd81e39e407398aa007842845d8f/image-1.webp",
+        "shared_image": true,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "B"
+        ],
+        "packagings": [
+          {
+            "excel_row": 3,
+            "packing_qty": 48,
+            "carton_count": 10,
+            "source_code": "B"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "valid",
+        "messages": []
+      }
+    ]
+  }
+}

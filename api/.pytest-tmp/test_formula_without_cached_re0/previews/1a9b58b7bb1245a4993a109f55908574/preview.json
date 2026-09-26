@@ -1,0 +1,47 @@
+{
+  "file_hash": "36b2446d63dbfe9906a78323207cffe6b47a472065646472a6d996408abadb90",
+  "preview": {
+    "preview_session_id": "1a9b58b7bb1245a4993a109f55908574",
+    "file_name": "厨房用品-导入.xlsx",
+    "already_imported": false,
+    "source_row_count": 1,
+    "product_count": 1,
+    "valid_count": 0,
+    "warning_count": 0,
+    "error_count": 1,
+    "products": [
+      {
+        "preview_id": "preview-1a9b58b7bb1245a4993a109f55908574-1",
+        "product_group": null,
+        "excel_rows": [
+          2
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": "/import-previews/1a9b58b7bb1245a4993a109f55908574/image-1.webp",
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "10235"
+        ],
+        "packagings": [
+          {
+            "excel_row": 2,
+            "packing_qty": 24,
+            "carton_count": null,
+            "source_code": "10235"
+          }
+        ],
+        "total_carton_count": 0,
+        "status": "error",
+        "messages": [
+          "Excel第 2 行：结余箱数为公式，但没有可读取的计算结果。请使用 Microsoft Excel 打开文件、确认公式结果正常后保存，再重新上传。"
+        ]
+      }
+    ]
+  }
+}

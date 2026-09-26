@@ -1,0 +1,47 @@
+{
+  "file_hash": "1b71fcb24b32cc4ad4a4c4ea9a94b8c809727df58cf2a8d78a11a2773da1b037",
+  "preview": {
+    "preview_session_id": "f2978bb9e6d24c6f97fb31b6fe4ac403",
+    "file_name": "正式导入验收.xlsx",
+    "already_imported": false,
+    "source_row_count": 1,
+    "product_count": 1,
+    "valid_count": 0,
+    "warning_count": 0,
+    "error_count": 1,
+    "products": [
+      {
+        "preview_id": "preview-f2978bb9e6d24c6f97fb31b6fe4ac403-1",
+        "product_group": null,
+        "excel_rows": [
+          2
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "10235"
+        ],
+        "packagings": [
+          {
+            "excel_row": 2,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "10235"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      }
+    ]
+  }
+}

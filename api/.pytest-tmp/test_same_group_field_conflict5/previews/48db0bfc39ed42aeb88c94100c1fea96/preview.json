@@ -1,0 +1,55 @@
+{
+  "file_hash": "74d9c4b1de3f1b7238a0ad2b158ecf023e480297d321dec371da260e471cceef",
+  "preview": {
+    "preview_session_id": "48db0bfc39ed42aeb88c94100c1fea96",
+    "file_name": "厨房用品-导入.xlsx",
+    "already_imported": false,
+    "source_row_count": 2,
+    "product_count": 1,
+    "valid_count": 0,
+    "warning_count": 0,
+    "error_count": 1,
+    "products": [
+      {
+        "preview_id": "preview-48db0bfc39ed42aeb88c94100c1fea96-1",
+        "product_group": "A001",
+        "excel_rows": [
+          2,
+          3
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "10235"
+        ],
+        "packagings": [
+          {
+            "excel_row": 2,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "10235"
+          },
+          {
+            "excel_row": 3,
+            "packing_qty": 48,
+            "carton_count": 10,
+            "source_code": "10235"
+          }
+        ],
+        "total_carton_count": 20,
+        "status": "error",
+        "messages": [
+          "商品组 A001 的单价不一致：3.50 / 4.50",
+          "无商品图片"
+        ]
+      }
+    ]
+  }
+}

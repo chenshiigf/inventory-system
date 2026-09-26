@@ -1,0 +1,11 @@
+{
+  "backup_version": 1,
+  "created_at": "2026-09-25T15:00:00+00:00",
+  "database_filename": "inventory.db",
+  "database_size": 21,
+  "database_sha256": "2d2d0ccdb3533927f48180045cc44265d285bd7381e4c35d497ad5234e1a8608",
+  "uploads_archive": "uploads.tar.gz",
+  "uploads_file_count": 2,
+  "uploads_archive_size": 389,
+  "uploads_sha256": "f1232d3457ffeb7e48f18946302a8679f56e0d9c1f0161aeac50e91d19c0f8b3"
+}

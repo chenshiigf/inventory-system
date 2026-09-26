@@ -1,0 +1,45 @@
+{
+  "file_hash": "ea822476f6c868171ecaccd6f5ad5b0672b828a3a149ec528e6a3f0495311ac1",
+  "preview": {
+    "preview_session_id": "4ee18939aa68425a9b34ba1140ab50d2",
+    "file_name": "厨房用品-导入.xlsx",
+    "already_imported": false,
+    "source_row_count": 1,
+    "product_count": 1,
+    "valid_count": 1,
+    "warning_count": 0,
+    "error_count": 0,
+    "products": [
+      {
+        "preview_id": "preview-4ee18939aa68425a9b34ba1140ab50d2-1",
+        "product_group": null,
+        "excel_rows": [
+          2
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": "/import-previews/4ee18939aa68425a9b34ba1140ab50d2/image-1.webp",
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "10235"
+        ],
+        "packagings": [
+          {
+            "excel_row": 2,
+            "packing_qty": 24,
+            "carton_count": 14,
+            "source_code": "10235"
+          }
+        ],
+        "total_carton_count": 14,
+        "status": "valid",
+        "messages": []
+      }
+    ]
+  }
+}

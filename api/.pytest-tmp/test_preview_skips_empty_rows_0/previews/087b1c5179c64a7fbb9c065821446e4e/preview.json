@@ -1,0 +1,687 @@
+{
+  "file_hash": "dd5d3c63014697e5050daa13b1946e61779db3c86a2ab7c1e6620b1619966ef5",
+  "preview": {
+    "preview_session_id": "087b1c5179c64a7fbb9c065821446e4e",
+    "file_name": "厨房用品-导入.xlsx",
+    "already_imported": false,
+    "source_row_count": 21,
+    "product_count": 21,
+    "valid_count": 0,
+    "warning_count": 0,
+    "error_count": 21,
+    "products": [
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-1",
+        "product_group": null,
+        "excel_rows": [
+          2
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "first"
+        ],
+        "packagings": [
+          {
+            "excel_row": 2,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "first"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-2",
+        "product_group": null,
+        "excel_rows": [
+          4
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "2"
+        ],
+        "packagings": [
+          {
+            "excel_row": 4,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "2"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-3",
+        "product_group": null,
+        "excel_rows": [
+          5
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "3"
+        ],
+        "packagings": [
+          {
+            "excel_row": 5,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "3"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-4",
+        "product_group": null,
+        "excel_rows": [
+          6
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "4"
+        ],
+        "packagings": [
+          {
+            "excel_row": 6,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "4"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-5",
+        "product_group": null,
+        "excel_rows": [
+          7
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "5"
+        ],
+        "packagings": [
+          {
+            "excel_row": 7,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "5"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-6",
+        "product_group": null,
+        "excel_rows": [
+          8
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "6"
+        ],
+        "packagings": [
+          {
+            "excel_row": 8,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "6"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-7",
+        "product_group": null,
+        "excel_rows": [
+          9
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "7"
+        ],
+        "packagings": [
+          {
+            "excel_row": 9,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "7"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-8",
+        "product_group": null,
+        "excel_rows": [
+          10
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "8"
+        ],
+        "packagings": [
+          {
+            "excel_row": 10,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "8"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-9",
+        "product_group": null,
+        "excel_rows": [
+          11
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "9"
+        ],
+        "packagings": [
+          {
+            "excel_row": 11,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "9"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-10",
+        "product_group": null,
+        "excel_rows": [
+          12
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "10"
+        ],
+        "packagings": [
+          {
+            "excel_row": 12,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "10"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-11",
+        "product_group": null,
+        "excel_rows": [
+          13
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "11"
+        ],
+        "packagings": [
+          {
+            "excel_row": 13,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "11"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-12",
+        "product_group": null,
+        "excel_rows": [
+          14
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "12"
+        ],
+        "packagings": [
+          {
+            "excel_row": 14,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "12"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-13",
+        "product_group": null,
+        "excel_rows": [
+          15
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "13"
+        ],
+        "packagings": [
+          {
+            "excel_row": 15,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "13"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-14",
+        "product_group": null,
+        "excel_rows": [
+          16
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "14"
+        ],
+        "packagings": [
+          {
+            "excel_row": 16,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "14"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-15",
+        "product_group": null,
+        "excel_rows": [
+          17
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "15"
+        ],
+        "packagings": [
+          {
+            "excel_row": 17,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "15"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-16",
+        "product_group": null,
+        "excel_rows": [
+          18
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "16"
+        ],
+        "packagings": [
+          {
+            "excel_row": 18,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "16"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-17",
+        "product_group": null,
+        "excel_rows": [
+          19
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "17"
+        ],
+        "packagings": [
+          {
+            "excel_row": 19,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "17"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-18",
+        "product_group": null,
+        "excel_rows": [
+          20
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "18"
+        ],
+        "packagings": [
+          {
+            "excel_row": 20,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "18"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-19",
+        "product_group": null,
+        "excel_rows": [
+          21
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "19"
+        ],
+        "packagings": [
+          {
+            "excel_row": 21,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "19"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-20",
+        "product_group": null,
+        "excel_rows": [
+          22
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "20"
+        ],
+        "packagings": [
+          {
+            "excel_row": 22,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "20"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      },
+      {
+        "preview_id": "preview-087b1c5179c64a7fbb9c065821446e4e-21",
+        "product_group": null,
+        "excel_rows": [
+          23
+        ],
+        "warehouse": "主仓",
+        "category_level_1": "厨房用品",
+        "category_level_2": "盘子",
+        "image_preview_url": null,
+        "shared_image": false,
+        "size": "20cm",
+        "unit": "pcs",
+        "price": "3.50",
+        "remark": "蓝边款",
+        "source_codes": [
+          "21"
+        ],
+        "packagings": [
+          {
+            "excel_row": 23,
+            "packing_qty": 24,
+            "carton_count": 10,
+            "source_code": "21"
+          }
+        ],
+        "total_carton_count": 10,
+        "status": "error",
+        "messages": [
+          "无商品图片"
+        ]
+      }
+    ]
+  }
+}

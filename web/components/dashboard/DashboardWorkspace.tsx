@@ -6,8 +6,14 @@ import {
   InboxOutlined,
 } from "@ant-design/icons";
 import { Alert, App, Card, Empty, Skeleton, Typography } from "antd";
+import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { getDashboardSummary } from "@/lib/api/dashboard";
+import {
+  buildProductListHref,
+  DEFAULT_PRODUCT_LIST_STATE,
+  type ProductListState,
+} from "@/lib/product-list-state";
 import type {
   DashboardCategoryDistribution,
   DashboardSummary,
@@ -22,6 +28,16 @@ function DashboardCardSkeleton({ rows = 2 }: { rows?: number }) {
   return <Skeleton active title={{ width: "38%" }} paragraph={{ rows }} />;
 }
 
+function buildDashboardProductHref(
+  overrides: Partial<ProductListState> = {},
+  includeDefaultStatus = false,
+): string {
+  return buildProductListHref(
+    { ...DEFAULT_PRODUCT_LIST_STATE, ...overrides },
+    { includeDefaultStatus },
+  );
+}
+
 function MetricCard({
   label,
   value,
@@ -29,6 +45,7 @@ function MetricCard({
   icon,
   tone,
   loading,
+  href,
 }: {
   label: string;
   value: number | null;
@@ -36,28 +53,37 @@ function MetricCard({
   icon: ReactNode;
   tone: "blue" | "green" | "orange";
   loading: boolean;
+  href: string;
 }) {
   return (
-    <Card className="dashboard-metric-card" size="small" variant="outlined">
-      <div className="dashboard-metric-content">
-        <span className={`dashboard-metric-icon dashboard-metric-icon-${tone}`} aria-hidden="true">
-          {icon}
-        </span>
-        <div className="dashboard-metric-copy">
-          <span className="dashboard-metric-label">{label}</span>
-          {loading ? (
-            <Skeleton active title={false} paragraph={{ rows: 1, width: "58%" }} />
-          ) : (
-            <>
+    <Link
+      className="dashboard-metric-link"
+      href={href}
+      aria-label={
+        value === null
+          ? `查看${label}`
+          : `查看${label}：${value.toLocaleString("zh-CN")}${suffix ?? ""}`
+      }
+    >
+      <Card className="dashboard-metric-card" size="small" variant="outlined">
+        <div className="dashboard-metric-content">
+          <span className={`dashboard-metric-icon dashboard-metric-icon-${tone}`} aria-hidden="true">
+            {icon}
+          </span>
+          <div className="dashboard-metric-copy">
+            <span className="dashboard-metric-label">{label}</span>
+            {loading ? (
+              <Skeleton active title={false} paragraph={{ rows: 1, width: "58%" }} />
+            ) : (
               <span className="dashboard-metric-value">
                 {value === null ? "—" : value.toLocaleString("zh-CN")}
                 {suffix && <small>{suffix}</small>}
               </span>
-            </>
-          )}
+            )}
+          </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+    </Link>
   );
 }
 
@@ -86,15 +112,11 @@ function CategoryDistribution({
         <span>商品数</span>
         <span>占比</span>
       </div>
-      <div className="dashboard-category-list" role="list">
+      <div className="dashboard-category-list" role="list" aria-label="按分类筛选商品">
         {items.map((item, index) => {
           const barWidth = maxValue > 0 ? (item.product_count / maxValue) * 100 : 0;
-          return (
-            <div
-              className="dashboard-category-row"
-              key={item.category_id ?? `uncategorized-${item.category_name}`}
-              role="listitem"
-            >
+          const rowContent = (
+            <>
               <span className={`dashboard-category-rank${index === 0 ? " is-leading" : ""}`}>
                 {index + 1}
               </span>
@@ -103,8 +125,7 @@ function CategoryDistribution({
               </span>
               <span
                 className="dashboard-category-bar-track"
-                role="img"
-                aria-label={`${item.category_name}，${item.product_count} 个商品`}
+                aria-hidden="true"
               >
                 <span style={{ width: `${barWidth}%` }} />
               </span>
@@ -114,7 +135,29 @@ function CategoryDistribution({
               <span className="dashboard-category-share">
                 {formatShare(item.product_count, total)}
               </span>
-            </div>
+            </>
+          );
+
+          return (
+            item.category_id === null ? (
+              <div
+                className="dashboard-category-row"
+                key={`uncategorized-${item.category_name}`}
+                role="listitem"
+              >
+                {rowContent}
+              </div>
+            ) : (
+              <Link
+                className="dashboard-category-row"
+                key={item.category_id}
+                href={buildDashboardProductHref({ categoryId: item.category_id })}
+                role="listitem"
+                aria-label={`筛选分类：${item.category_name}，${item.product_count} 个商品`}
+              >
+                {rowContent}
+              </Link>
+            )
           );
         })}
       </div>
@@ -191,34 +234,54 @@ function WarehouseDistribution({
     <div className="dashboard-warehouse-content">
       <div
         className={`dashboard-pie-chart${total === 0 ? " is-empty" : ""}`}
-        role="img"
         aria-label={`仓库库存分布，共 ${total.toLocaleString("zh-CN")} 箱`}
       >
-        <svg viewBox="0 0 220 220" aria-hidden="true">
+        <svg
+          viewBox="0 0 220 220"
+          role={total === 0 ? "img" : "group"}
+          aria-label={`仓库库存分布，共 ${total.toLocaleString("zh-CN")} 箱`}
+        >
           {total === 0 ? (
             <circle cx="110" cy="110" r="102" fill="#edf0f5" />
           ) : positiveItems.length === 1 ? (
-            <circle cx="110" cy="110" r="102" fill={slices[0].color} />
+            <a
+              href={buildDashboardProductHref({
+                warehouseId: slices[0].warehouse.warehouse_id,
+              })}
+              aria-label={`筛选仓库：${slices[0].warehouse.warehouse_name}`}
+            >
+              <circle cx="110" cy="110" r="102" fill={slices[0].color} />
+            </a>
           ) : (
             slices.map((slice) => (
-              <path
+              <a
                 key={slice.warehouse.warehouse_id}
-                d={slice.path}
-                fill={slice.color}
-                stroke="#ffffff"
-                strokeWidth="1.5"
-              />
+                href={buildDashboardProductHref({
+                  warehouseId: slice.warehouse.warehouse_id,
+                })}
+                aria-label={`筛选仓库：${slice.warehouse.warehouse_name}`}
+              >
+                <path
+                  className="dashboard-pie-slice"
+                  d={slice.path}
+                  fill={slice.color}
+                  stroke="#ffffff"
+                  strokeWidth="1.5"
+                />
+              </a>
             ))
           )}
         </svg>
         {total === 0 && <span>0 箱</span>}
       </div>
-      <div className="dashboard-warehouse-legend" role="list" aria-label="仓库库存图例">
+      <div className="dashboard-warehouse-legend" role="list" aria-label="按仓库筛选商品">
         {items.map((item, index) => (
-          <div
+          <Link
             className="dashboard-warehouse-legend-row"
             key={item.warehouse_id}
             role="listitem"
+            href={buildDashboardProductHref({ warehouseId: item.warehouse_id })}
+            aria-label={`筛选仓库：${item.warehouse_name}，${item.carton_count.toLocaleString("zh-CN")} 箱`}
           >
             <span
               className="dashboard-warehouse-legend-dot"
@@ -234,7 +297,7 @@ function WarehouseDistribution({
             <span className="dashboard-warehouse-share">
               {formatShare(item.carton_count, total)}
             </span>
-          </div>
+          </Link>
         ))}
       </div>
     </div>
@@ -287,6 +350,12 @@ export default function DashboardWorkspace() {
     (total, item) => total + item.carton_count,
     0,
   );
+  const inUseProductsHref = buildDashboardProductHref({}, true);
+  const allInUseProductsHref = buildDashboardProductHref();
+  const zeroStockProductsHref = buildDashboardProductHref({
+    stockMin: 0,
+    stockMax: 0,
+  });
 
   return (
     <div className="dashboard-page">
@@ -323,6 +392,7 @@ export default function DashboardWorkspace() {
           icon={<AppstoreOutlined />}
           tone="blue"
           loading={loading}
+          href={inUseProductsHref}
         />
         <MetricCard
           label="总库存"
@@ -331,6 +401,7 @@ export default function DashboardWorkspace() {
           icon={<InboxOutlined />}
           tone="green"
           loading={loading}
+          href={allInUseProductsHref}
         />
         <MetricCard
           label="零库存商品"
@@ -338,6 +409,7 @@ export default function DashboardWorkspace() {
           icon={<ExclamationCircleOutlined />}
           tone="orange"
           loading={loading}
+          href={zeroStockProductsHref}
         />
       </div>
 

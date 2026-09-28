@@ -3070,6 +3070,24 @@ textarea {
   box-shadow: none;
 }
 
+.dashboard-metric-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.dashboard-metric-link:hover .dashboard-metric-card.ant-card,
+.dashboard-metric-link:focus-visible .dashboard-metric-card.ant-card {
+  background: #fbfcff;
+  border-color: #cbd9f4;
+}
+
+.dashboard-metric-link:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid #91b6f2;
+  outline-offset: 2px;
+}
+
 .dashboard-metric-card .ant-card-body {
   min-height: 106px;
   padding: 17px 18px;
@@ -3668,6 +3686,26 @@ textarea {
   border-bottom: 1px solid #eef0f3;
 }
 
+.dashboard-category-row[href] {
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 120ms ease;
+}
+
+.dashboard-category-row[href]:hover,
+.dashboard-category-row[href]:focus-visible,
+.dashboard-warehouse-legend-row:hover,
+.dashboard-warehouse-legend-row:focus-visible {
+  background: #f7f8fa;
+}
+
+.dashboard-category-row[href]:focus-visible,
+.dashboard-warehouse-legend-row:focus-visible {
+  outline: 2px solid #91b6f2;
+  outline-offset: -2px;
+}
+
 .dashboard-category-row:last-child {
   border-bottom: 0;
 }
@@ -3749,6 +3787,19 @@ textarea {
   height: 100%;
 }
 
+.dashboard-pie-chart svg a {
+  cursor: pointer;
+}
+
+.dashboard-pie-slice {
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.dashboard-pie-slice:hover {
+  filter: brightness(0.96);
+}
+
 .dashboard-pie-chart.is-empty > span {
   position: absolute;
   inset: 0;
@@ -3773,6 +3824,13 @@ textarea {
   column-gap: 10px;
   border-top: 1px solid #eef0f3;
   font-size: 12px;
+}
+
+.dashboard-warehouse-legend-row {
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 120ms ease;
 }
 
 .dashboard-warehouse-legend-dot {

@@ -155,8 +155,15 @@ export function buildProductListQuery(state: ProductListState): string {
   return query.toString();
 }
 
-export function buildProductListHref(state: ProductListState): string {
-  const query = buildProductListQuery(state);
+export function buildProductListHref(
+  state: ProductListState,
+  options: { includeDefaultStatus?: boolean } = {},
+): string {
+  const params = new URLSearchParams(buildProductListQuery(state));
+  if (options.includeDefaultStatus && state.status === "active") {
+    params.set("status", "active");
+  }
+  const query = params.toString();
   return query ? `/products?${query}` : "/products";
 }
 

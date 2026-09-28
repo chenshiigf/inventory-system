@@ -154,10 +154,6 @@ export default function InventoryMovementsWorkspace() {
     requestKey,
   ]);
 
-  const hasFilters = Boolean(
-    search.trim() || movementType || warehouseId || startDate || endDate,
-  );
-
   const columns = useMemo(
     () => [
       {
@@ -283,18 +279,12 @@ export default function InventoryMovementsWorkspace() {
   return (
     <div className="inventory-movements-page">
       <div className="page-heading inventory-movements-heading">
-        <div>
-          <Typography.Title level={1}>库存流水</Typography.Title>
-          <p className="inventory-movements-subtitle">
-            查看商品的入库、出库和库存调整记录
-          </p>
-        </div>
+        <Typography.Title level={1}>库存流水</Typography.Title>
       </div>
 
       <Card
-        className="inventory-movements-filter-card"
+        className="inventory-movements-table-card"
         size="small"
-        title="筛选条件"
       >
         <div className="inventory-movements-filter-row">
           <Input
@@ -358,7 +348,6 @@ export default function InventoryMovementsWorkspace() {
             重置
           </Button>
         </div>
-      </Card>
 
       {error && (
         <Alert
@@ -380,12 +369,6 @@ export default function InventoryMovementsWorkspace() {
         />
       )}
 
-      <Card
-        className="inventory-movements-table-card"
-        size="small"
-        title="流水记录"
-        extra={<span className="result-count">共 {total} 条</span>}
-      >
         <Table<InventoryMovementApiRecord>
           className="inventory-movements-page-table"
           rowKey="id"
@@ -399,9 +382,7 @@ export default function InventoryMovementsWorkspace() {
             emptyText: (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={
-                  hasFilters ? "没有符合条件的库存流水" : "暂无库存流水"
-                }
+                description="暂无流水"
               />
             ),
           }}

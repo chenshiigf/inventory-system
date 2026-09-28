@@ -26,7 +26,6 @@ interface InventoryToolbarProps {
   stockMin: number | null;
   stockMax: number | null;
   onStockRangeChange: (stockMin: number | null, stockMax: number | null) => void;
-  resultCount: number;
   categoryDisabled?: boolean;
 }
 
@@ -45,7 +44,6 @@ export default function InventoryToolbar({
   stockMin,
   stockMax,
   onStockRangeChange,
-  resultCount,
   categoryDisabled = false,
 }: InventoryToolbarProps) {
   return (
@@ -105,9 +103,6 @@ export default function InventoryToolbar({
         value={searchValue}
         onChange={(event) => onSearchChange(event.target.value)}
       />
-      <span className="result-count toolbar-result-count">
-        共 {resultCount} 个商品
-      </span>
     </div>
   );
 }

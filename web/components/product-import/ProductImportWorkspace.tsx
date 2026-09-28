@@ -3,6 +3,7 @@
 import {
   DownloadOutlined,
   FileExcelOutlined,
+  InfoCircleOutlined,
   InboxOutlined,
   PictureOutlined,
   ReloadOutlined,
@@ -10,6 +11,7 @@ import {
 import {
   Alert,
   Button,
+  Drawer,
   Image,
   Modal,
   Result,
@@ -106,6 +108,7 @@ export default function ProductImportWorkspace() {
   const [fileInfo, setFileInfo] = useState<UploadedFileInfo | null>(null);
   const [uploading, setUploading] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [commitResult, setCommitResult] =
     useState<ProductImportCommitResponse | null>(null);
@@ -376,20 +379,23 @@ export default function ProductImportWorkspace() {
       {messageContextHolder}
       <div className="product-import-page">
         <div className="page-heading product-import-heading">
-          <div>
-            <Typography.Title level={1}>批量导入商品</Typography.Title>
-            <p className="product-import-subtitle">
-              按表头读取 Excel，先查看合并后的商品与包装结构。
-            </p>
+          <Typography.Title level={1}>批量导入</Typography.Title>
+          <div className="page-heading-actions">
+            <Button
+              icon={<InfoCircleOutlined />}
+              onClick={() => setHelpOpen(true)}
+            >
+              导入说明
+            </Button>
+            <Button
+              className="product-import-template-button"
+              type="primary"
+              icon={<DownloadOutlined />}
+              href={getProductImportTemplateUrl()}
+            >
+              下载模板
+            </Button>
           </div>
-          <Button
-            className="product-import-template-button"
-            type="primary"
-            icon={<DownloadOutlined />}
-            href={getProductImportTemplateUrl()}
-          >
-            下载标准模板
-          </Button>
         </div>
 
         <div className="product-import-steps">
@@ -467,39 +473,17 @@ export default function ProductImportWorkspace() {
             className="product-import-upload-panel"
             aria-label="上传商品导入 Excel"
           >
-            <div className="product-import-section-label">第一步</div>
-            <Typography.Title level={2}>上传整理好的 Excel</Typography.Title>
-            <p className="product-import-panel-description">
-              按表头名称读取“商品导入”工作表；列顺序可以调整，也可以保留历史列。确认前不会写入库存数据库。
-            </p>
             <Upload.Dragger {...uploadProps} disabled={uploading}>
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
               <p className="ant-upload-text">
-                {uploading ? "正在读取 Excel…" : "点击选择或将 .xlsx 文件拖到这里"}
+                {uploading ? "正在读取 Excel…" : "拖拽或点击上传 .xlsx"}
               </p>
               <p className="ant-upload-hint">
-                文件大小不超过 100MB；图片按“产品图片”表头识别，不依赖固定列位。
+                .xlsx · ≤100MB · 最多300行
               </p>
             </Upload.Dragger>
-            <div className="product-import-upload-notes">
-              <span>工作表：商品导入</span>
-              <span>识别：表头名称</span>
-              <span>范围：最多 300 条非空数据行</span>
-              <span>公式：读取已保存的计算结果</span>
-            </div>
-            <div className="product-import-rule-notes">
-              <p>
-                普通商品的“商品组”留空；同一商品有多个装箱规格时，请给相关行填写相同商品组。
-              </p>
-              <p>
-                一张图片可以被多个商品共用，共用图片不会自动合并商品；同一商品组只能保留一张主图。
-              </p>
-              <p>
-                “当前箱数”也接受历史表头“结余箱数”；公式单元格必须保存有最新计算结果。
-              </p>
-            </div>
           </section>
         ) : (
           <>
@@ -621,6 +605,48 @@ export default function ProductImportWorkspace() {
           <p className="product-import-confirm-warning">该操作目前没有一键撤销功能。</p>
         </Modal>
       </div>
+      <Drawer
+        className="product-import-help-drawer"
+        title="导入说明"
+        placement="right"
+        size="default"
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+      >
+        <dl className="product-import-help-list">
+          <div>
+            <dt>工作表</dt>
+            <dd>商品导入</dd>
+          </div>
+          <div>
+            <dt>字段识别</dt>
+            <dd>按表头名称识别，列顺序可调整，也可以保留历史列；图片按“产品图片”表头识别。</dd>
+          </div>
+          <div>
+            <dt>数据范围</dt>
+            <dd>每个 Excel 最多 300 条非空数据行；正式导入每批最多 100 个商品。</dd>
+          </div>
+          <div>
+            <dt>公式</dt>
+            <dd>读取 Excel 已保存的计算结果；公式单元格需要先保存最新计算结果。</dd>
+          </div>
+          <div>
+            <dt>商品组</dt>
+            <dd>普通商品留空；同一商品有多个装箱规格时，为相关行填写相同商品组。</dd>
+          </div>
+          <div>
+            <dt>商品图片</dt>
+            <dd>图片可以被多个商品共用，共用图片不会合并商品；同一商品组只能保留一张主图。</dd>
+          </div>
+          <div>
+            <dt>当前箱数</dt>
+            <dd>也接受历史表头“结余箱数”。</dd>
+          </div>
+        </dl>
+        <p className="product-import-help-note">
+          预览和校验完成前不会写入库存。确认导入后会创建商品并生成商品编号。
+        </p>
+      </Drawer>
     </>
   );
 }

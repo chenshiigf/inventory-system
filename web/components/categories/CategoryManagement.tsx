@@ -1,15 +1,16 @@
 "use client";
 
-import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { EditOutlined, MoreOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   Alert,
+  App,
   Button,
+  Dropdown,
   Empty,
   Form,
   Input,
   message,
   Modal,
-  Popconfirm,
   Spin,
   Typography,
 } from "antd";
@@ -124,14 +125,12 @@ function CategoryEditorModal({
 }
 
 export default function CategoryManagement() {
+  const { modal } = App.useApp();
   const [categories, setCategories] = useState<CategoryTreeNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadCounter, setReloadCounter] = useState(0);
   const [editor, setEditor] = useState<CategoryEditorState | null>(null);
-  const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(
-    null,
-  );
   const [messageApi, messageContextHolder] = message.useMessage();
 
   useEffect(() => {
@@ -220,7 +219,6 @@ export default function CategoryManagement() {
   }
 
   async function removeCategory(category: CategoryTreeNode): Promise<void> {
-    setDeletingCategoryId(category.id);
     try {
       await deleteCategory(category.id);
       setLoading(true);
@@ -228,9 +226,18 @@ export default function CategoryManagement() {
       messageApi.success("分类已删除");
     } catch (error) {
       messageApi.error(getErrorMessage(error));
-    } finally {
-      setDeletingCategoryId(null);
     }
+  }
+
+  function confirmCategoryDelete(category: CategoryTreeNode) {
+    modal.confirm({
+      title: "删除分类？",
+      content: `确定删除“${category.name}”吗？删除后无法恢复。`,
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: () => removeCategory(category),
+    });
   }
 
   return (
@@ -238,11 +245,11 @@ export default function CategoryManagement() {
       {messageContextHolder}
       <div className="categories-page">
         <div className="page-heading">
-          <div>
+          <div className="page-heading-title">
             <Typography.Title level={1}>分类管理</Typography.Title>
-            <p className="categories-summary">
-              一级分类 {categories.length} 个 · 二级分类 {childCount} 个
-            </p>
+            <span className="result-count page-heading-count">
+              {categories.length} 个一级分类 · {childCount} 个二级分类
+            </span>
           </div>
           <Button
             className="add-product-button"
@@ -290,7 +297,6 @@ export default function CategoryManagement() {
               >
                 <div className="category-group-heading">
                   <div className="category-group-title">
-                    <span className="category-level-label">一级分类</span>
                     <Typography.Text strong>{category.name}</Typography.Text>
                     <span
                       className="category-code-badge"
@@ -303,49 +309,38 @@ export default function CategoryManagement() {
                     </span>
                   </div>
                   <div className="category-actions" aria-label="一级分类操作">
-                    <span className="category-action-cell">
-                      <Button
-                        type="link"
-                        size="small"
-                        icon={<PlusOutlined />}
-                        aria-label={`在${category.name}下新增二级分类`}
-                        onClick={() => openCreateChild(category)}
-                      >
-                        新增小类
-                      </Button>
-                    </span>
-                    <span className="category-action-cell">
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<PlusOutlined />}
+                      aria-label={`在${category.name}下新增二级分类`}
+                      onClick={() => openCreateChild(category)}
+                    >
+                      新增小类
+                    </Button>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EditOutlined />}
+                      aria-label={`编辑一级分类 ${category.name}`}
+                      onClick={() => openRename(category)}
+                    >
+                      编辑
+                    </Button>
+                    <Dropdown
+                      trigger={["click"]}
+                      menu={{
+                        items: [{ key: "delete", label: "删除", danger: true }],
+                        onClick: () => confirmCategoryDelete(category),
+                      }}
+                    >
                       <Button
                         type="text"
                         size="small"
-                        icon={<EditOutlined />}
-                        aria-label={`编辑一级分类 ${category.name}`}
-                        onClick={() => openRename(category)}
-                      >
-                        编辑
-                      </Button>
-                    </span>
-                    <span className="category-action-cell">
-                      <Popconfirm
-                        title="删除分类？"
-                        description={`确定删除“${category.name}”吗？删除后无法恢复。`}
-                        okText="删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                        onConfirm={() => removeCategory(category)}
-                      >
-                        <Button
-                          type="text"
-                          danger
-                          size="small"
-                          icon={<DeleteOutlined />}
-                          loading={deletingCategoryId === category.id}
-                          aria-label={`删除一级分类 ${category.name}`}
-                        >
-                          删除
-                        </Button>
-                      </Popconfirm>
-                    </span>
+                        icon={<MoreOutlined />}
+                        aria-label={`更多一级分类操作：${category.name}`}
+                      />
+                    </Dropdown>
                   </div>
                 </div>
 
@@ -353,51 +348,37 @@ export default function CategoryManagement() {
                   <div className="category-child-list">
                     {category.children.map((child) => (
                       <div className="category-child-row" key={child.id}>
-                        <span className="category-child-branch" aria-hidden="true">
-                          ↳
+                        <span
+                          className="category-code-badge"
+                          title={`二级分类编号 ${child.code}`}
+                        >
+                          {child.code}
                         </span>
                         <span className="category-child-name">{child.name}</span>
                         <div className="category-actions category-child-actions" aria-label="二级分类操作">
-                          <span className="category-action-cell">
-                            <span
-                              className="category-code-badge"
-                              title={`二级分类编号 ${child.code}`}
-                            >
-                              {child.code}
-                            </span>
-                          </span>
-                          <span className="category-action-cell">
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<EditOutlined />}
+                            aria-label={`编辑二级分类 ${category.name} / ${child.name}`}
+                            onClick={() => openRename(child)}
+                          >
+                            编辑
+                          </Button>
+                          <Dropdown
+                            trigger={["click"]}
+                            menu={{
+                              items: [{ key: "delete", label: "删除", danger: true }],
+                              onClick: () => confirmCategoryDelete(child),
+                            }}
+                          >
                             <Button
                               type="text"
                               size="small"
-                              icon={<EditOutlined />}
-                              aria-label={`编辑二级分类 ${category.name} / ${child.name}`}
-                              onClick={() => openRename(child)}
-                            >
-                              编辑
-                            </Button>
-                          </span>
-                          <span className="category-action-cell">
-                            <Popconfirm
-                              title="删除分类？"
-                              description={`确定删除“${child.name}”吗？删除后无法恢复。`}
-                              okText="删除"
-                              cancelText="取消"
-                              okButtonProps={{ danger: true }}
-                              onConfirm={() => removeCategory(child)}
-                            >
-                              <Button
-                                type="text"
-                                danger
-                                size="small"
-                                icon={<DeleteOutlined />}
-                                loading={deletingCategoryId === child.id}
-                                aria-label={`删除二级分类 ${category.name} / ${child.name}`}
-                              >
-                                删除
-                              </Button>
-                            </Popconfirm>
-                          </span>
+                              icon={<MoreOutlined />}
+                              aria-label={`更多二级分类操作：${category.name} / ${child.name}`}
+                            />
+                          </Dropdown>
                         </div>
                       </div>
                     ))}

@@ -9,12 +9,12 @@ import {
   ShopOutlined,
   TagsOutlined,
 } from "@ant-design/icons";
-import { Layout, Menu, Tag } from "antd";
+import { Layout, Menu } from "antd";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-const { Sider, Header, Content } = Layout;
+const { Sider, Content } = Layout;
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -27,18 +27,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const isWarehousesPage = pathname === "/warehouses";
   const isProductImportPage = pathname === "/products/import";
   const isInventoryMovementsPage = pathname === "/inventory-movements";
-  const currentPageTitle = isDashboardPage
-    ? "概览"
-    : isCategoriesPage
-    ? "分类管理"
-    : isWarehousesPage
-      ? "仓库管理"
-      : isProductImportPage
-        ? "批量导入"
-        : isInventoryMovementsPage
-          ? "库存流水"
-          : "商品库存";
-
   return (
     <Layout className="inventory-shell">
       <Sider
@@ -107,23 +95,9 @@ export default function AppLayout({ children }: AppLayoutProps) {
           ]}
         />
 
-        <div className="sider-footer">商品与分类分开管理</div>
       </Sider>
 
       <Layout className="inventory-main">
-        <Header className="inventory-topbar">
-          <div className="topbar-location">
-            <span>系统功能</span>
-            <span className="topbar-location-divider" aria-hidden="true">
-              /
-            </span>
-            <strong>{currentPageTitle}</strong>
-          </div>
-          <div className="topbar-demo-note">
-            <Tag color="green">SQLite 商品数据</Tag>
-            <span>入库 / 出库已保存到数据库</span>
-          </div>
-        </Header>
         <Content className="inventory-content">{children}</Content>
       </Layout>
     </Layout>

@@ -41,7 +41,6 @@ import {
   createStockMovement,
 } from "@/lib/api/inventory-movements";
 import {
-  getCategoryLabel,
   getCategoryPath,
   hasSecondLevelCategories,
   toCategoryOptions,
@@ -184,7 +183,6 @@ export default function InventoryWorkspace({
   );
   const hasCategories = hasSecondLevelCategories(categories);
   const categoryServiceError = categoriesError ?? filterCategoriesError;
-  const currentCategoryLabel = getCategoryLabel(filterCategories, categoryValue);
   const currentListState = urlState;
   const selectedStatus: BatchStatusSelection = useMemo(() => {
     if (selectedProducts.length === 0) {
@@ -218,12 +216,6 @@ export default function InventoryWorkspace({
     saveProductListScroll(productListHref);
     markProductListScrollPending(productListHref);
   }, [productListHref]);
-  const selectedWarehouseName =
-    warehouseValue === "all"
-      ? "全部仓库"
-      : warehouses.find((warehouse) => warehouse.id === warehouseValue)?.name ??
-        "仓库";
-  const currentRangeLabel = `${selectedWarehouseName} / ${currentCategoryLabel}`;
   const requestKey = `${currentPage}:${pageSize}:${reloadCounter}:${searchValue}:${statusValue}:${stockMinValue ?? "none"}:${stockMaxValue ?? "none"}:${warehouseId ?? "all"}:${categoryId ?? "all"}`;
   const loading = completedRequestKey !== requestKey;
   const visibleLoadError =
@@ -816,7 +808,12 @@ export default function InventoryWorkspace({
       {messageContextHolder}
       <div className="inventory-page">
         <div className="page-heading">
-          <Typography.Title level={1}>商品库存</Typography.Title>
+          <div className="page-heading-title">
+            <Typography.Title level={1}>商品库存</Typography.Title>
+            <span className="result-count page-heading-count">
+              {total.toLocaleString("zh-CN")} 个商品
+            </span>
+          </div>
           <div className="page-heading-actions">
             {!batchMode && (
               <Button onClick={enterBatchMode}>批量操作</Button>
@@ -917,7 +914,6 @@ export default function InventoryWorkspace({
           stockMin={stockMinValue}
           stockMax={stockMaxValue}
           onStockRangeChange={handleStockRangeChange}
-          resultCount={total}
           categoryDisabled={
             categoriesLoading ||
             filterCategoriesLoading ||
@@ -966,10 +962,6 @@ export default function InventoryWorkspace({
 
         <section className="inventory-panel" aria-label="商品库存列表">
           <div className="inventory-panel-heading">
-            <div className="category-context">
-              <span className="category-context-label">当前范围</span>
-              <strong className="category-path">{currentRangeLabel}</strong>
-            </div>
             <Segmented<InventoryViewMode>
               className="inventory-view-switcher"
               aria-label="切换库存视图"

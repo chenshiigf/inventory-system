@@ -1,15 +1,15 @@
 "use client";
 
-import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
+import { EditOutlined, MoreOutlined, PlusOutlined } from "@ant-design/icons";
 import {
   Alert,
   App,
   Button,
+  Dropdown,
   Empty,
   Form,
   Input,
   Modal,
-  Popconfirm,
   Space,
   Table,
   Tooltip,
@@ -214,71 +214,77 @@ export default function WarehouseManagement() {
     }
   }
 
+  function confirmWarehouseDelete(warehouse: WarehouseSummaryRead) {
+    Modal.confirm({
+      title: "删除仓库？",
+      content: `确定删除“${warehouse.name}”吗？删除后无法恢复。`,
+      okText: "删除",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: () => removeWarehouse(warehouse),
+    });
+  }
+
   const tableColumns: WarehouseColumns = [
     ...columns,
     {
       title: "操作",
       key: "actions",
-      width: 180,
-      render: (_value, warehouse) => (
-        <Space size={4}>
-          <Button
-            type="text"
-            size="small"
-            icon={<EditOutlined />}
-            aria-label={`编辑仓库 ${warehouse.name}`}
-            onClick={() => setEditor({ mode: "edit", warehouse })}
+      width: 112,
+      render: (_value, warehouse) => {
+        const moreActions = (
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                {
+                  key: "delete",
+                  label: "删除",
+                  danger: true,
+                  disabled: warehouse.product_count > 0,
+                },
+              ],
+              onClick: () => confirmWarehouseDelete(warehouse),
+            }}
           >
-            编辑
-          </Button>
-          {warehouse.product_count > 0 ? (
-            <Tooltip title="该仓库仍有关联商品，无法删除">
-              <span>
-                <Button
-                  type="text"
-                  danger
-                  size="small"
-                  icon={<DeleteOutlined />}
-                  disabled
-                  aria-label={`删除仓库 ${warehouse.name}`}
-                >
-                  删除
-                </Button>
-              </span>
-            </Tooltip>
-          ) : (
-            <Popconfirm
-              title="删除仓库？"
-              description={`确定删除“${warehouse.name}”吗？删除后无法恢复。`}
-              okText="删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-              onConfirm={() => removeWarehouse(warehouse)}
+            <Button
+              type="text"
+              size="small"
+              icon={<MoreOutlined />}
+              loading={deletingWarehouseId === warehouse.id}
+              aria-label={`更多仓库操作：${warehouse.name}`}
+            />
+          </Dropdown>
+        );
+
+        return (
+          <Space size={4}>
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              aria-label={`编辑仓库 ${warehouse.name}`}
+              onClick={() => setEditor({ mode: "edit", warehouse })}
             >
-              <Button
-                type="text"
-                danger
-                size="small"
-                icon={<DeleteOutlined />}
-                loading={deletingWarehouseId === warehouse.id}
-                aria-label={`删除仓库 ${warehouse.name}`}
-              >
-                删除
-              </Button>
-            </Popconfirm>
-          )}
-        </Space>
-      ),
+              编辑
+            </Button>
+            {warehouse.product_count > 0 ? (
+              <Tooltip title="该仓库仍有关联商品，无法删除">
+                <span>{moreActions}</span>
+              </Tooltip>
+            ) : (
+              moreActions
+            )}
+          </Space>
+        );
+      },
     },
   ];
 
   return (
     <div className="warehouse-page">
       <div className="page-heading">
-        <div>
-          <Typography.Title level={1}>仓库管理</Typography.Title>
-          <p className="warehouse-subtitle">维护商品库存使用的仓库</p>
-        </div>
+        <Typography.Title level={1}>仓库管理</Typography.Title>
         <Button
           className="add-product-button"
           type="primary"

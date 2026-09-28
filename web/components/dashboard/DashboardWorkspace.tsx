@@ -26,7 +26,6 @@ function MetricCard({
   label,
   value,
   suffix,
-  hint,
   icon,
   tone,
   loading,
@@ -34,7 +33,6 @@ function MetricCard({
   label: string;
   value: number | null;
   suffix?: string;
-  hint: string;
   icon: ReactNode;
   tone: "blue" | "green" | "orange";
   loading: boolean;
@@ -55,7 +53,6 @@ function MetricCard({
                 {value === null ? "—" : value.toLocaleString("zh-CN")}
                 {suffix && <small>{suffix}</small>}
               </span>
-              <span className="dashboard-metric-hint">{hint}</span>
             </>
           )}
         </div>
@@ -294,12 +291,7 @@ export default function DashboardWorkspace() {
   return (
     <div className="dashboard-page">
       <div className="page-heading dashboard-heading">
-        <div>
-          <Typography.Title level={1}>概览</Typography.Title>
-          <p className="dashboard-subtitle">
-            快速了解当前库存情况、商品分类和仓库分布
-          </p>
-        </div>
+        <Typography.Title level={1}>概览</Typography.Title>
       </div>
 
       {error && (
@@ -328,16 +320,14 @@ export default function DashboardWorkspace() {
         <MetricCard
           label="在用商品"
           value={data?.active_product_count ?? (error ? null : 0)}
-          hint="当前启用的商品数量"
           icon={<AppstoreOutlined />}
           tone="blue"
           loading={loading}
         />
         <MetricCard
-          label="当前总库存"
+          label="总库存"
           value={data?.total_carton_count ?? (error ? null : 0)}
           suffix="箱"
-          hint="所有仓库的库存总量"
           icon={<InboxOutlined />}
           tone="green"
           loading={loading}
@@ -345,7 +335,6 @@ export default function DashboardWorkspace() {
         <MetricCard
           label="零库存商品"
           value={data?.zero_stock_product_count ?? (error ? null : 0)}
-          hint="当前库存为 0 的商品"
           icon={<ExclamationCircleOutlined />}
           tone="orange"
           loading={loading}
@@ -355,7 +344,7 @@ export default function DashboardWorkspace() {
       <div className="dashboard-distribution-grid">
         <Card
           className="dashboard-section-card dashboard-category-card"
-          title="商品分类分布"
+          title="商品分类"
           extra={
             !loading && data ? (
               <span className="dashboard-panel-total">
@@ -373,7 +362,7 @@ export default function DashboardWorkspace() {
 
         <Card
           className="dashboard-section-card dashboard-warehouse-card"
-          title="仓库库存分布"
+          title="仓库库存"
           extra={
             !loading && data ? (
               <span className="dashboard-panel-total">

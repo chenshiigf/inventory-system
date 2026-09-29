@@ -1,13 +1,16 @@
 "use client";
 
 import { PlusOutlined } from "@ant-design/icons";
-import { Alert, App, Button, message, Segmented, Typography } from "antd";
+import { Alert, App, Button, message, Segmented } from "antd";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import OperationSuccessModal from "@/components/common/OperationSuccessModal";
+import PageHeading from "@/components/common/PageHeading";
 import ProductEditorModal from "@/components/inventory/ProductEditorModal";
 import BatchActionBar, {
   type BatchStatusSelection,
 } from "@/components/inventory/BatchActionBar";
+import BatchStockOutModal from "@/components/inventory/BatchStockOutModal";
 import BatchCategoryModal from "@/components/inventory/BatchCategoryModal";
 import BatchQuoteExportModal, {
   type BatchQuoteExportValues,
@@ -60,6 +63,7 @@ import {
   readProductListScroll,
   saveProductListScroll,
 } from "@/lib/product-list-scroll";
+import { getProductStatusConfirmConfig } from "@/lib/confirm-actions";
 import type {
   CategorySelection,
   CategoryTreeNode,
@@ -148,6 +152,11 @@ export default function InventoryWorkspace({
   const [batchCategorySubmitting, setBatchCategorySubmitting] = useState(false);
   const [batchQuoteModalOpen, setBatchQuoteModalOpen] = useState(false);
   const [batchQuoteSubmitting, setBatchQuoteSubmitting] = useState(false);
+  const [batchStockOutOpen, setBatchStockOutOpen] = useState(false);
+  const [batchOperationSuccess, setBatchOperationSuccess] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
   const {
@@ -197,9 +206,9 @@ export default function InventoryWorkspace({
     }
     return "mixed";
   }, [selectedProducts]);
-  const currentPageSelectedCount = useMemo(
-    () => products.filter((product) => selectedProductIds.has(product.id)).length,
-    [products, selectedProductIds],
+  const batchStockOutProductIds = useMemo(
+    () => Array.from(selectedProductIds),
+    [selectedProductIds],
   );
   const allCurrentPageSelected =
     products.length > 0 && products.every((product) => selectedProductIds.has(product.id));
@@ -561,7 +570,10 @@ export default function InventoryWorkspace({
       setBatchCategoryModalOpen(false);
       clearSelection();
       setReloadCounter((value) => value + 1);
-      messageApi.success(`已修改 ${result.updated_count} 个商品的分类`);
+      setBatchOperationSuccess({
+        title: "批量修改分类成功",
+        description: `已完成 ${result.updated_count} 个商品的分类修改。`,
+      });
     } catch (error) {
       messageApi.error(getErrorMessage(error));
     } finally {
@@ -594,11 +606,12 @@ export default function InventoryWorkspace({
       adjustPageAfterStatusBatch(result.updated_count);
       clearSelection();
       setReloadCounter((value) => value + 1);
-      messageApi.success(
-        isActive
-          ? `已启用 ${result.updated_count} 个商品`
-          : `已停用 ${result.updated_count} 个商品`,
-      );
+      setBatchOperationSuccess({
+        title: isActive ? "批量启用成功" : "批量停用成功",
+        description: isActive
+          ? `已启用 ${result.updated_count} 个商品。`
+          : `已停用 ${result.updated_count} 个商品。`,
+      });
     } catch (error) {
       messageApi.error(getErrorMessage(error));
       throw error;
@@ -632,6 +645,10 @@ export default function InventoryWorkspace({
     } finally {
       setBatchQuoteSubmitting(false);
     }
+  }
+
+  function closeBatchOperationSuccess() {
+    setBatchOperationSuccess(null);
   }
 
   function confirmBatchDeactivate() {
@@ -739,34 +756,9 @@ export default function InventoryWorkspace({
   }
 
   function confirmProductStatusChange(product: InventoryProduct, isActive: boolean) {
-    if (isActive) {
-      modal.confirm({
-        title: "重新启用商品？",
-        content: "商品将回到默认在用商品列表，商品编号、图片、包装规格和库存保持不变。",
-        okText: "确认启用",
-        cancelText: "取消",
-        onOk: () => setProductActive(product, true),
-      });
-      return;
-    }
-
-    const hasStock = product.totalCartonCount > 0;
     modal.confirm({
-      title: "停用商品？",
-      content: (
-        <div>
-          <p>停用后，该商品将从默认库存列表中隐藏，历史数据仍会保留。</p>
-          {hasStock && (
-            <>
-              <p>该商品当前还有 {product.totalCartonCount} 箱库存。</p>
-              <p>停用不会清空库存。</p>
-            </>
-          )}
-        </div>
-      ),
-      okText: "确认停用",
-      cancelText: "取消",
-      onOk: () => setProductActive(product, false),
+      ...getProductStatusConfirmConfig(isActive, product.totalCartonCount),
+      onOk: () => setProductActive(product, isActive),
     });
   }
 
@@ -807,30 +799,30 @@ export default function InventoryWorkspace({
     <>
       {messageContextHolder}
       <div className="inventory-page">
-        <div className="page-heading">
-          <div className="page-heading-title">
-            <Typography.Title level={1}>商品库存</Typography.Title>
-            <span className="result-count page-heading-count">
-              {total.toLocaleString("zh-CN")} 个商品
-            </span>
-          </div>
-          <div className="page-heading-actions">
-            {!batchMode && (
-              <Button onClick={enterBatchMode}>批量操作</Button>
-            )}
-            <Button
-              className="add-product-button"
-              type="primary"
-              icon={<PlusOutlined />}
-              disabled={
-                warehousesLoading || Boolean(warehousesError) || warehouses.length === 0
-              }
-              onClick={() => setProductEditor({})}
-            >
-              新增商品
-            </Button>
-          </div>
-        </div>
+        <PageHeading
+          title="商品库存"
+          meta={`${total.toLocaleString("zh-CN")} 个商品`}
+          actions={
+            <>
+              {!batchMode && (
+                <Button onClick={enterBatchMode}>批量操作</Button>
+              )}
+              <Button
+                className="add-product-button"
+                type="primary"
+                icon={<PlusOutlined />}
+                disabled={
+                  warehousesLoading ||
+                  Boolean(warehousesError) ||
+                  warehouses.length === 0
+                }
+                onClick={() => setProductEditor({})}
+              >
+                新增商品
+              </Button>
+            </>
+          }
+        />
 
         {warehousesError && (
           <Alert
@@ -925,7 +917,6 @@ export default function InventoryWorkspace({
         {batchMode && (
           <BatchActionBar
             selectedCount={selectedCount}
-            currentPageSelectedCount={currentPageSelectedCount}
             currentPageCount={products.length}
             allCurrentPageSelected={allCurrentPageSelected}
             statusSelection={selectedStatus}
@@ -934,6 +925,7 @@ export default function InventoryWorkspace({
               removeProducts(products.map((product) => product.id))
             }
             onClearAll={clearSelection}
+            onBatchOutbound={() => setBatchStockOutOpen(true)}
             onChangeCategory={() => setBatchCategoryModalOpen(true)}
             onExportQuote={() => setBatchQuoteModalOpen(true)}
             onDeactivate={confirmBatchDeactivate}
@@ -1034,6 +1026,14 @@ export default function InventoryWorkspace({
         />
       )}
 
+      <OperationSuccessModal
+        open={batchOperationSuccess !== null}
+        title={batchOperationSuccess?.title}
+        description={batchOperationSuccess?.description}
+        primaryAction={{ label: "返回商品库存", onClick: closeBatchOperationSuccess }}
+        onClose={closeBatchOperationSuccess}
+      />
+
       <BatchCategoryModal
         key={batchCategoryModalOpen ? "batch-category-open" : "batch-category-closed"}
         open={batchCategoryModalOpen}
@@ -1077,6 +1077,21 @@ export default function InventoryWorkspace({
           product={adjustmentProduct}
           onCancel={() => setAdjustmentProduct(null)}
           onConfirm={confirmStockAdjustment}
+        />
+      )}
+
+      {batchStockOutOpen && (
+        <BatchStockOutModal
+          open={batchStockOutOpen}
+          productIds={batchStockOutProductIds}
+          onClose={() => setBatchStockOutOpen(false)}
+          onReturnToInventory={() => {
+            setBatchStockOutOpen(false);
+            clearSelection();
+            setBatchMode(false);
+            setReloadCounter((value) => value + 1);
+          }}
+          onViewMovements={() => router.push("/inventory-movements")}
         />
       )}
     </>

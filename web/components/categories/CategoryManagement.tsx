@@ -15,6 +15,8 @@ import {
   Typography,
 } from "antd";
 import { useEffect, useState } from "react";
+import PageHeading from "@/components/common/PageHeading";
+import { getDeleteConfirmConfig } from "@/lib/confirm-actions";
 import {
   createCategory,
   deleteCategory,
@@ -231,11 +233,7 @@ export default function CategoryManagement() {
 
   function confirmCategoryDelete(category: CategoryTreeNode) {
     modal.confirm({
-      title: "删除分类？",
-      content: `确定删除“${category.name}”吗？删除后无法恢复。`,
-      okText: "删除",
-      cancelText: "取消",
-      okButtonProps: { danger: true },
+      ...getDeleteConfirmConfig("分类", category.name),
       onOk: () => removeCategory(category),
     });
   }
@@ -244,22 +242,20 @@ export default function CategoryManagement() {
     <>
       {messageContextHolder}
       <div className="categories-page">
-        <div className="page-heading">
-          <div className="page-heading-title">
-            <Typography.Title level={1}>分类管理</Typography.Title>
-            <span className="result-count page-heading-count">
-              {categories.length} 个一级分类 · {childCount} 个二级分类
-            </span>
-          </div>
-          <Button
-            className="add-product-button"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={openCreateParent}
-          >
-            新增一级分类
-          </Button>
-        </div>
+        <PageHeading
+          title="分类管理"
+          meta={`${categories.length} 个一级分类 · ${childCount} 个二级分类`}
+          actions={
+            <Button
+              className="add-product-button"
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={openCreateParent}
+            >
+              新增一级分类
+            </Button>
+          }
+        />
 
         {loadError && (
           <Alert

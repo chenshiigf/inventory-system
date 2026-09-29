@@ -14,7 +14,6 @@ import {
   Drawer,
   Image,
   Modal,
-  Result,
   Space,
   Steps,
   Table,
@@ -26,6 +25,8 @@ import {
 } from "antd";
 import type { TableColumnsType, UploadProps } from "antd";
 import { useMemo, useState } from "react";
+import OperationSuccessModal from "@/components/common/OperationSuccessModal";
+import PageHeading from "@/components/common/PageHeading";
 import {
   commitProductImport,
   getImportPreviewImageUrl,
@@ -164,7 +165,6 @@ export default function ProductImportWorkspace() {
       const result = await commitProductImport(preview.preview_session_id);
       setCommitResult(result);
       setConfirmOpen(false);
-      messageApi.success("商品已正式导入库存");
     } catch (error) {
       setConfirmOpen(false);
       setCommitError(
@@ -378,25 +378,28 @@ export default function ProductImportWorkspace() {
     <>
       {messageContextHolder}
       <div className="product-import-page">
-        <div className="page-heading product-import-heading">
-          <Typography.Title level={1}>批量导入</Typography.Title>
-          <div className="page-heading-actions">
-            <Button
-              icon={<InfoCircleOutlined />}
-              onClick={() => setHelpOpen(true)}
-            >
-              导入说明
-            </Button>
-            <Button
-              className="product-import-template-button"
-              type="primary"
-              icon={<DownloadOutlined />}
-              href={getProductImportTemplateUrl()}
-            >
-              下载模板
-            </Button>
-          </div>
-        </div>
+        <PageHeading
+          title="批量导入"
+          className="product-import-heading"
+          actions={
+            <>
+              <Button
+                icon={<InfoCircleOutlined />}
+                onClick={() => setHelpOpen(true)}
+              >
+                导入说明
+              </Button>
+              <Button
+                className="product-import-template-button"
+                type="primary"
+                icon={<DownloadOutlined />}
+                href={getProductImportTemplateUrl()}
+              >
+                下载模板
+              </Button>
+            </>
+          }
+        />
 
         <div className="product-import-steps">
           <Steps
@@ -429,46 +432,7 @@ export default function ProductImportWorkspace() {
           />
         )}
 
-        {commitResult ? (
-          <section className="product-import-success-panel" aria-label="正式导入结果">
-            <Result
-              status="success"
-              title="导入成功"
-              subTitle={`批次 ${commitResult.batch_id} · ${commitResult.file_name}`}
-            />
-            <div className="product-import-success-stats">
-              <div>
-                <span>商品</span>
-                <strong>{commitResult.product_count}</strong>
-              </div>
-              <div>
-                <span>包装规格</span>
-                <strong>{commitResult.packaging_count}</strong>
-              </div>
-              <div>
-                <span>Excel数据行</span>
-                <strong>{commitResult.source_row_count}</strong>
-              </div>
-            </div>
-            <div className="product-import-created-list">
-              {commitResult.created_products.map((product) => (
-                <div key={product.product_id}>
-                  <strong>{product.product_code}</strong>
-                  <span>
-                    Excel第 {product.excel_rows.join("、")} 行 · {product.packaging_count}
-                    种包装
-                  </span>
-                </div>
-              ))}
-            </div>
-            <Space className="product-import-success-actions" size={12}>
-              <Button type="primary" href="/products">
-                返回商品库存
-              </Button>
-              <Button onClick={resetPreview}>导入其他 Excel</Button>
-            </Space>
-          </section>
-        ) : !preview ? (
+        {!commitResult && (!preview ? (
           <section
             className="product-import-upload-panel"
             aria-label="上传商品导入 Excel"
@@ -581,7 +545,39 @@ export default function ProductImportWorkspace() {
               </Space>
             </div>
           </>
-        )}
+        ))}
+
+        <OperationSuccessModal
+          open={commitResult !== null}
+          title="商品导入成功"
+          description={commitResult && (
+            <>
+              <span>成功导入 {commitResult.product_count} 个商品。</span>
+              <div className="product-import-result-meta">
+                {commitResult.packaging_count} 种包装规格 · {commitResult.source_row_count} 条 Excel 数据行
+              </div>
+              <div className="product-import-result-meta">
+                批次 {commitResult.batch_id} · {commitResult.file_name}
+              </div>
+              <div className="product-import-created-list" aria-label="导入商品编号">
+                {commitResult.created_products.map((product) => (
+                  <div key={product.product_id}>
+                    <strong>{product.product_code}</strong>
+                    <span>
+                      Excel第 {product.excel_rows.join("、")} 行 · {product.packaging_count} 种包装
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          primaryAction={{
+            label: "返回商品库存",
+            onClick: () => window.location.assign("/products"),
+          }}
+          secondaryAction={{ label: "导入其他 Excel", onClick: resetPreview }}
+          onClose={resetPreview}
+        />
 
         <Modal
           className="product-import-confirm-modal"

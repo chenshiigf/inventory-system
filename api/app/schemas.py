@@ -303,6 +303,78 @@ class ProductBatchResult(BaseModel):
     updated_count: int = Field(ge=0)
 
 
+class BatchStockOutPreviewRequest(ProductBatchIdsRequest):
+    @field_validator("product_ids")
+    @classmethod
+    def product_ids_must_be_unique(cls, value: list[int]) -> list[int]:
+        if len(value) != len(set(value)):
+            raise ValueError("product_ids must not contain duplicates")
+        return value
+
+
+class BatchStockOutPackagingRead(BaseModel):
+    id: int
+    packing_qty: int | None
+    carton_count: int
+    sort_order: int
+
+
+class BatchStockOutProductRead(BaseModel):
+    product_id: int
+    product_code: str | None
+    is_active: bool
+    image_path: str | None
+    thumbnail_path: str | None
+    size: str
+    unit: ProductUnit | None
+    warehouse_id: int | None
+    warehouse_name: str | None
+    packagings: list[BatchStockOutPackagingRead]
+
+
+class BatchStockOutPreviewRead(BaseModel):
+    products: list[BatchStockOutProductRead]
+
+
+class BatchStockOutItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: PositiveInt
+    product_packaging_id: PositiveInt
+    quantity: PositiveInt
+
+
+class BatchStockOutCommitRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[BatchStockOutItem] = Field(min_length=1, max_length=1000)
+    remark: str | None = Field(default=None, max_length=200)
+
+    @field_validator("remark")
+    @classmethod
+    def empty_remark_is_null(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def packaging_rows_must_be_unique_and_bounded(self) -> "BatchStockOutCommitRequest":
+        keys = [
+            (item.product_id, item.product_packaging_id)
+            for item in self.items
+        ]
+        if len(keys) != len(set(keys)):
+            raise ValueError("a packaging can only be submitted once")
+        if len({product_id for product_id, _ in keys}) > 100:
+            raise ValueError("a batch can contain at most 100 products")
+        return self
+
+
+class BatchStockOutCommitRead(BaseModel):
+    movement_count: int = Field(ge=1)
+    total_cartons: int = Field(ge=1)
+
+
 class ProductImageUploadRead(BaseModel):
     image_path: str
     thumbnail_path: str

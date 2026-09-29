@@ -7,6 +7,37 @@ import type {
   StockMovementValues,
 } from "@/types/inventory";
 
+export interface BatchStockOutPackagingPreview {
+  id: number;
+  packing_qty: number | null;
+  carton_count: number;
+  sort_order: number;
+}
+
+export interface BatchStockOutProductPreview {
+  product_id: number;
+  product_code: string | null;
+  is_active: boolean;
+  image_path: string | null;
+  thumbnail_path: string | null;
+  size: string;
+  unit: "pcs" | "set" | null;
+  warehouse_id: number | null;
+  warehouse_name: string | null;
+  packagings: BatchStockOutPackagingPreview[];
+}
+
+export interface BatchStockOutCommitLine {
+  product_id: number;
+  product_packaging_id: number;
+  quantity: number;
+}
+
+export interface BatchStockOutCommitResult {
+  movement_count: number;
+  total_cartons: number;
+}
+
 interface StockMovementPayload {
   product_packaging_id?: number;
   packing_qty?: number;
@@ -53,6 +84,33 @@ export function createStockAdjustment(
         actual_carton_count: values.actualCartonCount,
         remark: values.remark,
       }),
+    },
+  );
+}
+
+export function previewBatchStockOut(
+  productIds: number[],
+  signal?: AbortSignal,
+): Promise<{ products: BatchStockOutProductPreview[] }> {
+  return apiRequest<{ products: BatchStockOutProductPreview[] }>(
+    "/api/inventory/batch-outbound/preview",
+    {
+      method: "POST",
+      body: JSON.stringify({ product_ids: productIds }),
+      signal,
+    },
+  );
+}
+
+export function commitBatchStockOut(
+  items: BatchStockOutCommitLine[],
+  remark: string,
+): Promise<BatchStockOutCommitResult> {
+  return apiRequest<BatchStockOutCommitResult>(
+    "/api/inventory/batch-outbound/commit",
+    {
+      method: "POST",
+      body: JSON.stringify({ items, remark: remark.trim() || null }),
     },
   );
 }

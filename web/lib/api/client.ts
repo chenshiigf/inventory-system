@@ -2,6 +2,16 @@ export function getApiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ?? "").replace(/\/+$/, "");
 }
 
+export class ApiResponseError extends Error {
+  readonly statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = "ApiResponseError";
+    this.statusCode = statusCode;
+  }
+}
+
 function getErrorDetail(payload: unknown): string | undefined {
   if (typeof payload === "object" && payload !== null && "detail" in payload) {
     const detail = (payload as { detail?: unknown }).detail;
@@ -47,8 +57,9 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
-    throw new Error(
+    throw new ApiResponseError(
       getErrorDetail(payload) ?? `后端请求失败（HTTP ${response.status}）`,
+      response.status,
     );
   }
 

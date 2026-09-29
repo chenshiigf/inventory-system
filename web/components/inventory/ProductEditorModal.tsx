@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  DeleteOutlined,
+  EllipsisOutlined,
   PlusOutlined,
   PictureOutlined,
   UploadOutlined,
@@ -10,6 +10,7 @@ import {
   Alert,
   Cascader,
   Button,
+  Dropdown,
   Form,
   Input,
   InputNumber,
@@ -135,9 +136,11 @@ export default function ProductEditorModal({
       {messageContextHolder}
       <Modal
         className="product-editor-modal"
+        classNames={{ container: "product-editor-modal-container" }}
         title={title}
         open
-        width={980}
+        width={1140}
+        centered
         okText="保存"
         cancelText="取消"
         okButtonProps={{ loading: saving || uploading, disabled: uploading }}
@@ -206,6 +209,14 @@ export default function ProductEditorModal({
                 }
           }
           onFinish={handleSave}
+          onKeyDown={(event) => {
+            if (event.ctrlKey && event.key === "Enter") {
+              event.preventDefault();
+              if (!saving && !uploading) {
+                form.submit();
+              }
+            }
+          }}
           requiredMark={false}
         >
           <Form.Item name="imagePath" hidden>
@@ -216,7 +227,6 @@ export default function ProductEditorModal({
           </Form.Item>
           <div className="product-editor-overview">
             <div className="product-editor-image-column">
-              <div className="product-editor-field-label">商品图片</div>
               <div className="product-image-editor">
                 <div className="product-image-editor-preview">
                   {imagePath ? (
@@ -224,8 +234,8 @@ export default function ProductEditorModal({
                       key={imagePath}
                       imagePath={imagePath}
                       alt="商品图片预览"
-                      width={126}
-                      height={126}
+                      width={160}
+                      height={160}
                       loading="eager"
                     />
                   ) : (
@@ -253,12 +263,13 @@ export default function ProductEditorModal({
                     </Button>
                   </Upload>
                   <span className="product-image-help">
-                    JPG、PNG、WEBP，单张不超过 10MB。
+                    支持 JPG、PNG、WEBP，单张不超过 10MB。
                   </span>
                 </div>
               </div>
             </div>
             <div className="product-editor-info-column">
+              <h3 className="product-editor-section-title">基本信息</h3>
               <div className="product-editor-grid product-editor-code-grid">
                 <div className="product-editor-readonly-field">
                   <span className="product-editor-field-label">商品编号</span>
@@ -333,105 +344,141 @@ export default function ProductEditorModal({
               </div>
             </div>
           </div>
-          <Form.Item
-            label="包装规格"
-            required
-            className="product-editor-section packaging-form-item"
-          >
-            <Form.List name="packagings">
-              {(fields, { add, remove }) => (
-                <div className="packaging-editor-list">
-                  {fields.map((field, index) => {
-                    const packaging = form.getFieldValue([
-                      "packagings",
-                      field.name,
-                    ]) as
-                      | { cartonCount?: number }
-                      | undefined;
-                    const cartonCount = packaging?.cartonCount ?? 0;
-
-                    function removePackaging() {
-                      if (fields.length === 1) {
-                        return;
-                      }
-                      if (cartonCount > 0) {
-                        messageApi.warning(
-                          "该包装仍有库存，请先盘点调整为 0 后再删除",
-                        );
-                        return;
-                      }
-                      remove(field.name);
-                    }
-
-                    return (
-                      <div className="packaging-editor-row" key={field.key}>
-                        <span className="packaging-editor-index">
-                          {index + 1}
-                        </span>
-                        <Form.Item
-                          name={[field.name, "packingQty"]}
-                          rules={[
-                            ...(fields.length > 1
-                              ? [{ required: true, message: "请输入装箱数" }]
-                              : []),
-                            {
-                              type: "number",
-                              min: 1,
-                              transform: (value) => value ?? undefined,
-                              message: "装箱数必须是正整数",
-                            },
-                          ]}
-                          className="packaging-editor-quantity"
-                        >
-                          <InputNumber
-                            min={1}
-                            precision={0}
-                            placeholder="每箱数量"
-                            aria-label={`第 ${index + 1} 个包装规格的装箱数`}
-                          />
-                        </Form.Item>
-                        <span className="packaging-editor-unit">
-                          {selectedUnit}/箱
-                        </span>
-                        <div
-                          className="packaging-editor-cartons packaging-editor-stock-readonly"
-                          aria-label={`第 ${index + 1} 个包装规格的当前箱数`}
-                        >
-                          <span>当前库存</span>
-                          <strong>{cartonCount} 箱</strong>
-                        </div>
-                        <Button
-                          type="link"
-                          danger
-                          icon={<DeleteOutlined />}
-                          disabled={fields.length === 1}
-                          onClick={removePackaging}
-                          aria-label={`删除第 ${index + 1} 个包装规格`}
-                        >
-                          删除
-                        </Button>
-                      </div>
-                    );
-                  })}
+          <Form.List name="packagings">
+            {(fields, { add, remove }) => (
+              <section className="product-editor-section" aria-labelledby="product-editor-packaging-title">
+                <div className="product-editor-section-heading">
+                  <h3 className="product-editor-section-title" id="product-editor-packaging-title">
+                    包装规格
+                  </h3>
                   <Button
-                    type="dashed"
+                    className="packaging-editor-add"
                     icon={<PlusOutlined />}
                     onClick={() => add({ packingQty: 1, cartonCount: 0 })}
                   >
                     添加包装规格
                   </Button>
                 </div>
-              )}
-            </Form.List>
-          </Form.Item>
+                <div className="packaging-editor-table-wrap">
+                  <table className="packaging-editor-table" aria-label="商品包装规格">
+                    <thead>
+                      <tr>
+                        <th scope="col">序号</th>
+                        <th scope="col">每箱数量</th>
+                        <th scope="col">单位</th>
+                        <th scope="col">当前库存</th>
+                        <th scope="col">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fields.map((field, index) => {
+                        const packaging = form.getFieldValue([
+                          "packagings",
+                          field.name,
+                        ]) as
+                          | { cartonCount?: number }
+                          | undefined;
+                        const cartonCount = packaging?.cartonCount ?? 0;
 
-          <Form.Item name="remark" label="备注" className="product-editor-remark">
-            <Input.TextArea
-              autoSize={{ minRows: 2, maxRows: 5 }}
-              maxLength={2000}
-              showCount
-            />
-          </Form.Item>
+                        function removePackaging() {
+                          if (fields.length === 1) {
+                            return;
+                          }
+                          if (cartonCount > 0) {
+                            messageApi.warning(
+                              "该包装仍有库存，请先盘点调整为 0 后再删除",
+                            );
+                            return;
+                          }
+                          remove(field.name);
+                        }
+
+                        return (
+                          <tr className="packaging-editor-row" key={field.key}>
+                            <td className="packaging-editor-index">
+                              {index + 1}
+                            </td>
+                            <td>
+                              <Form.Item
+                                name={[field.name, "packingQty"]}
+                                rules={[
+                                  ...(fields.length > 1
+                                    ? [{ required: true, message: "请输入装箱数" }]
+                                    : []),
+                                  {
+                                    type: "number",
+                                    min: 1,
+                                    transform: (value) => value ?? undefined,
+                                    message: "装箱数必须是正整数",
+                                  },
+                                ]}
+                                className="packaging-editor-quantity"
+                              >
+                                <InputNumber
+                                  min={1}
+                                  precision={0}
+                                  placeholder="每箱数量"
+                                  aria-label={`第 ${index + 1} 个包装规格的装箱数`}
+                                />
+                              </Form.Item>
+                            </td>
+                            <td className="packaging-editor-unit">
+                              {selectedUnit}/箱
+                            </td>
+                            <td>
+                              <div
+                                className="packaging-editor-cartons packaging-editor-stock-readonly"
+                                aria-label={`第 ${index + 1} 个包装规格的当前箱数`}
+                              >
+                                <strong>{cartonCount}</strong>
+                                <span>箱</span>
+                              </div>
+                            </td>
+                            <td className="packaging-editor-actions">
+                              <Dropdown
+                                trigger={["click"]}
+                                menu={{
+                                  items: [{
+                                    key: "delete",
+                                    label: "删除规格",
+                                    danger: true,
+                                    disabled: fields.length === 1,
+                                  }],
+                                  onClick: ({ key }) => {
+                                    if (key === "delete") {
+                                      removePackaging();
+                                    }
+                                  },
+                                }}
+                              >
+                                <Button
+                                  type="text"
+                                  icon={<EllipsisOutlined />}
+                                  aria-label={`第 ${index + 1} 个包装规格的操作`}
+                                />
+                              </Dropdown>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+          </Form.List>
+
+          <section className="product-editor-section" aria-labelledby="product-editor-remark-title">
+            <h3 className="product-editor-section-title" id="product-editor-remark-title">备注</h3>
+            <Form.Item name="remark" className="product-editor-remark">
+              <Input.TextArea
+                aria-label="商品备注"
+                autoSize={{ minRows: 2, maxRows: 5 }}
+                maxLength={2000}
+                showCount
+              />
+            </Form.Item>
+          </section>
         </Form>
       </Modal>
     </>

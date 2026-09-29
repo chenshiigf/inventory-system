@@ -50,6 +50,7 @@ import {
 import { listCategories } from "@/lib/api/categories";
 import { listWarehouses } from "@/lib/api/warehouses";
 import { toInventoryProduct } from "@/lib/inventory-products";
+import { getProductStatusConfirmConfig } from "@/lib/confirm-actions";
 import { getSafeProductListReturnTo } from "@/lib/product-list-state";
 import type {
   CategoryTreeNode,
@@ -350,33 +351,9 @@ export default function ProductDetailWorkspace({
       return;
     }
 
-    if (isActive) {
-      modal.confirm({
-        title: "重新启用商品？",
-        content: "商品将回到默认在用商品列表，商品编号、图片、包装规格和库存保持不变。",
-        okText: "确认启用",
-        cancelText: "取消",
-        onOk: () => changeProductStatus(true),
-      });
-      return;
-    }
-
     modal.confirm({
-      title: "停用商品？",
-      content: (
-        <div>
-          <p>停用后，该商品将从默认库存列表中隐藏，历史数据仍会保留。</p>
-          {product.totalCartonCount > 0 && (
-            <>
-              <p>该商品当前还有 {product.totalCartonCount} 箱库存。</p>
-              <p>停用不会清空库存。</p>
-            </>
-          )}
-        </div>
-      ),
-      okText: "确认停用",
-      cancelText: "取消",
-      onOk: () => changeProductStatus(false),
+      ...getProductStatusConfirmConfig(isActive, product.totalCartonCount),
+      onOk: () => changeProductStatus(isActive),
     });
   }
 

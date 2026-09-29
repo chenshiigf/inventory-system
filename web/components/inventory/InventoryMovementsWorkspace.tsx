@@ -16,10 +16,10 @@ import {
   Table,
   Tag,
   Tooltip,
-  Typography,
 } from "antd";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import PageHeading from "@/components/common/PageHeading";
 import { listInventoryMovements } from "@/lib/api/inventory-movements";
 import { listWarehouses } from "@/lib/api/warehouses";
 import ProductImage from "@/components/inventory/ProductImage";
@@ -278,9 +278,7 @@ export default function InventoryMovementsWorkspace() {
 
   return (
     <div className="inventory-movements-page">
-      <div className="page-heading inventory-movements-heading">
-        <Typography.Title level={1}>库存流水</Typography.Title>
-      </div>
+      <PageHeading title="库存流水" className="inventory-movements-heading" />
 
       <Card
         className="inventory-movements-table-card"

@@ -17,6 +17,7 @@ import {
 } from "antd";
 import type { TableProps } from "antd";
 import { useEffect, useState } from "react";
+import PageHeading from "@/components/common/PageHeading";
 import {
   createWarehouse,
   deleteWarehouse,
@@ -24,6 +25,7 @@ import {
   updateWarehouse,
 } from "@/lib/api/warehouses";
 import type { WarehouseSummaryRead } from "@/types/inventory";
+import { getDeleteConfirmConfig } from "@/lib/confirm-actions";
 
 interface WarehouseFormValues {
   name: string;
@@ -147,7 +149,7 @@ export default function WarehouseManagement() {
   const [deletingWarehouseId, setDeletingWarehouseId] = useState<number | null>(
     null,
   );
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -215,12 +217,8 @@ export default function WarehouseManagement() {
   }
 
   function confirmWarehouseDelete(warehouse: WarehouseSummaryRead) {
-    Modal.confirm({
-      title: "删除仓库？",
-      content: `确定删除“${warehouse.name}”吗？删除后无法恢复。`,
-      okText: "删除",
-      cancelText: "取消",
-      okButtonProps: { danger: true },
+    modal.confirm({
+      ...getDeleteConfirmConfig("仓库", warehouse.name),
       onOk: () => removeWarehouse(warehouse),
     });
   }
@@ -283,17 +281,19 @@ export default function WarehouseManagement() {
 
   return (
     <div className="warehouse-page">
-      <div className="page-heading">
-        <Typography.Title level={1}>仓库管理</Typography.Title>
-        <Button
-          className="add-product-button"
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => setEditor({ mode: "create" })}
-        >
-          新增仓库
-        </Button>
-      </div>
+      <PageHeading
+        title="仓库管理"
+        actions={
+          <Button
+            className="add-product-button"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setEditor({ mode: "create" })}
+          >
+            新增仓库
+          </Button>
+        }
+      />
 
       {loadError && (
         <Alert

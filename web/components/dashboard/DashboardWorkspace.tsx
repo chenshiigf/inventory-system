@@ -5,9 +5,10 @@ import {
   ExclamationCircleOutlined,
   InboxOutlined,
 } from "@ant-design/icons";
-import { Alert, App, Card, Empty, Skeleton, Typography } from "antd";
+import { Alert, App, Card, Empty, Skeleton } from "antd";
 import Link from "next/link";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import PageHeading from "@/components/common/PageHeading";
 import { getDashboardSummary } from "@/lib/api/dashboard";
 import {
   buildProductListHref,
@@ -359,9 +360,7 @@ export default function DashboardWorkspace() {
 
   return (
     <div className="dashboard-page">
-      <div className="page-heading dashboard-heading">
-        <Typography.Title level={1}>概览</Typography.Title>
-      </div>
+      <PageHeading title="概览" className="dashboard-heading" />
 
       {error && (
         <Alert

@@ -10,7 +10,14 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import begin_write_transaction
 from app.models import InventoryMovement, Product, ProductPackaging
-from app.schemas import StockAdjustmentCreate, StockMovementCreate
+from app.schemas import (
+    BatchStockOutCommitRequest,
+    BatchStockOutPackagingRead,
+    BatchStockOutPreviewRead,
+    BatchStockOutProductRead,
+    StockAdjustmentCreate,
+    StockMovementCreate,
+)
 
 
 MovementDirection = Literal["IN", "OUT"]
@@ -47,20 +54,139 @@ def create_stock_movement(
             "已停用商品不能进行入库或出库。",
             status.HTTP_409_CONFLICT,
         )
-
     packaging = _resolve_packaging(db, product, direction, payload)
+    return _create_stock_movement_for_packaging(
+        db,
+        product=product,
+        packaging=packaging,
+        direction=direction,
+        quantity=payload.quantity,
+        remark=payload.remark,
+    )
+
+
+def get_batch_stock_out_preview(
+    db: Session,
+    *,
+    product_ids: list[int],
+) -> BatchStockOutPreviewRead:
+    products = db.scalars(
+        select(Product)
+        .options(
+            selectinload(Product.packagings),
+            selectinload(Product.warehouse),
+        )
+        .where(Product.id.in_(product_ids))
+    ).all()
+    products_by_id = {product.id: product for product in products}
+    missing_ids = [product_id for product_id in product_ids if product_id not in products_by_id]
+    if missing_ids:
+        raise StockMovementError(
+            "所选商品已不存在，请返回商品库存后重新选择。",
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    return BatchStockOutPreviewRead(
+        products=[
+            BatchStockOutProductRead(
+                product_id=product.id,
+                product_code=product.product_code,
+                is_active=product.is_active,
+                image_path=product.image_path,
+                thumbnail_path=product.thumbnail_path,
+                size=product.size,
+                unit=product.unit,
+                warehouse_id=product.warehouse_id,
+                warehouse_name=product.warehouse_name,
+                packagings=[
+                    BatchStockOutPackagingRead(
+                        id=packaging.id,
+                        packing_qty=packaging.packing_qty,
+                        carton_count=packaging.carton_count,
+                        sort_order=packaging.sort_order,
+                    )
+                    for packaging in product.packagings
+                ],
+            )
+            for product in (products_by_id[product_id] for product_id in product_ids)
+        ]
+    )
+
+
+def create_batch_stock_out(
+    db: Session,
+    *,
+    payload: BatchStockOutCommitRequest,
+) -> list[InventoryMovement]:
+    """Apply every positive batch row under one database write transaction."""
+
+    begin_write_transaction(db)
+    product_ids = list(dict.fromkeys(item.product_id for item in payload.items))
+    products = db.scalars(
+        select(Product)
+        .options(selectinload(Product.packagings))
+        .where(Product.id.in_(product_ids))
+    ).all()
+    products_by_id = {product.id: product for product in products}
+    missing_ids = [product_id for product_id in product_ids if product_id not in products_by_id]
+    if missing_ids:
+        raise StockMovementError(
+            "所选商品已不存在，请返回商品库存后重新选择。",
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    movements: list[InventoryMovement] = []
+    for item in payload.items:
+        product = products_by_id[item.product_id]
+        packaging = next(
+            (
+                row
+                for row in product.packagings
+                if row.id == item.product_packaging_id
+            ),
+            None,
+        )
+        if packaging is None:
+            raise StockMovementError(
+                "包装规格已变化，请刷新工作台后重试。",
+                status.HTTP_409_CONFLICT,
+            )
+        movements.append(
+            _create_stock_movement_for_packaging(
+                db,
+                product=product,
+                packaging=packaging,
+                direction="OUT",
+                quantity=item.quantity,
+                remark=payload.remark,
+            )
+        )
+    return movements
+
+
+def _create_stock_movement_for_packaging(
+    db: Session,
+    *,
+    product: Product,
+    packaging: ProductPackaging,
+    direction: MovementDirection,
+    quantity: int,
+    remark: str | None,
+) -> InventoryMovement:
+    if not product.is_active:
+        raise StockMovementError(
+            "已停用商品不能进行入库或出库。",
+            status.HTTP_409_CONFLICT,
+        )
+
     before = packaging.carton_count
-    if direction == "OUT" and payload.quantity > before:
+    if direction == "OUT" and quantity > before:
         raise StockMovementError(
             "出库数不能超过当前包装库存。",
             status.HTTP_409_CONFLICT,
         )
 
-    after = (
-        before + payload.quantity
-        if direction == "IN"
-        else before - payload.quantity
-    )
+    after = before + quantity if direction == "IN" else before - quantity
     if after < 0:
         raise StockMovementError(
             "库存不能为负数。",
@@ -73,12 +199,12 @@ def create_stock_movement(
         product_packaging_id=packaging.id,
         warehouse_id=product.warehouse_id,
         movement_type=direction,
-        quantity=payload.quantity,
+        quantity=quantity,
         before_carton_count=before,
         after_carton_count=after,
         packing_qty_snapshot=packaging.packing_qty,
         unit_snapshot=product.unit,
-        remark=payload.remark,
+        remark=remark,
     )
     db.add(movement)
     # Flush is part of the same request transaction. Any constraint or write

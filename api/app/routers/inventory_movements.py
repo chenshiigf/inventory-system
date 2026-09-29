@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.models import InventoryMovement, Product
 from app.schemas import (
+    BatchStockOutCommitRead,
+    BatchStockOutCommitRequest,
+    BatchStockOutPreviewRead,
+    BatchStockOutPreviewRequest,
     InventoryMovementListRead,
     InventoryMovementRead,
     StockAdjustmentCreate,
@@ -19,11 +23,63 @@ from app.services.inventory import (
     MovementDirection,
     StockMovementError,
     create_stock_adjustment,
+    create_batch_stock_out,
     create_stock_movement,
+    get_batch_stock_out_preview,
 )
 
 
 router = APIRouter(prefix="/api", tags=["inventory-movements"])
+
+
+@router.post(
+    "/inventory/batch-outbound/preview",
+    response_model=BatchStockOutPreviewRead,
+)
+def preview_batch_stock_out(
+    payload: BatchStockOutPreviewRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> BatchStockOutPreviewRead:
+    try:
+        return get_batch_stock_out_preview(db, product_ids=payload.product_ids)
+    except StockMovementError as error:
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail,
+        ) from error
+
+
+@router.post(
+    "/inventory/batch-outbound/commit",
+    response_model=BatchStockOutCommitRead,
+)
+def commit_batch_stock_out(
+    payload: BatchStockOutCommitRequest,
+    db: Annotated[Session, Depends(get_db)],
+) -> BatchStockOutCommitRead:
+    try:
+        movements = create_batch_stock_out(db, payload=payload)
+        db.commit()
+    except StockMovementError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=error.status_code,
+            detail=error.detail,
+        ) from error
+    except IntegrityError as error:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="库存已发生变化，批量出库未执行，请刷新工作台后重试。",
+        ) from error
+    except Exception:
+        db.rollback()
+        raise
+
+    return BatchStockOutCommitRead(
+        movement_count=len(movements),
+        total_cartons=sum(movement.quantity for movement in movements),
+    )
 
 
 @router.post(

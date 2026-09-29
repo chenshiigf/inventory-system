@@ -7,3 +7,7 @@ node_modules/
 # Local browser acceptance output and logs
 /output/playwright/
 *.log
+
+# Pytest temporary files
+**/.pytest-tmp/
+**/.pytest_cache/

@@ -125,6 +125,14 @@ class ProductImportCommitRequest(BaseModel):
     preview_session_id: str = Field(pattern=r"^[0-9a-f]{32}$")
 
 
+class ProductImportPreviewTaskResponse(BaseModel):
+    task_id: str
+    status: Literal["queued", "processing", "succeeded", "failed", "cancelled"]
+    phase: Literal["images", "building_preview"] | None = None
+    result: ProductImportPreviewResponse | None = None
+    error: str | None = None
+
+
 class ProductImportCreatedProduct(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -4,7 +4,7 @@ import re
 import uuid
 import warnings
 from collections import Counter, OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from pathlib import Path
@@ -19,6 +19,7 @@ from app.models import Category, Warehouse
 from app.schemas import ProductPrice
 
 from .excel_reader import EmbeddedImage, RawImportRow
+from .cancellation import Checkpoint, no_checkpoint
 from .schemas import (
     ProductImportPreviewPackaging,
     ProductImportPreviewProduct,
@@ -58,6 +59,7 @@ class PreparedProductImport:
     response: ProductImportPreviewResponse
     images_by_id: dict[str, EmbeddedImage]
     product_image_ids: dict[str, str | None]
+    errors_by_row: dict[int, list[str]] = field(default_factory=dict)
 
 
 def _text(value: object) -> str:
@@ -135,7 +137,9 @@ def _parse_carton_count(raw_row: RawImportRow) -> tuple[int | None, str | None]:
 def _save_preview_image(
     image: EmbeddedImage,
     session_directory: Path,
+    checkpoint: Checkpoint = no_checkpoint,
 ) -> None:
+    checkpoint()
     output_path = session_directory / f"{image.image_id}.webp"
     if output_path.exists():
         return
@@ -143,11 +147,13 @@ def _save_preview_image(
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(BytesIO(image.data)) as source:
+                checkpoint()
                 if getattr(source, "is_animated", False) or getattr(
                     source, "n_frames", 1
                 ) > 1:
                     raise ValueError("animated image")
                 oriented = ImageOps.exif_transpose(source)
+                checkpoint()
                 oriented.thumbnail(
                     (PREVIEW_IMAGE_MAX_SIDE, PREVIEW_IMAGE_MAX_SIDE),
                     Image.Resampling.LANCZOS,
@@ -157,12 +163,14 @@ def _save_preview_image(
                     or "transparency" in oriented.info
                 )
                 normalized = oriented.convert("RGBA" if has_transparency else "RGB")
+                checkpoint()
                 normalized.save(
                     output_path,
                     format="WEBP",
                     quality=PREVIEW_IMAGE_QUALITY,
                     method=5,
                 )
+                checkpoint()
     except (
         Image.DecompressionBombError,
         Image.DecompressionBombWarning,
@@ -336,7 +344,10 @@ def prepare_product_import_preview(
     session_id: str | None = None,
     already_imported: bool = False,
     write_preview_images: bool = True,
+    check_images: bool = True,
+    checkpoint: Checkpoint = no_checkpoint,
 ) -> PreparedProductImport:
+    checkpoint()
     warehouses = db.scalars(select(Warehouse)).all()
     warehouse_by_name = {warehouse.name.strip(): warehouse for warehouse in warehouses}
     root_by_name, child_by_parent_and_name, children_by_name = _category_indexes(db)
@@ -349,6 +360,7 @@ def prepare_product_import_preview(
     grouped_rows: OrderedDict[str, list[RawImportRow]] = OrderedDict()
     group_names: dict[str, str | None] = {}
     for raw_row in rows:
+        checkpoint()
         product_group = _text(raw_row.values.get("product_group")) or None
         group_key = f"group:{product_group}" if product_group else f"row:{raw_row.excel_row}"
         grouped_rows.setdefault(group_key, []).append(raw_row)
@@ -358,8 +370,10 @@ def prepare_product_import_preview(
     image_usage: Counter[str] = Counter()
     image_by_id: dict[str, EmbeddedImage] = {}
     product_image_ids: dict[str, str | None] = {}
+    errors_by_row: dict[int, list[str]] = {}
 
     for product_index, (group_key, group_rows) in enumerate(grouped_rows.items(), start=1):
+        checkpoint()
         product_group = group_names[group_key]
         resolved, conflict_errors = _resolve_group_fields(group_rows, product_group)
         errors = list(conflict_errors)
@@ -403,7 +417,7 @@ def prepare_product_import_preview(
                 errors.append(
                     f"商品组 {group_label} 检测到多张商品图片，请只保留一张主图。"
                 )
-        elif not unique_images:
+        elif check_images and not unique_images:
             errors.append("无商品图片")
 
         preview_image_id: str | None = None
@@ -412,7 +426,7 @@ def prepare_product_import_preview(
             preview_image_id, image = next(iter(unique_images.items()))
             try:
                 if write_preview_images:
-                    _save_preview_image(image, session_directory)
+                    _save_preview_image(image, session_directory, checkpoint)
                 image_preview_url = (
                     f"{preview_url_prefix}/{session_id}/{preview_image_id}.webp"
                 )
@@ -422,6 +436,7 @@ def prepare_product_import_preview(
         packagings: list[ProductImportPreviewPackaging] = []
         seen_packing_quantities: set[int] = set()
         for raw_row in group_rows:
+            checkpoint()
             packing_qty, packing_error = _parse_integer(
                 raw_row.values.get("packing_qty"),
                 label="装箱数",
@@ -481,6 +496,12 @@ def prepare_product_import_preview(
             image_usage[image_id] += 1
 
         preview_id = f"preview-{session_id}-{product_index}"
+        for error in _unique_messages(errors):
+            match = re.match(r"Excel第 (\d+) 行[： ]?", error)
+            row_number = int(match.group(1)) if match else group_rows[0].excel_row
+            errors_by_row.setdefault(row_number, []).append(
+                error[match.end():] if match else error
+            )
         product_image_ids[preview_id] = preview_image_id
         records.append(
             {
@@ -506,6 +527,7 @@ def prepare_product_import_preview(
         )
 
     for record in records:
+        checkpoint()
         image_id = record.pop("_image_id")
         record["shared_image"] = bool(
             isinstance(image_id, str) and image_usage[image_id] > 1
@@ -529,6 +551,7 @@ def prepare_product_import_preview(
         ),
         images_by_id=image_by_id,
         product_image_ids=product_image_ids,
+        errors_by_row=errors_by_row,
     )
 
 

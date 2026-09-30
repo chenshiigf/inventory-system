@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from io import BytesIO
+from itertools import zip_longest
 from typing import Final
 from zipfile import BadZipFile
 
@@ -12,6 +13,7 @@ from .schemas import (
     REQUIRED_IMPORT_FIELDS,
     normalize_header,
 )
+from .cancellation import Checkpoint, no_checkpoint
 
 
 MAX_IMPORT_SOURCE_ROWS: Final[int] = 300
@@ -65,6 +67,14 @@ def _canonical_header_map() -> dict[str, str]:
     }
 
 
+def _ensure_dimensions(worksheet) -> None:
+    # Read-only worksheets may omit <dimension>. Recompute from finite XML
+    # content, rather than guessing an Excel-sized rectangle.
+    if worksheet.max_row is None or worksheet.max_column is None:
+        worksheet.reset_dimensions()
+        worksheet.calculate_dimension(force=True)
+
+
 def build_header_map(worksheet) -> dict[str, int]:
     """Map normalized known headers to canonical field names.
 
@@ -72,6 +82,7 @@ def build_header_map(worksheet) -> dict[str, int]:
     boundary that prevents historical columns from affecting Preview parsing.
     """
 
+    _ensure_dimensions(worksheet)
     alias_to_field = _canonical_header_map()
     stock_matches: list[tuple[int, str]] = []
     for column_index in range(1, worksheet.max_column + 1):
@@ -236,9 +247,11 @@ def _read_embedded_images(
     *,
     image_column_index: int,
     last_row: int,
+    checkpoint: Checkpoint = no_checkpoint,
 ) -> dict[int, list[EmbeddedImage]]:
     images_by_row: dict[int, list[EmbeddedImage]] = {}
     for image_index, image in enumerate(getattr(worksheet, "_images", []), start=1):
+        checkpoint()
         covered_rows = get_image_covered_rows(
             image,
             worksheet,
@@ -260,6 +273,7 @@ def _read_embedded_images(
         )
         for row in covered_rows:
             images_by_row.setdefault(row, []).append(embedded)
+        checkpoint()
     return images_by_row
 
 
@@ -317,36 +331,71 @@ def _select_import_sheet(formula_workbook, value_workbook):
     raise ProductImportWorkbookError("未找到可识别的商品数据工作表。")
 
 
-def read_import_workbook(data: bytes) -> list[RawImportRow]:
+def read_import_workbook(
+    data: bytes,
+    *,
+    include_images: bool = True,
+    checkpoint: Checkpoint = no_checkpoint,
+) -> list[RawImportRow]:
+    class CheckedBuffer(BytesIO):
+        def read(self, size: int = -1) -> bytes:
+            checkpoint()
+            result = super().read(size)
+            checkpoint()
+            return result
+
+    # Read-only mode deliberately skips Drawing/Pillow work during precheck.
+    formula_workbook = None
+    value_workbook = None
     try:
-        formula_workbook = load_workbook(BytesIO(data), read_only=False, data_only=False)
-        value_workbook = load_workbook(BytesIO(data), read_only=False, data_only=True)
+        formula_workbook = load_workbook(CheckedBuffer(data), read_only=not include_images, data_only=False)
+        checkpoint()
+        # The value copy never needs drawings, even in the image phase.
+        value_workbook = load_workbook(CheckedBuffer(data), read_only=True, data_only=True)
     except (BadZipFile, InvalidFileException, OSError, ValueError, KeyError) as error:
+        if formula_workbook is not None:
+            formula_workbook.close()
         raise ProductImportWorkbookError(
             "无法读取 Excel 文件，请确认文件是有效的 .xlsx 工作簿。"
         ) from error
+    except BaseException:
+        if formula_workbook is not None:
+            formula_workbook.close()
+        if value_workbook is not None:
+            value_workbook.close()
+        raise
 
     try:
         formula_sheet, value_sheet, header_map = _select_import_sheet(
             formula_workbook,
             value_workbook,
         )
+        _ensure_dimensions(value_sheet)
+        checkpoint()
         image_rows = _read_embedded_images(
             formula_sheet,
             image_column_index=header_map["image"],
             last_row=max(formula_sheet.max_row, value_sheet.max_row),
-        )
+            checkpoint=checkpoint,
+        ) if include_images else {}
         last_row = max(formula_sheet.max_row, value_sheet.max_row, max(image_rows, default=1))
         rows: list[RawImportRow] = []
 
-        for excel_row in range(2, last_row + 1):
+        last_column = max(formula_sheet.max_column, value_sheet.max_column)
+        formula_rows = formula_sheet.iter_rows(min_row=2, max_row=last_row, max_col=last_column, values_only=True)
+        value_rows = value_sheet.iter_rows(min_row=2, max_row=last_row, max_col=last_column, values_only=True)
+        empty_row = (None,) * last_column
+        for excel_row, (formula_values, cell_values) in enumerate(
+            zip_longest(formula_rows, value_rows, fillvalue=empty_row), start=2,
+        ):
+            checkpoint()
             values = {
-                field: value_sheet.cell(row=excel_row, column=column_index).value
+                field: cell_values[column_index - 1]
                 for field, column_index in header_map.items()
             }
             formulas: dict[str, str] = {}
             for field, column_index in header_map.items():
-                formula = formula_sheet.cell(row=excel_row, column=column_index).value
+                formula = formula_values[column_index - 1]
                 if isinstance(formula, str) and formula.strip().startswith("="):
                     formulas[field] = formula.strip()
 

@@ -10,11 +10,13 @@ import {
 } from "@ant-design/icons";
 import {
   Alert,
+  App,
   Button,
   Drawer,
   Image,
   Modal,
   Space,
+  Spin,
   Steps,
   Table,
   Tag,
@@ -27,11 +29,12 @@ import type { TableColumnsType, UploadProps } from "antd";
 import { useMemo, useState } from "react";
 import OperationSuccessModal from "@/components/common/OperationSuccessModal";
 import PageHeading from "@/components/common/PageHeading";
+import useImportPreviewTask from "./useImportPreviewTask";
 import {
   commitProductImport,
   getImportPreviewImageUrl,
   getProductImportTemplateUrl,
-  previewProductImport,
+  validateProductImportFile,
 } from "@/lib/api/product-import";
 import type {
   ProductImportCommitResponse,
@@ -39,7 +42,9 @@ import type {
   ProductImportPreviewProduct,
   ProductImportPreviewResponse,
   ProductImportRowStatus,
+  ProductImportPrecheckIssue,
 } from "@/lib/api/product-import";
+import { ApiResponseError } from "@/lib/api/client";
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) {
@@ -107,24 +112,57 @@ export default function ProductImportWorkspace() {
     null,
   );
   const [fileInfo, setFileInfo] = useState<UploadedFileInfo | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const { modal } = App.useApp();
   const [committing, setCommitting] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [commitResult, setCommitResult] =
     useState<ProductImportCommitResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [commitError, setCommitError] = useState<string | null>(null);
   const [messageApi, messageContextHolder] = message.useMessage();
 
+  const previewTask = useImportPreviewTask({
+    onSuccess: (result) => {
+      setPreview(result);
+      messageApi.success("Excel 已上传，商品级预览完成");
+    },
+    onCancelled: () => {
+      setPreview(null);
+      setFileInfo(null);
+      messageApi.info("已取消本次导入");
+    },
+    onMissing: () => setFileInfo(null),
+  });
+  const { uploading, taskId, elapsed, cancelling } = previewTask;
+  const loadError = validationError ?? previewTask.error?.message;
+  const precheckIssues: ProductImportPrecheckIssue[] =
+    previewTask.error instanceof ApiResponseError && typeof previewTask.error.detail === "object" &&
+    previewTask.error.detail !== null && "errors" in previewTask.error.detail && !validationError
+      ? (previewTask.error.detail as { errors: ProductImportPrecheckIssue[] }).errors : [];
+
+  function confirmCancel() {
+    if (!taskId || cancelling) return;
+    modal.confirm({
+      title: "取消本次导入？",
+      content: "将停止当前预览任务并清理本次临时文件。已经正式导入的历史数据不会受到影响。",
+      okText: "取消导入",
+      cancelText: "继续等待",
+      okButtonProps: { danger: true },
+      onOk: () => previewTask.cancel(taskId),
+    });
+  }
+
   async function handleFile(file: File) {
-    if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      setLoadError("只支持 .xlsx 文件，请先按标准模板整理并保存。");
+    if (previewTask.isBusy() || committing) return;
+    const validationError = validateProductImportFile(file);
+    if (validationError) {
+      previewTask.clearError();
+      setValidationError(validationError);
       return;
     }
-
-    setUploading(true);
-    setLoadError(null);
+    setValidationError(null);
+    setPreview(null);
     setCommitError(null);
     setCommitResult(null);
     setFileInfo({
@@ -132,24 +170,15 @@ export default function ProductImportWorkspace() {
       size: file.size,
       lastModified: file.lastModified,
     });
-    try {
-      const result = await previewProductImport(file);
-      setPreview(result);
-      messageApi.success("Excel 已上传，商品级预览完成");
-    } catch (error) {
-      setPreview(null);
-      setLoadError(
-        error instanceof Error ? error.message : "Excel 预览失败，请重试。",
-      );
-    } finally {
-      setUploading(false);
-    }
+    await previewTask.start(file);
   }
 
   function resetPreview() {
+    if (previewTask.isBusy() || committing) return;
     setPreview(null);
     setFileInfo(null);
-    setLoadError(null);
+    setValidationError(null);
+    previewTask.clearError();
     setCommitError(null);
     setCommitResult(null);
     setConfirmOpen(false);
@@ -418,7 +447,17 @@ export default function ProductImportWorkspace() {
             type="error"
             showIcon
             title="Excel 预览失败"
-            description={loadError}
+            description={
+              <>
+                {loadError}
+                {precheckIssues.length > 0 && <ul className="product-import-precheck-errors">
+                  {precheckIssues.map((issue) => <li key={issue.excel_row}>
+                    第 {issue.excel_row} 行：{issue.messages.join("；")}
+                    {(issue.excel_rows?.length ?? 0) > 1 && <span>（同一商品组：Excel 第 {issue.excel_rows!.join("、")} 行）</span>}
+                  </li>)}
+                </ul>}
+              </>
+            }
           />
         )}
 
@@ -432,7 +471,17 @@ export default function ProductImportWorkspace() {
           />
         )}
 
-        {!commitResult && (!preview ? (
+        {!commitResult && (uploading ? (
+          <section className="product-import-processing" aria-live="polite" aria-label="导入预览处理中">
+            <Spin />
+            <Typography.Title level={3}>{taskId ? "✓ Excel 检查通过" : "正在检查 Excel…"}</Typography.Title>
+            <p>{!taskId ? "正在上传并检查 Excel 数据，检查通过后才处理商品图片。" : cancelling ? "正在停止预览任务并清理临时文件，请稍候…" : elapsed >= 60 ? "处理耗时较长，你可以继续等待或取消本次导入。" : elapsed >= 30 ? "文件较大，正在处理商品图片，请稍候…" : "正在处理商品图片并生成预览…"}</p>
+            {taskId && <Space>
+              {elapsed >= 60 && !cancelling && <Button onClick={() => messageApi.info("正在继续处理，完成后会自动进入数据预览。")}>继续等待</Button>}
+              <Button onClick={confirmCancel} loading={cancelling}>取消本次导入</Button>
+            </Space>}
+          </section>
+        ) : !preview ? (
           <section
             className="product-import-upload-panel"
             aria-label="上传商品导入 Excel"

@@ -4,11 +4,13 @@ export function getApiBaseUrl(): string {
 
 export class ApiResponseError extends Error {
   readonly statusCode: number;
+  readonly detail: unknown;
 
-  constructor(message: string, statusCode: number) {
+  constructor(message: string, statusCode: number, detail?: unknown) {
     super(message);
     this.name = "ApiResponseError";
     this.statusCode = statusCode;
+    this.detail = detail;
   }
 }
 
@@ -17,6 +19,9 @@ function getErrorDetail(payload: unknown): string | undefined {
     const detail = (payload as { detail?: unknown }).detail;
     if (typeof detail === "string") {
       return detail;
+    }
+    if (typeof detail === "object" && detail !== null && "message" in detail) {
+      return String((detail as { message: unknown }).message);
     }
     if (Array.isArray(detail)) {
       return detail
@@ -60,6 +65,7 @@ export async function apiRequest<T>(
     throw new ApiResponseError(
       getErrorDetail(payload) ?? `后端请求失败（HTTP ${response.status}）`,
       response.status,
+      typeof payload === "object" && payload !== null && "detail" in payload ? payload.detail : undefined,
     );
   }
 
@@ -85,8 +91,10 @@ export async function apiUpload<T>(path: string, body: FormData): Promise<T> {
 
   if (!response.ok) {
     const payload: unknown = await response.json().catch(() => null);
-    throw new Error(
+    throw new ApiResponseError(
       getErrorDetail(payload) ?? `后端请求失败（HTTP ${response.status}）`,
+      response.status,
+      typeof payload === "object" && payload !== null && "detail" in payload ? payload.detail : undefined,
     );
   }
 

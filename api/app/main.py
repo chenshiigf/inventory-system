@@ -1,4 +1,6 @@
 from pathlib import Path
+import asyncio
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,6 +16,8 @@ from app.routers.products import router as products_router
 from app.routers.inventory_movements import router as inventory_movements_router
 from app.routers.warehouses import router as warehouses_router
 from starlette.staticfiles import StaticFiles
+from app.services.product_import.preview_tasks import PreviewTaskRegistry
+from app.services.product_import.session_store import PreviewSessionLifecycle
 
 
 class CachedStaticFiles(StaticFiles):
@@ -53,7 +57,28 @@ def create_app(
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    application = FastAPI(title="Inventory System API", version="0.1.0")
+    sessions = PreviewSessionLifecycle(product_import_root)
+    registry = PreviewTaskRegistry(sessions)
+
+    @asynccontextmanager
+    async def lifespan(_application: FastAPI):
+        await asyncio.to_thread(sessions.cleanup)
+        async def cleanup_tasks():
+            while True:
+                await asyncio.sleep(60)
+                registry.cleanup()
+
+        cleanup = asyncio.create_task(cleanup_tasks())
+        try:
+            yield
+        finally:
+            cleanup.cancel()
+            await asyncio.gather(cleanup, return_exceptions=True)
+            await asyncio.to_thread(registry.close)
+
+    application = FastAPI(title="Inventory System API", version="0.1.0", lifespan=lifespan)
+    application.state.product_import_preview_tasks = registry
+    application.state.product_import_preview_sessions = sessions
     application.state.uploads_directory = uploads_root
     application.state.product_image_directory = product_image_directory
     application.state.product_import_preview_directory = product_import_root

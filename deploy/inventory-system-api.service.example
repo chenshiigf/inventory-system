@@ -1,0 +1,21 @@
+[Unit]
+Description=Inventory System FastAPI
+After=network.target
+
+[Service]
+Type=simple
+User=inventory
+Group=inventory
+WorkingDirectory=/srv/inventory-system/api
+
+EnvironmentFile=/etc/inventory-system.env
+Environment=PYTHONUNBUFFERED=1
+
+# Single worker (Uvicorn default). Do not set WEB_CONCURRENCY or add multiple workers.
+ExecStart=/srv/inventory-system/api/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8102
+
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

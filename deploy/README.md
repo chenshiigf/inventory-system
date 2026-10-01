@@ -4,13 +4,22 @@
 
 ## 模板用途
 
-| 仓库文件 | 用途 |
-| --- | --- |
-| `inventory-system-api.service.example` | systemd API service 模板，实际 service 放在 `/etc/systemd/system/` |
-| `nginx-inventory-system.conf.example` | Nginx 库存系统 server block，由管理员放入 Nginx 配置并启用 |
-| `inventory-system.env.example` | `/etc/inventory-system.env` 的变量名称与安全示例；真实值不进入 Git |
+| 仓库文件（均为 `.example`） | 安装目标 | 所有者 / 权限 | 用途 |
+| --- | --- | --- | --- |
+| `inventory-system-api.service.example` | `/etc/systemd/system/inventory-system-api.service` | root:root / 644 | 单 worker API |
+| `nginx-inventory-system.conf.example` | `/etc/nginx/sites-available/inventory-system` | root:root / 644 | 8082 静态前端和反代；链接到 sites-enabled |
+| `inventory-system.env.example` | `/etc/inventory-system.env` | root:inventory / 640 | 数据目录和 SQLite URL |
+| `inventory-db-backup.py.example` | `/usr/local/sbin/inventory-db-backup.py` | root:inventory / 750 | 标准库每日 DB 快照；默认保留 14 天 |
+| `inventory-db-backup.service.example` | `/etc/systemd/system/inventory-db-backup.service` | root:root / 644 | inventory 用户执行每日快照 |
+| `inventory-db-backup.timer.example` | `/etc/systemd/system/inventory-db-backup.timer` | root:root / 644 | 每天 03:30 Asia/Shanghai，Persistent |
+| `inventory-full-backup.service.example` | `/etc/systemd/system/inventory-full-backup.service` | root:root / 644 | 复用现有 full 备份 CLI；mtime +56 清理为 best-effort |
+| `inventory-full-backup.timer.example` | `/etc/systemd/system/inventory-full-backup.timer` | root:root / 644 | 每周日 04:00 Asia/Shanghai，Persistent |
+| `inventory-oss-upload.sh.example` | `/usr/local/sbin/inventory-oss-upload.sh` | root:inventory / 750 | db/full 最新已发布目录上传；无 OSS 删除 |
+| `inventory-oss-upload@.service.example` | `/etc/systemd/system/inventory-oss-upload@.service` | root:root / 644 | 分离的 OSS 上传 oneshot |
+| `inventory-db-backup.service.d/oss-upload.conf.example` | `/etc/systemd/system/inventory-db-backup.service.d/oss-upload.conf` | root:root / 644 | OnSuccess → uploader@db |
+| `inventory-full-backup.service.d/oss-upload.conf.example` | `/etc/systemd/system/inventory-full-backup.service.d/oss-upload.conf` | root:root / 644 | OnSuccess → uploader@full |
 
-运行版本和依赖安装见 [运行环境基线](../docs/runtime-baseline.md)，备份恢复说明见 [备份与恢复](../docs/backup-and-restore.md)。本文件不是完整灾难恢复手册。
+运行版本和依赖安装见 [运行环境基线](../docs/runtime-baseline.md)，手动操作见 [备份与恢复](../docs/backup-and-restore.md)。从新 ECS 开始的安装命令、下载校验和恢复顺序见 [灾难恢复手册](../docs/disaster-recovery.md)。
 
 ## 目录用途
 
@@ -18,11 +27,32 @@
 | --- | --- |
 | `/srv/inventory-system` | Git 项目代码、API 虚拟环境；API 工作目录是其中的 `api/` |
 | `/var/www/inventory-system/out` | Nginx 读取的 Next.js 静态导出产物 |
-| `/var/lib/inventory-system` | 持久化数据根目录的安全示例，包含 SQLite、uploads 和 import-previews |
-| `/var/backups/inventory-system` | 完整备份集存放位置的示例；不表示已配置自动备份或异机复制 |
+| `/var/lib/inventory-system` | 已确认生产数据根目录，包含 SQLite、uploads 和临时 import-previews；inventory:inventory / 750 |
+| `/var/backups/inventory-system/db` | 每日 DB 备份；inventory:inventory / 750 |
+| `/var/backups/inventory-system/full` | 每周完整备份；inventory:inventory / 750；只放备份集，不放其他数据 |
+| `/var/backups/inventory-system/recovery` | 恢复时新下载的独立副本；不在 db/full 自动保留目录内 |
+| `/var/lib/inventory-system-recovery` | 独立恢复演练 target 的父目录；inventory:inventory / 750 |
+| `/var/tmp/inventory-ossutil` | 上传 output / checkpoint 工作目录；inventory:inventory / 750 |
 | `/etc/inventory-system.env` | systemd 加载的生产环境文件，由管理员维护实际值 |
 
-数据与备份目录是示例，实际位置以管理员配置为准。`inventory` 用户须能读取 API 代码和虚拟环境，并能写入数据库所在目录、uploads 和 preview 目录；SQLite 的日志文件也需要目录写权限。Nginx 须能读取静态导出文件及单独创建的 Basic Auth 密码文件。
+上述路径依据本次生产确认。`inventory` 用户须能读取 API 代码和虚拟环境，并能写入数据库所在目录、uploads 和 preview 目录；SQLite 的日志文件也需要目录写权限。静态目录 root:root / 755、静态文件 644；密码文件 root:www-data / 640，供 Ubuntu Nginx 用户读取。
+
+## 备份与 OSS 串联
+
+```text
+daily timer → DB backup service → OnSuccess → OSS uploader@db
+weekly timer → full backup service → OnSuccess → OSS uploader@full
+```
+
+- DB 模板是缺失生产脚本的等价实现，不是生产脚本逐字拷贝：sqlite3 backup API → integrity_check → SHA-256 manifest → 同目录临时目录 rename。字段与现场样例一致，时间使用服务器本地时间，无时区后缀。清理仅针对直接子目录中完整的每日 DB 备份；失败会记录 warning。
+- full service 继续调用 `api/scripts/backup_inventory.py`，不复制业务实现。full manifest 的 created_at 和目录时间采用现有 UTC 行为，可能比北京时间少 8 小时。
+- full `ExecStartPost` 保留清理命令和 `mtime +56` 规则，在可执行路径前使用 systemd 的 `-` 前缀。清理非零退出状态会被记录并忽略，find/rm 错误仍在 journal 中；不会把已生成并验证的 full 备份判为失败，也不会因此阻断 OnSuccess 上传。主备份 ExecStart 不忽略错误，备份真正失败时仍不触发上传。管理员已确认生产服务器同步采用该前缀，仓库模板与生产一致。
+- uploader 按目录名排序选择最新时间戳目录，不处理 `.tmp`；缺少所需文件会失败。OSS 上传是独立 service，其失败不删除或修改成功的本地备份。不能仅凭本地 service 成功判定 OSS 备份完整，应检查上传 service 和远端文件。
+- 两个 timer 为 `Persistent=true`，新启用时可能补执行错过的任务；应在正式数据恢复、校验完成后启用。
+
+OSS 基线：ossutil **v1.7.19**；杭州 internal endpoint；Private Bucket `inventory-system-backup`、Block Public Access；角色 `InventorySystemBackupRole`、策略 `InventorySystemBackupOSS`。不在配置或脚本中保存长期 AccessKey。
+
+角色允许 Bucket 的 ListObjects，以及对象的 GetObject / PutObject / ListParts / AbortMultipartUpload，**没有 DeleteObject**。控制台生命周期按对象最后修改时间：`db/` 90 天、`full/` 180 天。脚本不实现 OSS retention；重新 `-f` 上传相同对象会更新其最后修改时间。
 
 ## 运行关系
 
@@ -70,6 +100,6 @@ NEXT_PUBLIC_API_BASE_URL= pnpm build
 
 ## 秘密与配置边界
 
-Git 只保存 `.example` 模板及说明。真实生产环境值、Basic Auth 密码文件和任何密码、token、secret 均由管理员在仓库外维护。
+Git 保存 `.example` 模板及说明；已确认的公开路径、Bucket / Role 名称可以记录。Basic Auth 密码文件和任何密码、AccessKey、token、secret 均由管理员在仓库外维护。
 
-这组模板忠实记录当前配置，不包含实际服务启停、Nginx reload、数据恢复或服务器修改操作。
+复制模板、启停服务与恢复均由管理员按灾难恢复手册执行。本地 Windows 语法检查不能替代新 Ubuntu 上的 systemd / Nginx 验证。

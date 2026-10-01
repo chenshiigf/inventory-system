@@ -1,0 +1,2 @@
+[Unit]
+OnSuccess=inventory-oss-upload@full.service

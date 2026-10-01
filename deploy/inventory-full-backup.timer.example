@@ -1,0 +1,10 @@
+[Unit]
+Description=Inventory Weekly Full Backup Timer
+
+[Timer]
+OnCalendar=Sun *-*-* 04:00:00 Asia/Shanghai
+Persistent=true
+Unit=inventory-full-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -ne 1 ]]; then
+    printf 'Usage: %s db|full\n' "$0" >&2
+    exit 2
+fi
+case "$1" in
+    db|full) backup_type="$1" ;;
+    *) printf 'Backup type must be db or full\n' >&2; exit 2 ;;
+esac
+
+backup_root="/var/backups/inventory-system/${backup_type}"
+work_root="/var/tmp/inventory-ossutil"
+
+# Only published timestamp directories; incomplete .tmp sets are excluded.
+latest="$(find "$backup_root" -mindepth 1 -maxdepth 1 -type d \
+    -name '????-??-??_??????' -printf '%f\n' | LC_ALL=C sort | tail -n 1)"
+if [[ ! "$latest" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]]; then
+    printf 'No completed %s backup directory found\n' "$backup_type" >&2
+    exit 1
+fi
+source_directory="${backup_root}/${latest}"
+for file in inventory.db manifest.json; do
+    [[ -f "${source_directory}/${file}" ]] || { printf 'Missing backup file: %s\n' "$file" >&2; exit 1; }
+done
+if [[ "$backup_type" == full && ! -f "${source_directory}/uploads.tar.gz" ]]; then
+    printf 'Missing uploads.tar.gz in full backup\n' >&2
+    exit 1
+fi
+
+mkdir -p "${work_root}/output" "${work_root}/checkpoint"
+cd "$work_root"
+ossutil cp -r "${source_directory}/" "oss://inventory-system-backup/${backup_type}/${latest}/" \
+    --mode EcsRamRole \
+    --ecs-role-name InventorySystemBackupRole \
+    -e oss-cn-hangzhou-internal.aliyuncs.com \
+    --output-dir "${work_root}/output" \
+    --checkpoint-dir "${work_root}/checkpoint" \
+    -f
+# No OSS deletion or retention here. Failed uploads leave local backups intact.

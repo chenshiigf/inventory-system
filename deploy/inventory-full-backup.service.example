@@ -1,0 +1,14 @@
+[Unit]
+Description=Inventory Weekly Full Backup
+
+[Service]
+Type=oneshot
+User=inventory
+Group=inventory
+UMask=0027
+WorkingDirectory=/srv/inventory-system/api
+EnvironmentFile=/etc/inventory-system.env
+ExecStart=/srv/inventory-system/api/.venv/bin/python /srv/inventory-system/api/scripts/backup_inventory.py --destination /var/backups/inventory-system/full
+# Best-effort local retention: log failures without failing the verified backup.
+# This root must contain full backup sets only.
+ExecStartPost=-/usr/bin/find /var/backups/inventory-system/full -mindepth 1 -maxdepth 1 -type d -mtime +56 -exec /usr/bin/rm -rf {} +

@@ -1,0 +1,13 @@
+[Unit]
+Description=Upload Inventory %i Backup to OSS
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=inventory
+Group=inventory
+UMask=0027
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+WorkingDirectory=/var/tmp/inventory-ossutil
+ExecStart=/usr/local/sbin/inventory-oss-upload.sh %i

@@ -1,0 +1,9 @@
+[Unit]
+Description=Inventory Daily SQLite Backup
+
+[Service]
+Type=oneshot
+User=inventory
+Group=inventory
+UMask=0027
+ExecStart=/usr/local/sbin/inventory-db-backup.py

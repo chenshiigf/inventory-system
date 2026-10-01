@@ -162,6 +162,8 @@ class ProductPackaging(Base):
             "packing_qty",
             name="uq_product_packagings_product_packing_qty",
         ),
+        # Deleted packaging identities must never be assigned to a new row.
+        {"sqlite_autoincrement": True},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

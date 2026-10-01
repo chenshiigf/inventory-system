@@ -15,6 +15,7 @@ from app.schemas import (
     ProductCreate,
     ProductDetailRead,
     ProductListRead,
+    ProductPackagingUpdate,
     ProductQuoteExportRequest,
     ProductRead,
     ProductUpdate,
@@ -280,32 +281,31 @@ def update_product(
     db: Annotated[Session, Depends(get_db)],
 ) -> Product:
     begin_write_transaction(db)
-    product = db.scalar(
-        select(Product)
-        .options(selectinload(Product.packagings))
-        .where(Product.id == product_id)
-    )
-    if product is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
+    try:
+        product = db.scalar(
+            select(Product)
+            .options(selectinload(Product.packagings))
+            .where(Product.id == product_id)
+        )
+        if product is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product not found")
 
-    updates = payload.model_dump(exclude_unset=True, exclude={"packagings"})
-    if "category_id" in updates:
-        _validate_product_category(db, updates["category_id"])
-    if "warehouse_id" in updates:
-        _validate_product_warehouse(db, updates["warehouse_id"])
+        updates = payload.model_dump(exclude_unset=True, exclude={"packagings"})
+        if "category_id" in updates:
+            _validate_product_category(db, updates["category_id"])
+        if "warehouse_id" in updates:
+            _validate_product_warehouse(db, updates["warehouse_id"])
 
-    if payload.packagings is not None:
-        try:
-            _replace_product_packagings(db, product, payload.packagings)
-        except HTTPException:
-            db.rollback()
-            raise
+        if payload.packagings is not None:
+            _update_product_packagings(db, product, payload.packagings)
 
-    for field_name, value in updates.items():
-        setattr(product, field_name, value)
-    product.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    db.commit()
+        for field_name, value in updates.items():
+            setattr(product, field_name, value)
+        product.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     refreshed_product = db.scalar(
         select(Product)
         .options(selectinload(Product.packagings))
@@ -404,22 +404,26 @@ def _batch_set_active(
     return ProductBatchResult(updated_count=len(products))
 
 
-def _replace_product_packagings(
+def _update_product_packagings(
     db: Session,
     product: Product,
-    packagings: list,
+    packagings: list[ProductPackagingUpdate],
 ) -> None:
-    existing_ids = {packaging.id for packaging in product.packagings}
+    existing_by_id = {packaging.id: packaging for packaging in product.packagings}
     incoming_ids = {
         packaging.id for packaging in packagings if packaging.id is not None
     }
-    if incoming_ids - existing_ids:
+    if incoming_ids - existing_by_id.keys():
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="packaging id does not belong to this product",
         )
 
-    existing_by_id = {packaging.id: packaging for packaging in product.packagings}
+    if len(incoming_ids) != sum(packaging.id is not None for packaging in packagings):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="packagings cannot contain duplicate ids",
+        )
     removed_with_stock = next(
         (
             packaging
@@ -434,27 +438,34 @@ def _replace_product_packagings(
             detail="包装规格仍有库存，请先盘点调整为 0 后再删除",
         )
 
-    # Validate identities before replacing rows so a mistaken cross-product id
-    # cannot remove any packaging from this product.
-    for packaging in list(product.packagings):
-        db.delete(packaging)
+    # Validate the complete diff before touching any row. Temporarily clear
+    # changed quantities so swaps/replacements cannot hit the per-product
+    # quantity UNIQUE constraint. These intermediate values never commit.
+    for packaging in existing_by_id.values():
+        if packaging.id not in incoming_ids:
+            db.delete(packaging)
+    for incoming in packagings:
+        if incoming.id is not None:
+            existing = existing_by_id[incoming.id]
+            if existing.packing_qty != incoming.packing_qty:
+                existing.packing_qty = None
     db.flush()
 
-    product.packagings = [
-        ProductPackaging(
-            packing_qty=packaging.packing_qty,
-            # Stock is intentionally not part of a normal product edit. Keep
-            # the existing count for rows identified by id; a newly added
-            # packaging starts at zero and must be stocked through IN.
-            carton_count=(
-                existing_by_id[packaging.id].carton_count
-                if packaging.id is not None and packaging.id in existing_by_id
-                else 0
-            ),
-            sort_order=sort_order,
-        )
-        for sort_order, packaging in enumerate(packagings)
-    ]
+    updated_packagings = []
+    for sort_order, incoming in enumerate(packagings):
+        if incoming.id is not None:
+            packaging = existing_by_id[incoming.id]
+            packaging.packing_qty = incoming.packing_qty
+            packaging.sort_order = sort_order
+        else:
+            # Product editing never changes stock; new rows start at zero.
+            packaging = ProductPackaging(
+                packing_qty=incoming.packing_qty,
+                carton_count=0,
+                sort_order=sort_order,
+            )
+        updated_packagings.append(packaging)
+    product.packagings = updated_packagings
 
 
 def _validate_product_category(db: Session, category_id: int | None) -> None:

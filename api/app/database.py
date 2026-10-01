@@ -1,6 +1,5 @@
-import os
 import sqlite3
-from collections.abc import Generator, Mapping
+from collections.abc import Generator
 from pathlib import Path
 
 from sqlalchemy import create_engine, event, text
@@ -8,44 +7,12 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
-
-API_DIR = Path(__file__).resolve().parents[1]
-
-
-def resolve_inventory_data_dir(
-    environ: Mapping[str, str] | None = None,
-) -> Path:
-    environment = os.environ if environ is None else environ
-    configured_directory = environment.get("INVENTORY_DATA_DIR", "").strip()
-    if configured_directory:
-        return Path(configured_directory).expanduser().resolve()
-    return (API_DIR / "data").resolve()
-
-
-def resolve_database_url(
-    environ: Mapping[str, str] | None = None,
-    *,
-    data_directory: Path | None = None,
-) -> str:
-    environment = os.environ if environ is None else environ
-    configured_url = environment.get("DATABASE_URL", "").strip()
-    if configured_url:
-        return configured_url
-    root = data_directory or resolve_inventory_data_dir(environment)
-    return f"sqlite:///{(root / 'inventory.db').as_posix()}"
-
-
-def resolve_import_previews_directory(
-    environ: Mapping[str, str] | None = None,
-    *,
-    data_directory: Path | None = None,
-) -> Path:
-    environment = os.environ if environ is None else environ
-    root = data_directory or resolve_inventory_data_dir(environment)
-    if environment.get("INVENTORY_DATA_DIR", "").strip():
-        return (root / "import-previews").resolve()
-    # Preserve the existing local development location when no override is set.
-    return (root / "tmp" / "product-import").resolve()
+from app.data_paths import (
+    API_DIR,
+    resolve_database_url,
+    resolve_import_previews_directory,
+    resolve_inventory_data_dir,
+)
 
 
 def ensure_sqlite_database_directory(database_url: str) -> None:

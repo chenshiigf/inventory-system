@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Database integrity: {result.database_integrity}")
     print(f"Uploads files: {result.uploads_file_count}")
     print(f"Target: {result.target_directory}")
+    for warning in result.cleanup_warnings:
+        print(f"Warning: {warning}", file=sys.stderr)
     return 0
 
 

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
+import runpy
+import shutil
 import sqlite3
 import tarfile
 from datetime import datetime, timezone
@@ -10,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from app import inventory_backup as backup_module
 from app.inventory_backup import (
     InventoryBackupError,
     create_backup,
@@ -40,6 +45,7 @@ def _create_source(root: Path, *, with_uploads: bool = True) -> tuple[Path, Path
             INSERT INTO warehouses (name) VALUES ('sample warehouse');
             """
         )
+    connection.close()
 
     if with_uploads:
         (uploads_directory / "products" / "main").mkdir(parents=True)
@@ -319,3 +325,351 @@ def test_incomplete_tmp_backup_is_not_restorable(tmp_path: Path) -> None:
 
     with pytest.raises(InventoryBackupError, match=r"Incomplete \.tmp"):
         restore_backup(incomplete_directory, tmp_path / "restore")
+
+
+def _tree_snapshot(root: Path) -> dict[str, str | None]:
+    return {
+        path.relative_to(root).as_posix(): None if path.is_dir() else _sha256(path)
+        for path in sorted(root.rglob("*"))
+    }
+
+
+@pytest.fixture
+def restore_case(tmp_path: Path):
+    backup, source_db, source_uploads = _create_backup(tmp_path / "source")
+    old_db, old_uploads = _create_source(tmp_path / "old")
+    with sqlite3.connect(old_db) as connection:
+        connection.execute("UPDATE products SET name = 'different old product'")
+    # sqlite3's context manager commits but does not close the connection.
+    # Release the Windows file handle before exercising filesystem restore.
+    connection.close()
+    for path in old_uploads.rglob("*"):
+        if path.is_file():
+            path.write_bytes(b"different old image")
+    (old_uploads / "old-only.txt").write_bytes(b"old-only")
+    target = old_db.parent
+    old_state = (_sha256(old_db), _tree_snapshot(old_uploads))
+    new_state = (_sha256(backup / "inventory.db"), _tree_snapshot(source_uploads))
+    backup_state = _tree_snapshot(backup)
+    yield backup, target, old_state, new_state
+    # Every fault injection scenario must leave the original backup unchanged.
+    assert _tree_snapshot(backup) == backup_state
+    assert source_db.exists()
+
+
+def _target_state(target: Path):
+    return _sha256(target / "inventory.db"), _tree_snapshot(target / "uploads")
+
+
+def _rollback_dirs(target: Path):
+    return list(target.parent.glob(f".{target.name}.rollback-*.tmp"))
+
+
+def test_restore_transaction_success_installs_matching_pair_and_cleans_old(restore_case):
+    backup, target, _, new_state = restore_case
+    result = restore_backup(backup, target, force=True)
+    assert _target_state(target) == new_state
+    assert result.cleanup_warnings == ()
+    assert result.residual_directories == ()
+    assert _rollback_dirs(target) == []
+    assert list(target.parent.glob(f".{target.name}.restore-*.tmp")) == []
+
+
+@pytest.mark.parametrize("resource", ["inventory.db", "uploads"])
+def test_install_failure_restores_complete_old_pair(restore_case, monkeypatch, caplog, resource):
+    backup, target, old_state, _ = restore_case
+    original_replace = os.replace
+
+    def fail_install(source, destination):
+        source = Path(source)
+        if ".restore-" in source.parent.name and source.name == resource:
+            raise OSError(f"injected install {resource} failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(backup_module.os, "replace", fail_install)
+    with pytest.raises(InventoryBackupError, match="Restore install failed.*rollback completed") as caught:
+        restore_backup(backup, target, force=True)
+    assert f"injected install {resource} failure" in str(caught.value)
+    assert isinstance(caught.value.__cause__, OSError)
+    assert _target_state(target) == old_state
+    assert _rollback_dirs(target) == []
+    assert "Restore install failed" in caplog.text
+
+
+@pytest.mark.parametrize("failure", ["database", "uploads"])
+def test_installed_verification_failure_restores_old_pair(restore_case, monkeypatch, caplog, failure):
+    backup, target, old_state, _ = restore_case
+    original_check = backup_module._check_database_integrity
+    original_walk = backup_module._walk_uploads
+
+    def fail_check(path):
+        if Path(path) == target / "inventory.db":
+            raise InventoryBackupError("injected installed database verification failure")
+        return original_check(path)
+
+    def fail_walk(path):
+        if Path(path) == target / "uploads":
+            raise InventoryBackupError("injected installed uploads verification failure")
+        yield from original_walk(path)
+
+    if failure == "database":
+        monkeypatch.setattr(backup_module, "_check_database_integrity", fail_check)
+    else:
+        monkeypatch.setattr(backup_module, "_walk_uploads", fail_walk)
+    with pytest.raises(InventoryBackupError, match="Restore verify failed.*rollback completed"):
+        restore_backup(backup, target, force=True)
+    assert _target_state(target) == old_state
+    assert _rollback_dirs(target) == []
+    assert "Restore verify failed" in caplog.text
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_successful_restore_cleanup_failure_never_rolls_back(restore_case, monkeypatch, caplog, partial):
+    backup, target, _, new_state = restore_case
+    original_rmtree = shutil.rmtree
+
+    def fail_old_cleanup(path, *args, **kwargs):
+        path = Path(path)
+        if ".rollback-" in path.name:
+            if partial:
+                (path / "inventory.db").unlink()
+                (path / "uploads" / "old-only.txt").unlink()
+            raise OSError("injected old cleanup failure")
+        return original_rmtree(path, *args, **kwargs)
+
+    def forbidden_rollback(*args, **kwargs):
+        pytest.fail("cleanup after verified success must never invoke rollback")
+
+    monkeypatch.setattr(backup_module.shutil, "rmtree", fail_old_cleanup)
+    monkeypatch.setattr(backup_module, "_rollback_installed_files", forbidden_rollback)
+    with caplog.at_level(logging.WARNING):
+        result = restore_backup(backup, target, force=True)
+    assert _target_state(target) == new_state
+    assert result.database_integrity == "ok"
+    assert len(result.cleanup_warnings) == 1
+    assert "Restore succeeded" in result.cleanup_warnings[0]
+    assert "injected old cleanup failure" in caplog.text
+    assert result.residual_directories == tuple(_rollback_dirs(target))
+    assert result.residual_directories[0].exists()
+    # The retained directory remains independently cleanable later.
+    original_rmtree(result.residual_directories[0])
+    assert _target_state(target) == new_state
+
+
+def test_successful_restore_staging_cleanup_failure_is_a_warning(restore_case, monkeypatch, caplog):
+    backup, target, _, new_state = restore_case
+    original_rmtree = shutil.rmtree
+
+    def fail_staging_cleanup(path, *args, **kwargs):
+        if ".restore-" in Path(path).name:
+            raise OSError("injected staging cleanup failure")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(backup_module.shutil, "rmtree", fail_staging_cleanup)
+    result = restore_backup(backup, target, force=True)
+    assert _target_state(target) == new_state
+    assert "Restore succeeded" in caplog.text
+    assert len(result.cleanup_warnings) == 1
+    assert ".restore-" in result.residual_directories[0].name
+    assert _rollback_dirs(target) == []
+
+
+@pytest.mark.parametrize("missing", ["inventory.db", "uploads"])
+def test_missing_old_resource_blocks_destructive_rollback_and_reports_paths(restore_case, monkeypatch, caplog, missing):
+    backup, target, old_state, new_state = restore_case
+    original_check = backup_module._check_database_integrity
+
+    def fail_verify_and_lose_old_resource(path):
+        if Path(path) == target / "inventory.db":
+            old = _rollback_dirs(target)[0] / missing
+            if old.is_dir():
+                shutil.rmtree(old)
+            else:
+                old.unlink()
+            raise InventoryBackupError("injected verification failure")
+        return original_check(path)
+
+    monkeypatch.setattr(backup_module, "_check_database_integrity", fail_verify_and_lose_old_resource)
+    with pytest.raises(InventoryBackupError, match=f"required previous {missing} is missing") as caught:
+        restore_backup(backup, target, force=True)
+    assert _target_state(target) == new_state
+    assert "rollback needs attention" in str(caught.value)
+    assert "Preserved paths" in str(caught.value)
+    assert "injected verification failure" in str(caught.value.__cause__)
+    assert "Rollback incomplete" in caplog.text
+    remaining = _rollback_dirs(target)[0]
+    if missing == "inventory.db":
+        assert _tree_snapshot(remaining / "uploads") == old_state[1]
+    else:
+        assert _sha256(remaining / "inventory.db") == old_state[0]
+
+
+@pytest.mark.parametrize("resource", ["inventory.db", "uploads"])
+def test_rollback_replace_failure_reports_both_causes_and_keeps_remaining_old(restore_case, monkeypatch, caplog, resource):
+    backup, target, old_state, _ = restore_case
+    original_check = backup_module._check_database_integrity
+    original_replace = os.replace
+
+    def fail_verify(path):
+        if Path(path) == target / "inventory.db":
+            raise InventoryBackupError("original verify failure")
+        return original_check(path)
+
+    def fail_rollback(source, destination):
+        source = Path(source)
+        if ".rollback-" in source.parent.name and source.name == resource:
+            raise OSError("injected rollback replace failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(backup_module, "_check_database_integrity", fail_verify)
+    monkeypatch.setattr(backup_module.os, "replace", fail_rollback)
+    with pytest.raises(InventoryBackupError, match="rollback needs attention") as caught:
+        restore_backup(backup, target, force=True)
+    assert "original verify failure" in str(caught.value)
+    assert "injected rollback replace failure" in str(caught.value)
+    assert "original verify failure" in str(caught.value.__cause__)
+    assert "Could not restore previous resource" in caplog.text
+    old = _rollback_dirs(target)[0] / resource
+    if resource == "inventory.db":
+        assert _sha256(old) == old_state[0]
+        assert _tree_snapshot(target / "uploads") == old_state[1]
+        assert not (target / "inventory.db").exists()
+    else:
+        assert _tree_snapshot(old) == old_state[1]
+        assert _sha256(target / "inventory.db") == old_state[0]
+        assert not (target / "uploads").exists()
+
+
+def test_unexpected_rollback_exception_does_not_mask_original_or_cleanup_resources(restore_case, monkeypatch, caplog):
+    backup, target, old_state, new_state = restore_case
+    original_check = backup_module._check_database_integrity
+
+    def fail_verify(path):
+        if Path(path) == target / "inventory.db":
+            raise InventoryBackupError("original verify failure")
+        return original_check(path)
+
+    def fail_rollback(*args, **kwargs):
+        raise RuntimeError("unexpected rollback crash")
+
+    monkeypatch.setattr(backup_module, "_check_database_integrity", fail_verify)
+    monkeypatch.setattr(backup_module, "_rollback_installed_files", fail_rollback)
+    with pytest.raises(InventoryBackupError, match="rollback raised RuntimeError") as caught:
+        restore_backup(backup, target, force=True)
+    assert "original verify failure" in str(caught.value.__cause__)
+    assert "unexpected rollback crash" in str(caught.value)
+    assert "Rollback raised unexpectedly" in caplog.text
+    assert _target_state(target) == new_state
+    old = _rollback_dirs(target)[0]
+    assert (_sha256(old / "inventory.db"), _tree_snapshot(old / "uploads")) == old_state
+
+
+def test_new_resource_removal_failure_does_not_mix_old_and_new(restore_case, monkeypatch, caplog):
+    backup, target, old_state, new_state = restore_case
+    original_check = backup_module._check_database_integrity
+    original_remove = backup_module._remove_path
+
+    def fail_verify(path):
+        if Path(path) == target / "inventory.db":
+            raise InventoryBackupError("original verify failure")
+        return original_check(path)
+
+    def fail_remove(path):
+        if Path(path) == target / "uploads":
+            raise OSError("injected incomplete uploads removal failure")
+        return original_remove(path)
+
+    monkeypatch.setattr(backup_module, "_check_database_integrity", fail_verify)
+    monkeypatch.setattr(backup_module, "_remove_path", fail_remove)
+    with pytest.raises(InventoryBackupError, match="could not remove new uploads"):
+        restore_backup(backup, target, force=True)
+    old = _rollback_dirs(target)[0]
+    assert (_sha256(old / "inventory.db"), _tree_snapshot(old / "uploads")) == old_state
+    assert "Rollback incomplete" in caplog.text
+    assert _target_state(target) == new_state
+
+
+def test_failed_restore_staging_cleanup_does_not_hide_install_failure(restore_case, monkeypatch, caplog):
+    backup, target, old_state, _ = restore_case
+    original_replace = os.replace
+    original_rmtree = shutil.rmtree
+
+    def fail_install(source, destination):
+        source = Path(source)
+        if ".restore-" in source.parent.name and source.name == "uploads":
+            raise OSError("original install failure")
+        return original_replace(source, destination)
+
+    def fail_cleanup(path, *args, **kwargs):
+        if ".restore-" in Path(path).name:
+            raise OSError("secondary cleanup failure")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(backup_module.os, "replace", fail_install)
+    monkeypatch.setattr(backup_module.shutil, "rmtree", fail_cleanup)
+    with pytest.raises(InventoryBackupError, match="Restore install failed.*rollback completed") as caught:
+        restore_backup(backup, target, force=True)
+    assert "original install failure" in str(caught.value.__cause__)
+    assert "secondary cleanup failure" in str(caught.value)
+    assert _target_state(target) == old_state
+    assert "Restore failed; rollback completed" in caplog.text
+
+
+def test_restore_cli_reports_cleanup_warning_with_success_exit(restore_case, monkeypatch, capsys):
+    backup, target, _, new_state = restore_case
+    original_rmtree = shutil.rmtree
+
+    def fail_cleanup(path, *args, **kwargs):
+        if ".rollback-" in Path(path).name:
+            raise OSError("cli cleanup warning")
+        return original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(backup_module.shutil, "rmtree", fail_cleanup)
+    script = runpy.run_path(str(Path(__file__).resolve().parents[1] / "scripts" / "restore_inventory.py"))
+    assert script["main"](["--backup", str(backup), "--target", str(target), "--force"]) == 0
+    output = capsys.readouterr()
+    assert "Restore completed" in output.out
+    assert "Warning: Restore succeeded" in output.err
+    assert "cli cleanup warning" in output.err
+    assert _target_state(target) == new_state
+
+
+@pytest.mark.parametrize("phase", ["prepare", "move_old"])
+def test_failure_before_new_install_preserves_old_pair(restore_case, monkeypatch, phase):
+    backup, target, old_state, _ = restore_case
+    original_replace = os.replace
+
+    def fail_copy(*args, **kwargs):
+        raise OSError("injected prepare failure")
+
+    def fail_old_move(source, destination):
+        if Path(source) == target / "uploads":
+            raise OSError("injected old uploads move failure")
+        return original_replace(source, destination)
+
+    if phase == "prepare":
+        monkeypatch.setattr(backup_module.shutil, "copyfile", fail_copy)
+    else:
+        monkeypatch.setattr(backup_module.os, "replace", fail_old_move)
+    with pytest.raises(InventoryBackupError, match="rollback completed"):
+        restore_backup(backup, target, force=True)
+    assert _target_state(target) == old_state
+    assert _rollback_dirs(target) == []
+
+
+@pytest.mark.parametrize("resource", ["inventory.db", "uploads"])
+def test_empty_target_install_failure_removes_incomplete_new_data(restore_case, monkeypatch, resource):
+    backup, old_target, old_state, _ = restore_case
+    target = old_target.parent / "fresh-restore"
+    original_replace = os.replace
+
+    def fail_install(source, destination):
+        if ".restore-" in Path(source).parent.name and Path(source).name == resource:
+            raise OSError("injected fresh target installation failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(backup_module.os, "replace", fail_install)
+    with pytest.raises(InventoryBackupError, match="Restore install failed.*rollback completed"):
+        restore_backup(backup, target)
+    assert not target.exists()
+    assert _target_state(old_target) == old_state

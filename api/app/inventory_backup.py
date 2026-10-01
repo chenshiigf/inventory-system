@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -23,6 +24,7 @@ DATABASE_FILENAME = "inventory.db"
 UPLOADS_ARCHIVE = "uploads.tar.gz"
 MANIFEST_FILENAME = "manifest.json"
 CHUNK_SIZE = 1024 * 1024
+logger = logging.getLogger(__name__)
 WINDOWS_RESERVED_NAMES = {
     "CON",
     "PRN",
@@ -48,6 +50,8 @@ class RestoreResult:
     target_directory: Path
     database_integrity: str
     uploads_file_count: int
+    cleanup_warnings: tuple[str, ...] = ()
+    residual_directories: tuple[Path, ...] = ()
 
 
 def _is_link_or_junction(path: Path) -> bool:
@@ -532,20 +536,55 @@ def _rollback_installed_files(
     moved_names: list[str],
 ) -> list[str]:
     errors: list[str] = []
+    # Inspect every required old resource before deleting any installed data.
+    # If an old resource is missing, preserve everything still available for
+    # manual recovery instead of destroying the only remaining target copy.
+    for name in moved_names:
+        previous_path = rollback_directory / name if rollback_directory else None
+        try:
+            valid = (
+                previous_path is not None
+                and not _is_link_or_junction(previous_path)
+                and (previous_path.is_file() if name == DATABASE_FILENAME else previous_path.is_dir())
+            )
+            if not valid:
+                errors.append(f"required previous {name} is missing or unsafe: {previous_path}")
+        except Exception as exc:
+            logger.exception("Could not inspect rollback resource: %s", previous_path)
+            errors.append(f"could not inspect previous {name}: {exc}")
+    if errors:
+        return errors
+
     for name in reversed(installed_names):
         try:
             _remove_path(target_directory / name)
-        except OSError as exc:
+        except Exception as exc:
+            logger.exception("Could not remove incomplete restored resource: %s", target_directory / name)
             errors.append(f"could not remove new {name}: {exc}")
+            # Stop immediately: preserve the other installed resources and
+            # never mix them with old resources while removal is incomplete.
+            return errors
     if rollback_directory is not None:
         for name in reversed(moved_names):
             previous_path = rollback_directory / name
-            if previous_path.exists() or previous_path.is_symlink():
-                try:
-                    os.replace(previous_path, target_directory / name)
-                except OSError as exc:
-                    errors.append(f"could not restore previous {name}: {exc}")
+            try:
+                os.replace(previous_path, target_directory / name)
+            except Exception as exc:
+                logger.exception("Could not restore previous resource: %s", previous_path)
+                errors.append(f"could not restore previous {name}: {exc}")
     return errors
+
+
+def _cleanup_restore_directory(directory: Path, *, outcome: str) -> str | None:
+    """Cleanup never changes the already decided restore/rollback outcome."""
+    try:
+        if directory.exists():
+            shutil.rmtree(directory)
+    except Exception as exc:
+        warning = f"{outcome}; temporary data cleanup failed at {directory}: {exc}"
+        logger.warning(warning, exc_info=True)
+        return warning
+    return None
 
 
 def restore_backup(
@@ -573,6 +612,11 @@ def restore_backup(
         database_source, archive_source, _manifest, uploads_file_count = (
             _read_and_validate_backup(backup_path)
         )
+    except (InventoryBackupError, OSError) as exc:
+        logger.exception("Backup validation failed for %s", backup_path)
+        raise InventoryBackupError(f"Backup validation failed: {exc}") from exc
+
+    try:
         database_exists, uploads_exists = _preflight_target(target_path, force=force)
     except InventoryBackupError:
         raise
@@ -595,6 +639,9 @@ def restore_backup(
     moved_names: list[str] = []
     installed_names: list[str] = []
     target_was_created = False
+    phase = "prepare"
+    # Phase 1: prepare/install/verify. Only failures inside this block permit
+    # rollback; no cleanup of old data is part of this transaction boundary.
     try:
         staged_database = staging_directory / DATABASE_FILENAME
         shutil.copyfile(database_source, staged_database)
@@ -615,6 +662,7 @@ def restore_backup(
             target_path.mkdir()
             target_was_created = True
 
+        phase = "install"
         if database_exists or uploads_exists:
             rollback_directory = Path(
                 tempfile.mkdtemp(
@@ -636,6 +684,7 @@ def restore_backup(
         os.replace(staged_uploads, target_path / "uploads")
         installed_names.append("uploads")
 
+        phase = "verify"
         integrity = _check_database_integrity(target_path / DATABASE_FILENAME)
         restored_uploads_count = sum(
             1 for _path, _name, is_directory in _walk_uploads(target_path / "uploads")
@@ -646,35 +695,58 @@ def restore_backup(
                 "Installed uploads file count does not match the backup manifest."
             )
 
-        if rollback_directory is not None:
-            shutil.rmtree(rollback_directory)
-            rollback_directory = None
-        return RestoreResult(target_path, integrity, restored_uploads_count)
     except Exception as exc:
-        rollback_errors = _rollback_installed_files(
-            target_path,
-            rollback_directory,
-            installed_names,
-            moved_names,
-        )
-        if rollback_directory is not None and not rollback_errors:
-            try:
-                shutil.rmtree(rollback_directory)
-            except OSError as cleanup_error:
-                rollback_errors.append(f"could not remove rollback directory: {cleanup_error}")
+        logger.exception("Restore %s failed for %s", phase, target_path)
+        try:
+            rollback_errors = _rollback_installed_files(
+                target_path,
+                rollback_directory,
+                installed_names,
+                moved_names,
+            )
+        except Exception as rollback_error:
+            logger.exception("Rollback raised unexpectedly for %s", target_path)
+            rollback_errors = [f"rollback raised {type(rollback_error).__name__}: {rollback_error}"]
+        if rollback_errors:
+            # Keep both temporary directories: they can hold the remaining
+            # old resources or staged data needed to repair an incomplete rollback.
+            details = "; ".join(rollback_errors)
+            logger.error(
+                "Rollback incomplete for %s: %s; preserved rollback=%s, staging=%s",
+                target_path, details, rollback_directory, staging_directory,
+            )
+            raise InventoryBackupError(
+                f"Restore {phase} failed ({exc}); rollback needs attention: {details}. "
+                f"Preserved paths: target={target_path}, rollback={rollback_directory}, staging={staging_directory}"
+            ) from exc
+
+        cleanup_warnings = []
+        for directory in (rollback_directory, staging_directory):
+            if directory is not None:
+                warning = _cleanup_restore_directory(directory, outcome="Restore failed; rollback completed")
+                if warning:
+                    cleanup_warnings.append(warning)
         if target_was_created:
             try:
                 target_path.rmdir()
-            except OSError:
-                pass
-        if rollback_errors:
-            raise InventoryBackupError(
-                f"Restore failed ({exc}); rollback needs attention: "
-                + "; ".join(rollback_errors)
-            ) from exc
-        if isinstance(exc, InventoryBackupError):
-            raise
-        raise InventoryBackupError(f"Restore failed: {exc}") from exc
-    finally:
-        if staging_directory.exists():
-            shutil.rmtree(staging_directory)
+            except OSError as cleanup_error:
+                logger.warning("Could not remove empty restore target %s: %s", target_path, cleanup_error)
+        cleanup_details = "; " + "; ".join(cleanup_warnings) if cleanup_warnings else ""
+        raise InventoryBackupError(
+            f"Restore {phase} failed ({exc}); rollback completed{cleanup_details}"
+        ) from exc
+
+    # Phase 2: restoration is committed. Cleanup failure must never enter the
+    # rollback handler or turn the verified restoration into a failed restore.
+    cleanup_warnings = []
+    residual_directories = []
+    for directory in (rollback_directory, staging_directory):
+        if directory is not None:
+            warning = _cleanup_restore_directory(directory, outcome="Restore succeeded")
+            if warning:
+                cleanup_warnings.append(warning)
+                residual_directories.append(directory)
+    return RestoreResult(
+        target_path, integrity, restored_uploads_count,
+        tuple(cleanup_warnings), tuple(residual_directories),
+    )

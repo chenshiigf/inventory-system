@@ -94,15 +94,16 @@ function formatShare(value: number, total: number): string {
 
 function CategoryDistribution({
   items,
+  totalCartonCount,
 }: {
   items: DashboardCategoryDistribution[];
+  totalCartonCount: number;
 }) {
   if (items.length === 0) {
     return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无分类数据" />;
   }
 
-  const total = items.reduce((sum, item) => sum + item.product_count, 0);
-  const maxValue = Math.max(...items.map((item) => item.product_count), 0);
+  const maxValue = Math.max(...items.map((item) => item.carton_count), 0);
 
   return (
     <div className="dashboard-category-content">
@@ -110,12 +111,13 @@ function CategoryDistribution({
         <span>#</span>
         <span>分类名称</span>
         <span />
-        <span>商品数</span>
-        <span>占比</span>
+        <span>商品数量</span>
+        <span>库存箱数</span>
+        <span>库存占比</span>
       </div>
       <div className="dashboard-category-list" role="list" aria-label="按分类筛选商品">
         {items.map((item, index) => {
-          const barWidth = maxValue > 0 ? (item.product_count / maxValue) * 100 : 0;
+          const barWidth = maxValue > 0 ? (item.carton_count / maxValue) * 100 : 0;
           const rowContent = (
             <>
               <span className={`dashboard-category-rank${index === 0 ? " is-leading" : ""}`}>
@@ -133,8 +135,11 @@ function CategoryDistribution({
               <span className="dashboard-category-count">
                 {item.product_count.toLocaleString("zh-CN")}
               </span>
+              <span className="dashboard-category-stock">
+                {item.carton_count.toLocaleString("zh-CN")}
+              </span>
               <span className="dashboard-category-share">
-                {formatShare(item.product_count, total)}
+                {formatShare(item.carton_count, totalCartonCount)}
               </span>
             </>
           );
@@ -154,7 +159,7 @@ function CategoryDistribution({
                 key={item.category_id}
                 href={buildDashboardProductHref({ categoryId: item.category_id })}
                 role="listitem"
-                aria-label={`筛选分类：${item.category_name}，${item.product_count} 个商品`}
+                aria-label={`筛选分类：${item.category_name}，${item.product_count} 个商品，${item.carton_count} 箱`}
               >
                 {rowContent}
               </Link>
@@ -332,7 +337,7 @@ export default function DashboardWorkspace() {
   const categoryDistribution = useMemo(
     () =>
       [...(data?.category_distribution ?? [])].sort(
-        (a, b) => b.product_count - a.product_count,
+        (a, b) => b.carton_count - a.carton_count,
       ),
     [data?.category_distribution],
   );
@@ -427,7 +432,10 @@ export default function DashboardWorkspace() {
           {loading ? (
             <DashboardCardSkeleton rows={7} />
           ) : (
-            <CategoryDistribution items={categoryDistribution} />
+            <CategoryDistribution
+              items={categoryDistribution}
+              totalCartonCount={data?.total_carton_count ?? 0}
+            />
           )}
         </Card>
 

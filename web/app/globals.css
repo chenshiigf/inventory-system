@@ -3818,7 +3818,7 @@ textarea {
 .dashboard-category-columns,
 .dashboard-category-row {
   display: grid;
-  grid-template-columns: 32px minmax(100px, 0.52fr) minmax(90px, 1fr) 62px 62px;
+  grid-template-columns: 32px minmax(100px, 0.52fr) minmax(45px, 1fr) 62px 70px 62px;
   align-items: center;
   column-gap: 12px;
 }
@@ -3831,7 +3831,7 @@ textarea {
   font-size: 11px;
 }
 
-.dashboard-category-columns > :nth-last-child(-n + 2) {
+.dashboard-category-columns > :nth-last-child(-n + 3) {
   text-align: right;
 }
 
@@ -3915,6 +3915,7 @@ textarea {
 }
 
 .dashboard-category-count,
+.dashboard-category-stock,
 .dashboard-category-share {
   color: #344056;
   font-size: 12px;
@@ -4094,8 +4095,8 @@ textarea {
 @media (max-width: 520px) {
   .dashboard-category-columns,
   .dashboard-category-row {
-    grid-template-columns: 26px minmax(74px, 0.75fr) minmax(45px, 1fr) 43px 49px;
-    column-gap: 7px;
+    grid-template-columns: 23px minmax(60px, 1fr) minmax(12px, 0.4fr) 44px 50px 49px;
+    column-gap: 4px;
   }
 
   .dashboard-category-rank {

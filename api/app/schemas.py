@@ -450,6 +450,7 @@ class DashboardCategoryDistributionRead(BaseModel):
     category_id: int | None
     category_name: str
     product_count: int
+    carton_count: int
 
 
 class DashboardWarehouseDistributionRead(BaseModel):

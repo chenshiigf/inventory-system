@@ -190,6 +190,7 @@ export interface DashboardCategoryDistribution {
   category_id: number | null;
   category_name: string;
   product_count: number;
+  carton_count: number;
 }
 
 export interface DashboardWarehouseDistribution {

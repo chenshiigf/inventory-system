@@ -72,16 +72,20 @@ def _get_category_distribution(
         child_category.name,
         literal("未分类"),
     ).label("category_name")
-    product_count = func.count(Product.id).label("product_count")
+    product_count = func.count(func.distinct(Product.id)).label("product_count")
+    carton_count = func.coalesce(func.sum(ProductPackaging.carton_count), 0).label(
+        "carton_count"
+    )
 
     rows = db.execute(
-        select(category_id, category_name, product_count)
+        select(category_id, category_name, product_count, carton_count)
         .select_from(Product)
         .outerjoin(child_category, Product.category_id == child_category.id)
         .outerjoin(parent_category, child_category.parent_id == parent_category.id)
+        .outerjoin(ProductPackaging, ProductPackaging.product_id == Product.id)
         .where(Product.is_active.is_(True))
         .group_by(category_id, category_name)
-        .order_by(product_count.desc(), category_name.asc())
+        .order_by(carton_count.desc(), category_name.asc())
     ).mappings().all()
 
     return [DashboardCategoryDistributionRead(**row) for row in rows]

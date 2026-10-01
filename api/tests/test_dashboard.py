@@ -219,9 +219,18 @@ def test_dashboard_summary_preserves_active_stock_and_distribution_metrics(
     assert payload["zero_stock_product_count"] == 2
 
     assert payload["category_distribution"] == [
-        {"category_id": 1, "category_name": "厨房用品", "product_count": 2},
-        {"category_id": 2, "category_name": "节日装饰", "product_count": 2},
-        {"category_id": None, "category_name": "未分类", "product_count": 1},
+        {
+            "category_id": 1, "category_name": "厨房用品",
+            "product_count": 2, "carton_count": 35,
+        },
+        {
+            "category_id": None, "category_name": "未分类",
+            "product_count": 1, "carton_count": 1,
+        },
+        {
+            "category_id": 2, "category_name": "节日装饰",
+            "product_count": 2, "carton_count": 0,
+        },
     ]
     assert payload["warehouse_distribution"] == [
         {"warehouse_id": 1, "warehouse_name": "主仓", "carton_count": 33},
@@ -269,3 +278,98 @@ def test_dashboard_category_distribution_includes_all_eight_root_categories(
         f"一级分类{index}" for index in range(8, 0, -1)
     ]
     assert [item["product_count"] for item in categories] == list(range(8, 0, -1))
+    assert [item["carton_count"] for item in categories] == list(range(8, 0, -1))
+
+
+@pytest.mark.parametrize("zero_packagings", [[], [(12, 0)], [(12, 0), (24, 0)]])
+def test_category_cartons_sum_packagings_and_ignore_zero_stock(
+    dashboard_client,
+    zero_packagings,
+) -> None:
+    client, session_local = dashboard_client
+    with session_local.begin() as db:
+        kitchen = Category(name="厨房用品", code="KITCHEN")
+        holiday = Category(name="节日装饰", code="HOLIDAY")
+        db.add_all([kitchen, holiday])
+        db.flush()
+        child = Category(name="餐具", code="TABLEWARE", parent_id=kitchen.id)
+        db.add(child)
+        db.flush()
+        kitchen_id, holiday_id = kitchen.id, holiday.id
+        add_product(db, code="K-1", category_id=child.id, packagings=[(12, 6), (24, 2)])
+        add_product(db, code="K-2", category_id=kitchen.id, packagings=[(12, 1)])
+        add_product(db, code="H-1", category_id=holiday.id, packagings=[(12, 1)])
+        add_product(
+            db, code="INACTIVE", active=False,
+            category_id=holiday.id, packagings=[(12, 100)],
+        )
+
+    response = client.get("/api/dashboard/summary")
+    assert response.status_code == 200, response.text
+    before = response.json()
+    assert before["total_carton_count"] == 10
+    assert before["category_distribution"] == [
+        {
+            "category_id": kitchen_id, "category_name": "厨房用品",
+            "product_count": 2, "carton_count": 9,
+        },
+        {
+            "category_id": holiday_id, "category_name": "节日装饰",
+            "product_count": 1, "carton_count": 1,
+        },
+    ]
+
+    with session_local.begin() as db:
+        add_product(
+            db, code="ZERO", category_id=holiday_id, packagings=zero_packagings,
+        )
+
+    response = client.get("/api/dashboard/summary")
+    assert response.status_code == 200, response.text
+    after = response.json()
+    assert after["active_product_count"] == 4
+    assert after["zero_stock_product_count"] == 1
+    assert after["total_carton_count"] == before["total_carton_count"]
+    assert [item["product_count"] for item in after["category_distribution"]] == [2, 2]
+    assert [item["carton_count"] for item in after["category_distribution"]] == [9, 1]
+    # The frontend receives carton shares of 90% / 10%, despite equal product counts.
+    assert [
+        item["carton_count"] / after["total_carton_count"] * 100
+        for item in after["category_distribution"]
+    ] == [90, 10]
+    assert sum(
+        item["carton_count"] for item in after["category_distribution"]
+    ) == after["total_carton_count"]
+
+
+def test_category_distribution_with_only_zero_stock_products(dashboard_client) -> None:
+    client, session_local = dashboard_client
+    with session_local.begin() as db:
+        category = Category(name="厨房用品", code="KITCHEN")
+        db.add(category)
+        db.flush()
+        category_id = category.id
+        add_product(
+            db, code="ZERO", category_id=category_id, packagings=[(12, 0), (24, 0)],
+        )
+        add_product(db, code="EMPTY", category_id=category_id)
+    response = client.get("/api/dashboard/summary")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total_carton_count"] == 0
+    assert payload["active_product_count"] == payload["zero_stock_product_count"] == 2
+    assert payload["category_distribution"] == [
+        {
+            "category_id": category_id, "category_name": "厨房用品",
+            "product_count": 2, "carton_count": 0,
+        },
+    ]
+
+
+def test_empty_dashboard_has_no_category_distribution(dashboard_client) -> None:
+    client, _ = dashboard_client
+    response = client.get("/api/dashboard/summary")
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["total_carton_count"] == 0
+    assert payload["category_distribution"] == []

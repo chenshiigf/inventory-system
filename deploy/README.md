@@ -1,6 +1,6 @@
 # 生产部署配置模板
 
-本目录记录现场已确认可用的 systemd、Nginx 和环境变量结构。模板不会自动安装或修改服务器；实际配置由管理员维护。本阶段不增加域名、TLS、用户系统或自动部署脚本。
+本目录记录现场已确认可用的 systemd、Nginx 和环境变量结构。`.example` 模板不会自动安装或修改服务器；实际配置由管理员维护。GitHub Actions 自动部署见 [首次配置与发布说明](../docs/github-actions-deploy.md)，服务器执行入口为 `deploy-actions.py`，仅在管理员安装并配置 SSH 后可用。
 
 ## 模板用途
 

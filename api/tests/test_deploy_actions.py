@@ -8,8 +8,15 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import tarfile
+from urllib.parse import urlsplit
 
 import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.database import Base, get_db
+from app.main import create_app
 
 
 @pytest.fixture
@@ -19,6 +26,40 @@ def installer():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_health_check_reaches_actual_dashboard_api(installer, tmp_path, monkeypatch):
+    """Exercise the installer's URL against real routes and an isolated database."""
+    engine = create_engine(
+        f"sqlite:///{(tmp_path / 'health.db').as_posix()}",
+        connect_args={'check_same_thread': False},
+    )
+    session_local = sessionmaker(bind=engine)
+    Base.metadata.create_all(engine)
+    application = create_app(data_directory=tmp_path / 'data')
+
+    def database():
+        with session_local() as db:
+            yield db
+
+    application.dependency_overrides[get_db] = database
+    monkeypatch.setattr(installer, 'active', lambda unit: unit == installer.SERVICE)
+    try:
+        with TestClient(application) as client:
+            def open_api(url, timeout):
+                target = urlsplit(url)
+                assert target.netloc == '127.0.0.1:8102'
+                response = client.get(target.path)
+                response.raise_for_status()
+                assert response.json()['active_product_count'] == 0
+                stream = io.BytesIO(response.content)
+                stream.status = response.status_code
+                return stream
+
+            monkeypatch.setattr(installer.urllib.request, 'urlopen', open_api)
+            installer.health()
+    finally:
+        engine.dispose()
 
 
 def archive(path, entries):

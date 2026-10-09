@@ -12,7 +12,7 @@
 - 数据库、uploads、生产 env、Nginx、Basic Auth、systemd 配置不在上传包里，不运行 seed / backfill。
 - 默认不迁移数据库。若新代码需要 migration，推送部署在停止 API 前失败；检查 migration 后手动运行并勾选 migrate。数据库版本领先、分叉或多个 head 也会拒绝更新。
 - 无 migration 的更新失败会尝试恢复旧 API、旧虚拟环境和旧前端并检查后端；**开始过 migration 的更新若失败，会停止 API 和备份 timers，保留现场及 full 备份，不自动恢复数据库**。
-- 检查后端 `127.0.0.1:8102/api/dashboard`；该检查不覆盖公网 Nginx、Basic Auth、实际浏览器和完整业务验收。首次必须自行打开网页验收。
+- 检查后端 `127.0.0.1:8102/api/dashboard/summary`；该检查不覆盖公网 Nginx、Basic Auth、实际浏览器和完整业务验收。首次必须自行打开网页验收。
 
 ## 1. Windows 上创建独立部署密钥
 
@@ -39,7 +39,7 @@ Get-Content "$env:USERPROFILE\.ssh\inventory_actions.pub"
 ```bash
 set -euo pipefail
 curl -fSL https://raw.githubusercontent.com/chenshiigf/inventory-system/master/deploy/deploy-actions.py -o /tmp/inventory-deploy-actions.py
-printf '%s  %s\n' 2afc736b2540656d864a7590ff720450209a0d24814ff5d3ddb65933ef3bcf85 /tmp/inventory-deploy-actions.py | sha256sum -c -
+printf '%s  %s\n' e62de19103a501ed19951456f70f765257a22eb8539c5d651e399b1799c5125c /tmp/inventory-deploy-actions.py | sha256sum -c -
 python3.12 -m py_compile /tmp/inventory-deploy-actions.py
 sudo install -o root -g root -m 0755 /tmp/inventory-deploy-actions.py /usr/local/sbin/inventory-deploy-actions
 id inventory-deploy >/dev/null 2>&1 || sudo useradd --create-home --shell /bin/bash inventory-deploy

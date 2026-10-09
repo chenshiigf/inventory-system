@@ -23,6 +23,7 @@ BACKUPS = Path('/var/backups/inventory-system/actions')
 ENV_FILE = Path('/etc/inventory-system.env')
 DATA_DIR = Path('/var/lib/inventory-system')
 SERVICE = 'inventory-system-api.service'
+HEALTH_URL = 'http://127.0.0.1:8102/api/dashboard/summary'
 TIMERS = ('inventory-db-backup.timer', 'inventory-full-backup.timer')
 API_ITEMS = ('app', 'alembic', 'scripts', 'alembic.ini', 'requirements.txt', 'requirements.lock.txt')
 
@@ -95,15 +96,16 @@ def remove(path: Path) -> None:
 
 
 def health() -> None:
+    last_error = 'Expected HTTP 200, a JSON object and an active API service'
     for _ in range(30):
         try:
-            with urllib.request.urlopen('http://127.0.0.1:8102/api/dashboard', timeout=3) as response:
+            with urllib.request.urlopen(HEALTH_URL, timeout=3) as response:
                 if response.status == 200 and isinstance(json.load(response), dict) and active(SERVICE):
                     return
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as error:
+            last_error = str(error)
         time.sleep(2)
-    raise RuntimeError('API health check failed')
+    raise RuntimeError(f'API health check failed at {HEALTH_URL}: {last_error}')
 
 
 def deploy(release: str, digest: str, migrate: bool) -> None:

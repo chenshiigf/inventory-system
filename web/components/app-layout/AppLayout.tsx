@@ -8,6 +8,7 @@ import {
   InboxOutlined,
   ShopOutlined,
   TagsOutlined,
+  SearchOutlined,
 } from "@ant-design/icons";
 import { Layout, Menu } from "antd";
 import Link from "next/link";
@@ -27,6 +28,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const isWarehousesPage = pathname === "/warehouses";
   const isProductImportPage = pathname === "/products/import";
   const isInventoryMovementsPage = pathname === "/inventory-movements";
+  const isVisualSearchPage = pathname.replace(/\/$/, "") === "/visual-search";
   return (
     <Layout className="inventory-shell">
       <Sider
@@ -51,6 +53,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
           selectedKeys={[
             isDashboardPage
               ? "dashboard"
+              : isVisualSearchPage
+              ? "visual-search"
               : isCategoriesPage
               ? "categories"
               : isWarehousesPage
@@ -62,6 +66,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
                     : "inventory",
           ]}
           items={[
+            {
+              key: "visual-search",
+              icon: <SearchOutlined />,
+              label: <Link href="/visual-search">商品视觉搜索</Link>,
+            },
             {
               key: "dashboard",
               icon: <DashboardOutlined />,

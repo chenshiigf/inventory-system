@@ -72,11 +72,12 @@ export async function apiRequest<T>(
   return (await response.json()) as T;
 }
 
-export async function apiUpload<T>(path: string, body: FormData): Promise<T> {
+export async function apiUpload<T>(path: string, body: FormData, init: Pick<RequestInit, "credentials" | "signal"> = {}): Promise<T> {
   const url = `${getApiBaseUrl()}${path}`;
   let response: Response;
   try {
     response = await fetch(url, {
+      ...init,
       method: "POST",
       body,
       cache: "no-store",

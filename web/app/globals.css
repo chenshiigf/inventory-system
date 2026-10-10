@@ -4138,3 +4138,24 @@ textarea {
   margin: 12px 0 0;
   padding-inline-start: 20px;
 }
+/* Visual search follows the existing white surface / blue Ant Design palette. */
+.visual-workspace { display: flex; flex-direction: column; gap: 16px; }
+.visual-workspace .ant-typography { margin-bottom: 8px; }
+.visual-search-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 20px; align-items: start; }
+.visual-region-stage { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 16px; touch-action: none; cursor: crosshair; }
+.visual-region-stage.is-disabled { cursor: wait; }
+.visual-region-stage > img { display: block; max-width: 100%; max-height: 600px; width: auto; height: auto; user-select: none; }
+.visual-region-box { position: absolute; border: 2px solid #002FA7; background: rgb(0 47 167 / 8%); padding: 0; cursor: pointer; }
+.visual-region-box.selected { border-width: 3px; background: rgb(0 47 167 / 18%); }
+.visual-region-box > span { position: absolute; top: 0; left: 0; color: white; background: #002FA7; padding: 1px 6px; }
+.visual-region-box.draft { pointer-events: none; }
+.visual-manual-region { margin: 12px 0; }
+.visual-manual-region summary { cursor: pointer; margin-bottom: 8px; }
+.visual-manual-region label { display: flex; flex-direction: column; gap: 4px; }
+.visual-search-actions { margin-top: 16px; }
+.visual-current-crop { position: relative; overflow: hidden; width: 160px; max-height: 260px; margin-top: 16px; border: 1px solid #ddd; }
+.visual-current-crop img { position: absolute; max-width: none; height: auto; }
+.visual-candidate { display: flex; gap: 14px; border-top: 1px solid #eee; padding: 16px 0; }
+.visual-candidate-info { flex: 1; min-width: 0; }
+.visual-photo-tabs .ant-btn { max-width: 100%; white-space: normal; height: auto; min-height: 32px; overflow-wrap: anywhere; }
+@media (max-width: 900px) { .visual-search-columns { grid-template-columns: 1fr; } }

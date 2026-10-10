@@ -18,6 +18,10 @@ from app.routers.warehouses import router as warehouses_router
 from starlette.staticfiles import StaticFiles
 from app.services.product_import.preview_tasks import PreviewTaskRegistry
 from app.services.product_import.session_store import PreviewSessionLifecycle
+from app.routers.visual_search import router as visual_search_router
+from app.services.visual_search.config import VisualConfig, visual_directory
+from app.services.visual_search.service import VisualService
+from app.services.visual_search.upload_limit import VisualUploadLimit
 
 
 class CachedStaticFiles(StaticFiles):
@@ -33,6 +37,8 @@ def create_app(
     data_directory: Path | None = None,
     uploads_directory: Path | None = None,
     product_import_preview_directory: Path | None = None,
+    visual_config: VisualConfig | None = None,
+    visual_provider=None,
 ) -> FastAPI:
     data_root = (data_directory or DATA_DIR).expanduser().resolve()
     default_uploads_directory = (
@@ -59,6 +65,8 @@ def create_app(
 
     sessions = PreviewSessionLifecycle(product_import_root)
     registry = PreviewTaskRegistry(sessions)
+    visual_config = visual_config or VisualConfig.from_env()
+    visual_service = VisualService(visual_directory(data_root), uploads_root, visual_config, visual_provider)
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI):
@@ -75,20 +83,24 @@ def create_app(
             cleanup.cancel()
             await asyncio.gather(cleanup, return_exceptions=True)
             await asyncio.to_thread(registry.close)
+            await asyncio.to_thread(visual_service.close)
 
     application = FastAPI(title="Inventory System API", version="0.1.0", lifespan=lifespan)
     application.state.product_import_preview_tasks = registry
+    application.state.visual_config = visual_config
+    application.state.visual_search = visual_service
     application.state.product_import_preview_sessions = sessions
     application.state.uploads_directory = uploads_root
     application.state.product_image_directory = product_image_directory
     application.state.product_import_preview_directory = product_import_root
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3002", "http://127.0.0.1:3002"],
-        allow_credentials=False,
+        allow_origins=list(visual_config.allowed_origins),
+        allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "Authorization"],
     )
+    application.add_middleware(VisualUploadLimit)
 
     application.include_router(products_router)
     application.include_router(dashboard_router)
@@ -97,6 +109,7 @@ def create_app(
     application.include_router(product_import_router)
     application.include_router(categories_router)
     application.include_router(warehouses_router)
+    application.include_router(visual_search_router)
     application.mount(
         "/uploads",
         CachedStaticFiles(directory=str(uploads_root)),

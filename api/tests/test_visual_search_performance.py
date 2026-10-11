@@ -112,3 +112,48 @@ def test_round2_prepare_separates_frozen_answers_and_rejects_unconfirmed(product
     manifest.write_text(json.dumps([label]), encoding="utf8")
     with pytest.raises(ValueError, match="confirmed"):
         module.prepare(manifest, service.source.mirror.root, tmp_path / "prepared")
+
+
+def test_first_batch_requires_20_to_30_independent_objects_and_confirmed_metadata(production, tmp_path):
+    _, service, _, _, _, _ = production
+    module = script("prepare_field_evaluation.py")
+    labels = []
+    for n in range(20):
+        name = f"field-{n}.png"
+        (tmp_path / name).write_bytes(image((20 + n, 64, 32)))
+        labels.append({"object_id": f"R2-{n}", "image": name, "source_id": service.source.source_id,
+            "human_confirmed": True, "crop_confirmed": True, "crop": [0, 0, 1, 1],
+            "status": "present", "product_id": 1, "product_code": "MOCK-1",
+            "category": "mock category", "difficulty_tags": ["ordinary"],
+            "multi_product_photo": False, "mixed_product": False, "shared_image": True, "gallery_absent": False})
+    manifest = tmp_path / "manifest.json"
+    def prepare(values):
+        manifest.write_text(json.dumps(values), encoding="utf8")
+        return module.prepare(manifest, service.source.mirror.root, tmp_path / "prepared", first_batch=True)
+    with pytest.raises(ValueError, match="20..30"):
+        prepare(labels[:8])
+    labels[0]["crop_confirmed"] = False
+    with pytest.raises(ValueError, match="crop"):
+        prepare(labels)
+    labels[0]["crop_confirmed"] = True
+    labels[0]["gallery_absent"] = True
+    with pytest.raises(ValueError, match="Absent"):
+        prepare(labels)
+    labels[0]["gallery_absent"] = False
+    labels[1]["image"] = labels[0]["image"]
+    with pytest.raises(ValueError, match="Duplicate image"):
+        prepare(labels)
+    labels[1]["image"] = "field-1.png"
+    (tmp_path / "gallery.webp").write_bytes(service.source.raw(service.source.get(None, 1)))
+    labels[0]["image"] = "gallery.webp"
+    with pytest.raises(ValueError, match="masquerade"):
+        prepare(labels)
+    labels[0]["image"] = "field-0.png"
+    labels[-1].update(status="absent", gallery_absent=True, product_id=None, product_code=None)
+    output = prepare(labels)
+    preflight = json.loads((output / "preflight.json").read_text(encoding="utf8"))
+    assert preflight["first_batch_metadata_verified"] and preflight["objects"] == 20
+    assert preflight["present_objects"] == 19 and preflight["absent_objects"] == 1
+    assert not preflight["execution_authorized"] and not preflight["budget_confirmed"]
+    queries = json.loads((output / "query-objects.json").read_text(encoding="utf8"))
+    assert all(not {"product_id", "product_code", "category", "difficulty_tags", "gallery_absent"} & q.keys() for q in queries)

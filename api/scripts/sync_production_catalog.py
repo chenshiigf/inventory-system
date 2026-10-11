@@ -2,6 +2,7 @@
 import argparse
 import json
 from pathlib import Path
+import sqlite3
 import sys
 
 API_ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +29,7 @@ def main(argv=None):
     parser.add_argument("--expected-total", type=int)
     parser.add_argument("--execute-download", action="store_true", help="明确批准本次图片下载；默认仅预检")
     parser.add_argument("--product-id", type=int)
-    parser.add_argument("--interval", type=float, default=.2)
+    parser.add_argument("--interval", type=float, default=.2, help="请求间隔秒数，最小 0.2（并发固定为 1）")
     args = parser.parse_args(argv)
     if args.all and args.expected_total is None:
         parser.error("--all 还需要 --expected-total；不要在小批量阶段使用")
@@ -48,8 +49,8 @@ def main(argv=None):
             else:
                 result = mirror.audit()
         print(json.dumps(result, ensure_ascii=False, indent=2))
-        return 2 if result.get("failed_main_images") or result.get("local_image_failures") else 0
-    except (CatalogError, OSError, ValueError, TypeError, KeyError) as error:
+        return 2 if result.get("failed_main_images") or result.get("local_image_failures") or result.get("disk", {}).get("sufficient") is False else 0
+    except (CatalogError, OSError, sqlite3.Error, ValueError, TypeError, KeyError) as error:
         # Unknown exception text could include data; only controlled errors are printed.
         print("操作未完成：" + (str(error) if isinstance(error, CatalogError) else type(error).__name__), file=sys.stderr)
         return 1

@@ -61,3 +61,27 @@ def test_cli_degraded_images_have_nonzero_exit(cli, tmp_path, capsys):
     assert module.main(["sync", *arguments(tmp_path / "mirror"), "--execute-download"]) == 2
     report = json.loads(capsys.readouterr().out)
     assert report["published"] and report["invalid_image_products"] == 1
+
+
+def test_cli_dryrun_insufficient_disk_has_nonzero_exit(cli, tmp_path, capsys, monkeypatch):
+    from types import SimpleNamespace
+    module, backend = cli
+    monkeypatch.setattr("app.services.visual_search.production_catalog.shutil.disk_usage", lambda _: SimpleNamespace(free=0))
+    root = tmp_path / "mirror"
+    assert module.main(["sync", *arguments(root)]) == 2
+    result = json.loads(capsys.readouterr().out)
+    assert result["dry_run"] and not result["disk"]["sufficient"]
+    assert not root.exists() and not any(r.url.path.startswith("/uploads") for r in backend.requests)
+
+
+def test_local_sqlite_error_is_controlled_and_does_not_access_network(cli, tmp_path, capsys):
+    module, backend = cli
+    root = tmp_path / "mirror"
+    assert module.main(["sync", *arguments(root), "--execute-download"]) == 0
+    capsys.readouterr()
+    (root / "catalog.sqlite").write_bytes(b"invalid SQLite file PRIVATE detail")
+    backend.requests.clear()
+    assert module.main(["status", *arguments(root)]) == 1
+    error = capsys.readouterr().err
+    assert "DatabaseError" in error and "PRIVATE" not in error
+    assert not backend.requests

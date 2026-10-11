@@ -12,6 +12,7 @@ import math
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import sqlite3
 import time
 from urllib.parse import quote, urlparse
@@ -26,6 +27,7 @@ from .lock import CallLock
 
 MAGIC = "inventory-production-catalog-v1"
 JSON_LIMIT = 8 * 1024 * 1024
+MIN_INTERVAL = .2
 
 
 class CatalogError(Exception):
@@ -163,10 +165,10 @@ class CatalogClient:
             or parsed.username or parsed.password or parsed.query or parsed.fragment
             or parsed.path not in {"", "/"}):
             raise CatalogError("只允许 SSH 隧道的本机回环 HTTP 地址，不接受公网地址或凭据 URL")
-        if not (0 <= interval <= 60 and 0 <= retries <= 2 and 1 <= timeout <= 60):
-            raise CatalogError("超时、重试或请求间隔无效")
+        if not (MIN_INTERVAL <= interval <= 60 and 0 <= retries <= 2 and 1 <= timeout <= 60):
+            raise CatalogError("超时、重试或请求间隔无效；间隔不得低于 0.2 秒")
         self.base_url = base_url.rstrip("/")
-        self.interval, self.retries = interval, retries
+        self.interval, self.retries, self.timeout = interval, retries, timeout
         self.http = httpx.Client(transport=transport, timeout=timeout, trust_env=False, follow_redirects=False,
                                  headers={"Accept-Encoding": "identity"})
         self.stats = Counter()
@@ -390,16 +392,71 @@ def publish(root, identity, snapshot, records, report):
                 db.execute("INSERT OR REPLACE INTO mirror_meta VALUES (?,?)", (key, json.dumps(value, ensure_ascii=False)))
 
 
+def disk_plan(directory, snapshot):
+    """Read-only, conservative capacity plan; no source writes or image requests."""
+    probe = Path(directory).expanduser().resolve()
+    while not probe.exists():
+        probe = probe.parent
+    unique_images = len({p["image_identifier"] for p in snapshot["products"] if p["image_identifier"]})
+    # Existing files are already deducted from free space. Allow all references to
+    # produce new 10MB files, plus a temporary image and metadata/journal reserve.
+    image_budget = unique_images * MAX_BYTES
+    required = max(1024 ** 3, image_budget + MAX_BYTES + 256 * 1024 ** 2)
+    free = shutil.disk_usage(probe).free
+    return {"free_bytes": free, "conservative_image_budget_bytes": image_budget,
+            "required_free_bytes": required, "sufficient": free >= required}
+
+
+def dry_run_catalog(client, directory, source_id, source_label, limit, expected_total):
+    initial = client.snapshot(limit, expected_total)
+    final = client.snapshot(limit, expected_total)
+    if fingerprint(initial) != fingerprint(final):
+        raise CatalogError("dry-run 两遍商品清单不一致；未下载、未发布，请稍后重新预检")
+    root = Path(directory).expanduser().resolve()
+    existing = []
+    if (root / "source.json").exists():
+        mirror = ProductionCatalog(root, source_id)
+        if mirror.identity["source_label"] != source_label:
+            raise CatalogError("目标镜像来源不一致，拒绝混用 ID")
+        existing = mirror.products()
+    ids = {p["id"] for p in final["products"]}
+    references = [p["image_identifier"] for p in final["products"] if p["image_identifier"]]
+    cache = json.loads((root / "download-cache.json").read_text(encoding="utf8")) if (root / "download-cache.json").exists() else {}
+    verified_cache = 0
+    for identifier in set(references):
+        entry = cache.get(identifier)
+        if entry:
+            try:
+                checked_file(root, entry)
+                verified_cache += 1
+            except CatalogError:
+                pass  # Download will retry invalid cache; dry-run never repairs it.
+    packaging = [p for row in final["products"] for p in row["packagings"]]
+    return {"dry_run": True, "source_id": source_id, "source_total": final["source_total"],
+            "selected_products": len(final["products"]), "scope": "full" if limit is None else "sample",
+            "snapshot_passes": 2, "pages_per_pass": max(1, math.ceil(final["source_total"] / 100)) if limit is None else 1,
+            "pagination_consistent": True, "catalog_fingerprint": fingerprint(final), "id_conflicts": 0,
+            "active_products": sum(p["is_active"] for p in final["products"]),
+            "inactive_products": sum(not p["is_active"] for p in final["products"]),
+            "image_references": len(references), "unique_image_references": len(set(references)),
+            "duplicate_reference_links": len(references) - len(set(references)),
+            "missing_main_images": len(final["products"]) - len(references),
+            "packaging_rows": len(packaging), "unknown_packing_qty_rows": sum(p["packing_qty"] is None for p in packaging),
+            "existing_mirror_products": len(existing), "existing_ids_in_selection": sum(p["id"] in ids for p in existing),
+            "would_invalidate_products": sum(p["source_present"] and p["id"] not in ids for p in existing) if limit is None else 0,
+            "verified_cached_image_references": verified_cache, "images_downloaded": 0, "published": False, "ai_calls": 0,
+            "network": dict(client.stats), "disk": disk_plan(root, final),
+            "limits": {"concurrency": 1, "interval_seconds": client.interval,
+                       "timeout_seconds": client.timeout, "retries": client.retries, "max_image_bytes": MAX_BYTES}}
+
+
 def sync_catalog(client, directory, source_id, source_label, *, limit=10, expected_total=None, execute=False):
     if limit is not None and (type(limit) is not int or not 1 <= limit <= 10):
         raise CatalogError("小批量上限必须为 1～10；默认 10")
     if limit is None and (type(expected_total) is not int or expected_total <= 0):
         raise CatalogError("全量模式必须显式填写批准的预期商品总数")
     if not execute:
-        snapshot = client.snapshot(limit, expected_total)
-        return {"dry_run": True, "source_total": snapshot["source_total"], "selected_products": len(snapshot["products"]),
-                "image_references": sum(bool(p["image_identifier"]) for p in snapshot["products"]),
-                "scope": "full" if limit is None else "sample", "images_downloaded": 0}
+        return dry_run_catalog(client, directory, source_id, source_label, limit, expected_total)
     root, identity = initialize(Path(directory), source_id, source_label)
     lock = CallLock(root)
     if not lock.acquire():
@@ -413,6 +470,9 @@ def sync_catalog(client, directory, source_id, source_label, *, limit=10, expect
     try:
         initial = client.snapshot(limit, expected_total)
         report["source_total"] = initial["source_total"]
+        report["disk"] = disk_plan(root, initial)
+        if not report["disk"]["sufficient"]:
+            raise CatalogError("本地磁盘空间不足，未开始图片下载、未发布；请释放空间后重试")
         cache_path = root / "download-cache.json"
         cache = json.loads(cache_path.read_text(encoding="utf8")) if cache_path.exists() else {}
         completed = {}
@@ -468,6 +528,13 @@ def sync_catalog(client, directory, source_id, source_label, *, limit=10, expect
         if "商品 ID 冲突" in str(error):
             report["id_conflicts"] = 1  # Stop at first conflict; not a complete conflict census.
         raise
+    except KeyboardInterrupt as error:
+        report.update(finished_at=timestamp(), error="同步已中断；已校验文件缓存保留，下次重新运行可继续", network=dict(client.stats))
+        raise CatalogError(report["error"]) from error
+    except (OSError, sqlite3.Error, ValueError, TypeError, KeyError) as error:
+        # Keep useful failure evidence without logging remote data or credentials.
+        report.update(finished_at=timestamp(), error="本地同步失败：" + type(error).__name__, network=dict(client.stats))
+        raise CatalogError(report["error"]) from error
     finally:
         try:
             (root / "reports").mkdir(exist_ok=True)

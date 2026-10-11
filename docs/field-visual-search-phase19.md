@@ -4,9 +4,10 @@
 
 ## 第一轮标签收口
 
-用户独立确认的 8 条答案已经与生产镜像货号、来源和原始候选核对，均为精确生产商品 ID 排名 1。
-总查询对象 9 个，已审核 8 个；T01 未提供答案，保持待核实。
-Top 1 / Top 3 / Top 5 均为 **8/8（100%）**，只针对已审核的 8 个对象，不代表全图库准确率。
+首次收口时，用户独立确认了 8 条答案，均为精确生产商品 ID 排名 1；T01 当时待核实，历史修订的 Top 1 / Top 3 / Top 5 为 8/8（100%）。
+随后用户明确人工确认 T01 原始 Top 1 也正确；已核对对应生产来源和镜像货号，追加独立审核修订，保留先前标签和报告。
+现在总查询对象 9 个，已审核 9 个，无待核实对象；全部精确排名为 1。
+当前 Top 1 / Top 3 / Top 5 均为 **9/9（100%）**，只代表这一轮小样本，不代表全图库准确率。
 T06、T07 是两个评测对象，虽然正确商品相同，分别计数。
 
 标签使用 `source_id=aliyun-inventory-production` 和独立 `product_key`，只写入忽略目录：
@@ -18,6 +19,11 @@ api/data/visual-search/field-evaluation/
     previous-labels.json                        原标签的完整字节备份
     review.json                                 标签、实际排名、精确/共图指标、原始记录哈希
     report.html                                 人工审核汇总
+  reviews/round1-20261011-qmfbzv1g/
+    previous-labels.json                        T01 确认前的标签完整备份
+    review.json                                 当前完整 9 对象审核、排名和统计
+    report.html                                 当前完整人工审核汇总
+    acceptance.json                             追加标签及原始记录保护验收
   runs/round1-20261011/                         原始查询、候选、分数、账本、报告全部保留
   phase19-acceptance.json                       数据保护验收
 ```

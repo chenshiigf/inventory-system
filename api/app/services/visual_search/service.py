@@ -40,6 +40,7 @@ class VisualService:
             raise VisualError("生产图库与索引来源配置不一致", 503)
         self.store = VisualStore(root, config)
         self.provider = provider or DashScopeProvider(config, self.store.record_call)
+        self.index_guard = None  # Optional local full-run policy; ordinary V0.1 unchanged.
         self.slot = threading.Lock()  # Query and index calls share one paid-call slot.
         self.process_slot = CallLock(call_lock_root or root)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="visual-index")
@@ -176,6 +177,8 @@ class VisualService:
             for item in plan["skipped"] + plan["invalid_images"]:
                 self.store.save_embedding(item["product_id"], None, None, "skipped" if item in plan["skipped"] else "failed", error=item["reason"])
             for item in plan["pending"][:max_items]:
+                if self.index_guard:
+                    self.index_guard.before_item(item)
                 pid = item["product_id"]
                 succeeded = False
                 try:
@@ -211,6 +214,8 @@ class VisualService:
                     logger.warning("visual_index_failure job=%s product_id=%s reason=%s", job_id, pid, error.detail)
                 with self.store.connection() as connection:
                     connection.execute("UPDATE visual_jobs SET processed=processed+1,succeeded=succeeded+?,failed=failed+? WHERE id=?", (int(succeeded), int(not succeeded), job_id))
+                if self.index_guard:
+                    self.index_guard.after_item(item, succeeded)
                 time.sleep(self.config.interval)
             with self.store.connection() as connection:
                 connection.execute("UPDATE visual_jobs SET status='completed',finished_at=? WHERE id=?", (now(), job_id))

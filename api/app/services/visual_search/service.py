@@ -16,6 +16,7 @@ from .store import VisualStore, now
 from .lock import CallLock
 from .sources import DevelopmentSource
 from .production_catalog import atomic_json
+from .timing import SearchTiming
 
 logger = logging.getLogger(__name__)
 
@@ -228,9 +229,13 @@ class VisualService:
 
     def search(self, db, owner, data, crop=None, top_k=5):
         started = time.perf_counter()
+        timing = SearchTiming()
         prepared = prepare_image(data, crop)
+        timing.mark("image_preprocessing")
         rows = self.store.rows()
+        timing.mark("sqlite_vectors")
         products = self.source.products(db)
+        timing.mark("catalog_bulk_read")
         available, gallery = {}, {}
         for product in products:
             if not product.is_active:
@@ -249,6 +254,7 @@ class VisualService:
             except (TypeError, ValueError) as error:
                 raise VisualError("索引向量损坏，请重新索引", 502) from error
             available[product.id] = product
+        timing.mark("gallery_hash_and_vector_validation")
         query_id = uuid.uuid4().hex
         usage = {}
         ranked = []
@@ -258,16 +264,22 @@ class VisualService:
             try:
                 result = self.provider.embed(prepared, "search", query_id)
                 usage = result.usage
+                timing.mark("query_embedding")
                 if self.source.production:
+                    # Re-read all current metadata once, preserving the post-API
+                    # state/image checks without 2 SQLite connections per ID.
+                    current_products = {p.id: p for p in self.source.products(None)}
                     for pid in list(gallery):
                         try:
-                            current = self.source.get(None, pid)
-                            if not current.is_active or current.image_path != rows[pid]["image_identifier"] or image_hash(self.source.raw(current)) != rows[pid]["image_hash"]:
+                            current = current_products.get(pid)
+                            if current is None or not current.is_active or current.image_path != rows[pid]["image_identifier"] or image_hash(self.source.raw(current)) != rows[pid]["image_hash"]:
                                 raise VisualError("图库已更新")
                             available[pid] = current
                         except VisualError:
                             del gallery[pid]
+                timing.mark("catalog_revalidation")
                 ranked = rank_candidates(result.vector, gallery, self.config.dimension, top_k, self.config.min_score)
+                timing.mark("numpy_similarity")
             finally:
                 self._release()
         # Keep only the normalized query crop, outside the public uploads mount.
@@ -282,11 +294,16 @@ class VisualService:
                 reference, image_hash(data), json.dumps(crop) if crop else None,
                 json.dumps([pid for pid, _ in ranked]), elapsed, json.dumps(usage), now(),
             ))
+        timing.mark("query_persistence")
         logger.info("visual_search query=%s elapsed_ms=%s candidates=%s", query_id, elapsed, len(ranked))
-        return {**self.source.context(), "query_id": query_id, "model": self.config.model, "version": self.config.version,
+        response = {**self.source.context(), "query_id": query_id, "model": self.config.model, "version": self.config.version,
                 "elapsed_ms": elapsed, "usage": usage, "call_summary": self.store.usage_summary(query_id),
                 "crop": crop, "message": "候选仅供人工核对，相似度不是准确率" if ranked else "没有可用匹配，请检查图库索引或重新框选",
                 "candidates": [{"product": available[pid].detail, "similarity": round(score, 6)} for pid, score in ranked]}
+        timing.mark("response_details")
+        response["timings_ms"] = timing.result()
+        logger.info("visual_search_timings query=%s timings_ms=%s", query_id, json.dumps(response["timings_ms"]))
+        return response
 
     def feedback(self, db, owner, query_id, selected_product_id, no_match):
         with self.store.connection() as connection:

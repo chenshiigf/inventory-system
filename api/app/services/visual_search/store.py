@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -23,7 +23,7 @@ class VisualStore:
         if not self.path.is_file():
             return False
         try:
-            with sqlite3.connect(f"{self.path.as_uri()}?mode=ro", uri=True) as db:
+            with closing(sqlite3.connect(f"{self.path.as_uri()}?mode=ro", uri=True)) as db:
                 return db.execute("SELECT version_num FROM alembic_version").fetchone() in {("vs01",), ("vs02",)}
         except sqlite3.Error:
             return False

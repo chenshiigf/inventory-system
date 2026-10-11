@@ -65,4 +65,13 @@ def gallery_image(root: Path, identifier: str) -> bytes:
     if not target.is_relative_to(root.resolve()) or not target.is_file():
         raise VisualError("商品主图文件不存在或路径无效")
     with target.open("rb") as file:
-        return file.read(MAX_BYTES + 1)
+        # Large read(n) allocates a 10MB buffer even for a tiny product photo on
+        # Windows. Keep the same upper bound without allocating it per image.
+        chunks, remaining = [], MAX_BYTES + 1
+        while remaining:
+            chunk = file.read(min(remaining, 64 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)

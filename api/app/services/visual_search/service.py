@@ -7,17 +7,15 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Product
-from app.schemas import ProductDetailRead
-
 from .config import VisualConfig
-from .images import VisualError, gallery_image, image_hash, prepare_image
+from .images import VisualError, image_hash, prepare_image
 from .provider import DashScopeProvider, normalize
 from .store import VisualStore, now
 from .lock import CallLock
+from .sources import DevelopmentSource
+from .production_catalog import atomic_json
 
 logger = logging.getLogger(__name__)
 
@@ -34,13 +32,16 @@ def rank_candidates(query, gallery, dimension, top_k=5, min_score=0):
 
 
 class VisualService:
-    def __init__(self, root, uploads_root, config: VisualConfig, provider=None):
+    def __init__(self, root, uploads_root, config: VisualConfig, provider=None, *, source=None, call_lock_root=None):
         self.config = config
         self.uploads_root = uploads_root
+        self.source = source or DevelopmentSource(uploads_root)
+        if self.source.production and config.source_identity != self.source.identity_key:
+            raise VisualError("生产图库与索引来源配置不一致", 503)
         self.store = VisualStore(root, config)
         self.provider = provider or DashScopeProvider(config, self.store.record_call)
         self.slot = threading.Lock()  # Query and index calls share one paid-call slot.
-        self.process_slot = CallLock(root)
+        self.process_slot = CallLock(call_lock_root or root)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="visual-index")
         # Project already runs one API worker. A crashed job is resumed via a new batch.
         if self.store.ready and self.process_slot.acquire():
@@ -67,7 +68,7 @@ class VisualService:
 
     def plan(self, db: Session):
         rows = self.store.rows() if self.store.ready else {}
-        products = db.scalars(select(Product).order_by(Product.id)).all()
+        products = self.source.products(db)
         pending, unchanged, skipped, failed, valid = [], [], [], [], set()
         for product in products:
             if not product.is_active:
@@ -78,7 +79,7 @@ class VisualService:
                 skipped.append({"product_id": product.id, "reason": "无主图"})
                 continue
             try:
-                digest = image_hash(gallery_image(self.uploads_root, product.image_path))
+                digest = image_hash(self.source.raw(product))
             except VisualError as error:
                 failed.append({"product_id": product.id, "reason": error.detail})
                 continue
@@ -99,42 +100,64 @@ class VisualService:
             with self.store.connection() as connection:
                 jobs = [dict(r) for r in connection.execute("SELECT * FROM visual_jobs ORDER BY started_at DESC LIMIT 5")]
         return {
+            **self.source.context(),
             "schema_ready": self.store.ready, "api_key_configured": bool(self.config.api_key),
             "model": self.config.model, "dimension": self.config.dimension,
             "version": self.config.version, "index_key": self.config.index_key,
             "indexed": len(plan["unchanged"]), "unindexed": len(plan["pending"]),
+            "indexed_unique_images": len({x["digest"] for x in plan["unchanged"]}),
+            "pending_unique_images": len({x["digest"] for x in plan["pending"]}),
             "failed": len({x["product_id"] for x in plan["invalid_images"]} | {pid for pid, r in rows.items() if r["indexing_status"] == "failed" and any(x["product_id"] == pid for x in plan["pending"])}),
             "skipped": len(plan["skipped"]), "stale": len(plan["obsolete"]),
             "issues": (plan["skipped"] + plan["invalid_images"])[:100],
             "jobs": jobs, "usage": self.store.usage_summary() if self.store.ready else {"api_calls": 0},
         }
 
-    def rebuild(self, db, owner, max_items=10, dry_run=True, confirm_paid=False, background=True):
+    def rebuild(self, db, owner, max_items=10, dry_run=True, confirm_paid=False, background=True, confirm_large_batch=False):
+        if type(max_items) is not int or not 1 <= max_items <= 100:
+            raise VisualError("每批仅允许 1～100 款商品", 422)
         plan = self.plan(db)
-        summary = {"dry_run": dry_run, "would_process": min(max_items, len(plan["pending"])),
+        selected_hashes = {x["digest"] for x in plan["pending"][:max_items]}
+        reusable = {digest for digest in selected_hashes if self.source.production and self.store.content_cache_ready and self.store.content_vector(digest) is not None}
+        summary = {**self.source.context(), "dry_run": dry_run, "would_process": min(max_items, len(plan["pending"])),
                    "pending_total": len(plan["pending"]), "unchanged": len(plan["unchanged"]),
                    "skipped": plan["skipped"], "invalid_images": plan["invalid_images"],
-                   "would_clean": len(plan["obsolete"]), "max_items": max_items, "api_calls": 0}
+                   "would_clean": len(plan["obsolete"]), "max_items": max_items, "api_calls": 0,
+                   "unique_new_images": len(selected_hashes - reusable) if self.source.production else min(max_items, len(plan["pending"])),
+                   "max_http_attempts": (len(selected_hashes - reusable) if self.source.production else min(max_items, len(plan["pending"]))) * (self.config.retries + 1)}
         if dry_run:
             return summary
         if not confirm_paid:
             raise VisualError("实际索引需明确确认付费调用", 422)
+        if self.source.production and max_items > 10 and not confirm_large_batch:
+            raise VisualError("超过 10 款的生产图库付费批次需单独确认", 422)
         if not self.store.ready:
             raise VisualError("请先执行独立视觉索引迁移", 503)
+        if self.source.production and not self.store.content_cache_ready:
+            raise VisualError("生产图库需初始化独立 vs02 索引", 503)
         if not self.config.api_key:
             raise VisualError("尚未配置百炼 API Key，未执行实际索引", 503)
         if not self._acquire():
             raise VisualError("正在搜索或建立索引，请稍后重试", 409)
         job_id = uuid.uuid4().hex
         try:
+            if self.source.production:
+                context = self.source.context()
+                self.store.save_source_context(context)
+                directory = self.store.root / "jobs"
+                directory.mkdir(exist_ok=True)
+                atomic_json(directory / f"{job_id}.json", {**context, "index_key": self.config.index_key,
+                            "model": self.config.model, "dimension": self.config.dimension, "version": self.config.version,
+                            "selected": plan["pending"][:max_items]})
             with self.store.connection() as connection:
                 connection.execute("INSERT INTO visual_jobs (id,index_key,owner,status,max_items,started_at) VALUES (?,?,?,'running',?,?)", (job_id, self.config.index_key, owner, max_items, now()))
-            bind = db.get_bind()
+            bind = self.source.bind(db)
             if background:
                 self.executor.submit(self._run_job, bind, job_id, plan, max_items)
                 return {"job_id": job_id, "status": "running", **summary}
             self._run_job(bind, job_id, plan, max_items)
-            return self.store.job(job_id)
+            return {**self.source.context(), **self.store.job(job_id), "model": self.config.model,
+                    "dimension": self.config.dimension, "version": self.config.version}
         except sqlite3.IntegrityError as error:
             self._release()
             raise VisualError("已有索引任务正在运行", 409) from error
@@ -145,29 +168,41 @@ class VisualService:
 
     def _run_job(self, bind, job_id, plan, max_items):
         try:
+            failed_content = {}
             # Only disposable index rows are removed, never business records/images.
             with self.store.connection() as connection:
                 for pid in plan["obsolete"]:
-                    connection.execute("DELETE FROM visual_embeddings WHERE product_id=?", (pid,))
+                    connection.execute("DELETE FROM visual_embeddings WHERE product_id=? AND index_key=?", (pid, self.config.index_key))
             for item in plan["skipped"] + plan["invalid_images"]:
                 self.store.save_embedding(item["product_id"], None, None, "skipped" if item in plan["skipped"] else "failed", error=item["reason"])
             for item in plan["pending"][:max_items]:
                 pid = item["product_id"]
                 succeeded = False
                 try:
-                    with Session(bind) as db:
-                        product = db.get(Product, pid)
+                    with self.source.session(bind) as db:
+                        product = self.source.get(db, pid)
                         if product is None or not product.is_active or product.image_path != item["identifier"]:
                             raise VisualError("商品状态或主图已变化，下次增量索引重试")
-                        raw = gallery_image(self.uploads_root, product.image_path)
+                        raw = self.source.raw(product)
                     if image_hash(raw) != item["digest"]:
                         raise VisualError("主图内容已变化，下次增量索引重试")
-                    embedded = self.provider.embed(prepare_image(raw), "index", job_id)
-                    vector = normalize(embedded.vector, self.config.dimension)
+                    vector = self.store.content_vector(item["digest"]) if self.source.production else None
+                    if vector is None:
+                        if item["digest"] in failed_content:
+                            raise VisualError(failed_content[item["digest"]], 502)
+                        try:
+                            embedded = self.provider.embed(prepare_image(raw), "index", job_id)
+                            vector = normalize(embedded.vector, self.config.dimension)
+                        except VisualError as error:
+                            if self.source.production:
+                                failed_content[item["digest"]] = error.detail
+                            raise
+                        if self.source.production:
+                            self.store.save_content_vector(item["digest"], vector)
                     # Recheck after the external call; stale vectors never become searchable.
-                    with Session(bind) as db:
-                        product = db.get(Product, pid)
-                        if product is None or not product.is_active or product.image_path != item["identifier"] or image_hash(gallery_image(self.uploads_root, product.image_path)) != item["digest"]:
+                    with self.source.session(bind) as db:
+                        product = self.source.get(db, pid)
+                        if product is None or not product.is_active or product.image_path != item["identifier"] or image_hash(self.source.raw(product)) != item["digest"]:
                             raise VisualError("调用期间主图或状态变化，下次重试")
                     self.store.save_embedding(pid, item["identifier"], item["digest"], "ready", vector)
                     succeeded = True
@@ -190,14 +225,16 @@ class VisualService:
         started = time.perf_counter()
         prepared = prepare_image(data, crop)
         rows = self.store.rows()
-        products = db.scalars(select(Product).where(Product.is_active.is_(True)).order_by(Product.id)).all()
+        products = self.source.products(db)
         available, gallery = {}, {}
         for product in products:
+            if not product.is_active:
+                continue
             row = rows.get(product.id)
             if not row or row["indexing_status"] != "ready" or product.image_path != row["image_identifier"]:
                 continue
             try:
-                if image_hash(gallery_image(self.uploads_root, product.image_path)) != row["image_hash"]:
+                if image_hash(self.source.raw(product)) != row["image_hash"]:
                     continue
             except VisualError:
                 continue
@@ -216,6 +253,15 @@ class VisualService:
             try:
                 result = self.provider.embed(prepared, "search", query_id)
                 usage = result.usage
+                if self.source.production:
+                    for pid in list(gallery):
+                        try:
+                            current = self.source.get(None, pid)
+                            if not current.is_active or current.image_path != rows[pid]["image_identifier"] or image_hash(self.source.raw(current)) != rows[pid]["image_hash"]:
+                                raise VisualError("图库已更新")
+                            available[pid] = current
+                        except VisualError:
+                            del gallery[pid]
                 ranked = rank_candidates(result.vector, gallery, self.config.dimension, top_k, self.config.min_score)
             finally:
                 self._release()
@@ -232,10 +278,10 @@ class VisualService:
                 json.dumps([pid for pid, _ in ranked]), elapsed, json.dumps(usage), now(),
             ))
         logger.info("visual_search query=%s elapsed_ms=%s candidates=%s", query_id, elapsed, len(ranked))
-        return {"query_id": query_id, "model": self.config.model, "version": self.config.version,
+        return {**self.source.context(), "query_id": query_id, "model": self.config.model, "version": self.config.version,
                 "elapsed_ms": elapsed, "usage": usage, "call_summary": self.store.usage_summary(query_id),
                 "crop": crop, "message": "候选仅供人工核对，相似度不是准确率" if ranked else "没有可用匹配，请检查图库索引或重新框选",
-                "candidates": [{"product": ProductDetailRead.model_validate(available[pid]).model_dump(mode="json"), "similarity": round(score, 6)} for pid, score in ranked]}
+                "candidates": [{"product": available[pid].detail, "similarity": round(score, 6)} for pid, score in ranked]}
 
     def feedback(self, db, owner, query_id, selected_product_id, no_match):
         with self.store.connection() as connection:
@@ -245,7 +291,7 @@ class VisualService:
             if no_match != (selected_product_id is None):
                 raise VisualError("请选择一个候选商品或明确无匹配", 422)
             if selected_product_id is not None:
-                product = db.get(Product, selected_product_id)
+                product = self.source.get(db, selected_product_id)
                 if selected_product_id not in json.loads(query["candidate_ids"]) or product is None or not product.is_active:
                     raise VisualError("所选商品不是本次有效候选，请重新搜索", 422)
             connection.execute("INSERT OR REPLACE INTO visual_feedback VALUES (?,?,?,?,?)", (query_id, selected_product_id, int(no_match), owner, now()))

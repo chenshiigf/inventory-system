@@ -1,13 +1,13 @@
 "use client";
 
-import { App, Alert, Button, Card, Empty, Flex, Image, InputNumber, Modal, Space, Tag, Typography, Upload } from "antd";
+import { App, Alert, Button, Card, Empty, Flex, Image, InputNumber, Modal, Select, Space, Tag, Typography, Upload } from "antd";
 import { InboxOutlined, ReloadOutlined, SearchOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import PageHeading from "@/components/common/PageHeading";
 import ProductImage from "@/components/inventory/ProductImage";
 import RegionSelector from "./RegionSelector";
-import { getVisualStatus, rebuildVisual, saveVisualFeedback, searchVisual, type CropRegion, type VisualResult, type VisualStatus } from "@/lib/api/visual-search";
+import { getVisualProduct, getVisualStatus, rebuildVisual, saveVisualFeedback, searchVisual, type CropRegion, type VisualProduct, type VisualResult, type VisualSource, type VisualStatus } from "@/lib/api/visual-search";
 import { getApiBaseUrl } from "@/lib/api/client";
 
 interface SearchTask {
@@ -45,27 +45,48 @@ export default function VisualSearchWorkspace() {
   const [limit, setLimit] = useState(10);
   const [plan, setPlan] = useState<Awaited<ReturnType<typeof rebuildVisual>>>();
   const [paidConfirm, setPaidConfirm] = useState(false);
+  const [source, setSource] = useState<VisualSource>("production-catalog");
+  const sourceRef = useRef<VisualSource>("production-catalog");
+  const [detail, setDetail] = useState<VisualProduct>();
+  const [detailBusy, setDetailBusy] = useState(false);
   const current = photos.find((p) => p.id === photoId);
   const task = current?.tasks.find((t) => t.key === taskKey);
   const regions = current?.tasks.filter((t) => t.region).map((t) => t.region!) ?? [];
   const selectedRegion = task?.region ? regions.indexOf(task.region) : -1;
 
   async function refresh() {
-    try { setStatus(await getVisualStatus()); setStatusError(""); }
-    catch (error) { setStatusError(errorText(error)); }
+    const selected = source;
+    try {
+      const value = await getVisualStatus(selected);
+      if (sourceRef.current === selected) { setStatus(value); setStatusError(""); }
+    } catch (error) { if (sourceRef.current === selected) setStatusError(errorText(error)); }
   }
   useEffect(() => {
     let active = true;
-    getVisualStatus().then((value) => { if (active) { setStatus(value); setStatusError(""); } }).catch((error) => { if (active) setStatusError(errorText(error)); });
+    getVisualStatus(source).then((value) => { if (active) { setStatus(value); setStatusError(""); } }).catch((error) => { if (active) setStatusError(errorText(error)); });
     return () => { active = false; };
-  }, []);
+  }, [source]);
   useEffect(() => () => { urls.current.forEach((url) => URL.revokeObjectURL(url)); }, []);
   const running = status?.jobs.some((job) => job.status === "running");
   useEffect(() => {
     if (!running) return;
-    const timer = setInterval(() => { getVisualStatus().then(setStatus).catch((error) => setStatusError(errorText(error))); }, 5000);
-    return () => clearInterval(timer);
-  }, [running]);
+    let active = true;
+    const timer = setInterval(() => { getVisualStatus(source).then((value) => { if (active) setStatus(value); }).catch((error) => { if (active) setStatusError(errorText(error)); }); }, 5000);
+    return () => { active = false; clearInterval(timer); };
+  }, [running, source]);
+
+  function changeSource(value: VisualSource) {
+    sourceRef.current = value;
+    setSource(value); setStatus(undefined); setStatusError(""); setPlan(undefined); setIndexOpen(false); setPaidConfirm(false); setDetail(undefined);
+    setPhotos((old) => old.map((p) => ({ ...p, tasks: p.tasks.map((t) => ({ key: t.key, region: t.region })) })));
+  }
+  async function showDetail(id: number) {
+    if (!task?.result) return;
+    setDetailBusy(true);
+    try { setDetail((await getVisualProduct(id, task.result.source)).product); }
+    catch (error) { message.error(errorText(error)); }
+    finally { setDetailBusy(false); }
+  }
 
   function updateTask(id: string, key: string, patch: Partial<SearchTask>) {
     setPhotos((old) => old.map((p) => p.id === id ? { ...p, tasks: p.tasks.map((t) => t.key === key ? { ...t, ...patch } : t) } : p));
@@ -79,7 +100,7 @@ export default function VisualSearchWorkspace() {
       for (const item of tasks) {
         setTaskKey(item.key);
         updateTask(target.id, item.key, { error: undefined, result: undefined, confirmed: undefined });
-        try { updateTask(target.id, item.key, { result: await searchVisual(target.file, item.region) }); }
+        try { updateTask(target.id, item.key, { result: await searchVisual(target.file, item.region, source) }); }
         catch (error) { updateTask(target.id, item.key, { error: errorText(error) }); }
       }
       await refresh();
@@ -89,7 +110,7 @@ export default function VisualSearchWorkspace() {
     if (!current || !task?.result || busyRef.current) return;
     busyRef.current = true; setBusy(true);
     try {
-      await saveVisualFeedback(task.result.query_id, productId);
+      await saveVisualFeedback(task.result.query_id, productId, task.result.source);
       updateTask(current.id, task.key, { confirmed: productId ?? "none" });
       message.success("人工确认已保存");
     } catch (error) { message.error(errorText(error)); }
@@ -103,14 +124,14 @@ export default function VisualSearchWorkspace() {
   }
   async function previewIndex() {
     setIndexBusy(true);
-    try { setPlan(await rebuildVisual(true, limit)); }
+    try { setPlan(await rebuildVisual(true, limit, source)); }
     catch (error) { message.error(errorText(error)); }
     finally { setIndexBusy(false); }
   }
   async function startIndex() {
     setIndexBusy(true);
     try {
-      const result = await rebuildVisual(false, limit);
+      const result = await rebuildVisual(false, limit, source);
       message.success(`索引任务已创建：${result.job_id}`);
       setPaidConfirm(false); setIndexOpen(false); setPlan(undefined);
       await refresh();
@@ -121,7 +142,8 @@ export default function VisualSearchWorkspace() {
     <PageHeading title="商品视觉搜索" meta={status ? `可搜索 ${status.indexed} 款` : undefined}
       actions={<Space><Button icon={<ReloadOutlined />} onClick={refresh}>刷新状态</Button><Button onClick={() => setIndexOpen(true)}>图库索引</Button></Space>} />
     <Typography.Paragraph type="secondary">上传照片查找相似商品。多款商品可手动框选后分别搜索，结果需由你核对。</Typography.Paragraph>
-    {statusError && <Alert type="error" showIcon title={statusError} description={<span>本地首次使用：<a href={`${getApiBaseUrl()}/api/visual-search/index/status`} target="_blank" rel="noreferrer">打开接口并登录管理员账号</a>，再刷新状态。</span>} />}
+    <Space wrap className="visual-search-actions"><Typography.Text strong>搜索图库</Typography.Text><Select aria-label="搜索图库" value={source} style={{ minWidth: 200 }} disabled={busy || indexBusy || detailBusy || running || indexOpen} options={[{ value: "production-catalog", label: "生产商品图库" }, { value: "development", label: "本地开发测试商品" }]} onChange={changeSource} /><Tag color={source === "production-catalog" ? "blue" : "orange"}>{source === "production-catalog" ? "独立生产镜像 · 只读商品资料" : "开发测试数据"}</Tag></Space>
+    {statusError && <Alert type="error" showIcon title={statusError} description={<span>本地首次使用：<a href={`${getApiBaseUrl()}/api/visual-search/index/status?source=${source}`} target="_blank" rel="noreferrer">打开所选图库接口并登录管理员账号</a>，再刷新状态。</span>} />}
     {status && (!status.schema_ready || !status.api_key_configured) && <Alert type="warning" showIcon title={!status.schema_ready ? "视觉索引尚未初始化" : "尚未配置百炼 API Key"} description="可以上传和框选图片；管理员完成配置及图库索引后可执行真实搜索。" />}
     <Upload.Dragger accept="image/jpeg,image/png,image/webp" multiple disabled={busy} showUploadList={false}
       beforeUpload={async (file) => {
@@ -167,26 +189,29 @@ export default function VisualSearchWorkspace() {
         {!task?.result && !task?.error && <Empty description="执行搜索后显示最多 5 款候选商品" />}
         {task?.result && <>
           <Typography.Paragraph type="secondary">{task.result.message} · 耗时 {(task.result.elapsed_ms / 1000).toFixed(2)} 秒</Typography.Paragraph>
-          <Image width={100} src={`${getApiBaseUrl()}/api/visual-search/queries/${task.result.query_id}/image`} alt="本次实际用于检索的商品区域" />
+          <Image width={100} src={`${getApiBaseUrl()}/api/visual-search/queries/${task.result.query_id}/image?source=${task.result.source}`} alt="本次实际用于检索的商品区域" />
           {task.result.candidates.length === 0 && <Empty description="没有匹配候选，可调整区域后重新搜索" />}
-          {task.result.candidates.map(({ product, similarity }, i) => <div className="visual-candidate" key={product.id}>
-            <ProductImage imagePath={product.image_path} thumbnailPath={product.thumbnail_path} alt={product.product_code ?? `商品 ${product.id}`} width={100} height={100} />
+          {task.result.candidates.map(({ product, similarity }, i) => <div className="visual-candidate" key={product.product_key ?? `${task.result!.source}:${product.id}`}>
+            {task.result!.source === "production-catalog" ? (product.image_path ? <Image src={`${getApiBaseUrl()}${product.image_path}`} alt={product.product_code ?? `生产商品 ${product.id}`} width={100} height={100} /> : <span>暂无主图</span>) : <ProductImage imagePath={product.image_path} thumbnailPath={product.thumbnail_path} alt={product.product_code ?? `商品 ${product.id}`} width={100} height={100} />}
             <div className="visual-candidate-info">
               <Flex justify="space-between" gap={8}><Typography.Text strong>{i + 1}. {product.product_code ?? `商品 ${product.id}`}</Typography.Text><Tag>相似度 {similarity.toFixed(3)}</Tag></Flex>
               <Typography.Paragraph type="secondary">{product.category_name || "未分类"} · {product.warehouse_name || "未关联仓库"}</Typography.Paragraph>
               <Typography.Paragraph>包装：{product.packagings.map((p) => p.packing_qty === null ? "未填装箱数" : `${p.packing_qty} ${product.unit === "set" ? "套" : "件"}/箱`).join("、") || "未填写"}{product.size && ` · 尺寸 ${product.size}`}</Typography.Paragraph>
-              <Space wrap><Button type={task.confirmed === product.id ? "primary" : "default"} disabled={busy} onClick={() => feedback(product.id)}>{task.confirmed === product.id ? "已选定" : "选定此商品"}</Button><Link href={`/products/detail?id=${product.id}&returnTo=%2Fvisual-search`} target="_blank">查看商品详情</Link></Space>
+              <Space wrap><Button type={task.confirmed === product.id ? "primary" : "default"} disabled={busy} onClick={() => feedback(product.id)}>{task.confirmed === product.id ? "已选定" : "选定此商品"}</Button>{task.result!.source === "production-catalog" ? <Button type="link" loading={detailBusy} onClick={() => showDetail(product.id)}>查看镜像详情</Button> : <Link href={`/products/detail?id=${product.id}&returnTo=%2Fvisual-search`} target="_blank">查看商品详情</Link>}</Space>
             </div>
           </div>)}
           <Button disabled={busy} onClick={() => feedback(null)}>{task.confirmed === "none" ? "已记录：没有正确商品" : "这些候选中没有正确商品"}</Button>
         </>}
       </Card>
     </div>}
+    <Modal title="生产商品图库详情" open={!!detail} onCancel={() => setDetail(undefined)} footer={<Button onClick={() => setDetail(undefined)}>关闭</Button>}>
+      {detail && <><Typography.Paragraph strong>{detail.product_code ?? "未填货号"} · 生产商品 ID {detail.id}</Typography.Paragraph>{detail.image_path && <Image src={`${getApiBaseUrl()}${detail.image_path}`} alt="镜像主图" width={240} />}<Typography.Paragraph>{detail.category_name || "未分类"} · {detail.warehouse_name || "未关联仓库"}</Typography.Paragraph><Typography.Paragraph>尺寸：{detail.size || "未填写"}</Typography.Paragraph><Typography.Paragraph>每箱装箱数：{detail.packagings.map((p) => p.packing_qty ?? "未填写").join("、") || "未填写"}</Typography.Paragraph><Typography.Paragraph>状态：{detail.source_present === false ? "已失效" : detail.is_active ? "启用" : "停用"}</Typography.Paragraph></>}
+    </Modal>
     <Modal title="图库索引" open={indexOpen} onCancel={() => { if (!indexBusy) { setIndexOpen(false); setPlan(undefined); } }} footer={null}>
       {status && <><Typography.Paragraph>已索引 {status.indexed} · 待索引 {status.unindexed} · 失败 {status.failed} · 跳过 {status.skipped}</Typography.Paragraph><Typography.Paragraph type="secondary">{status.model} · {status.dimension} 维 · {status.version}</Typography.Paragraph></>}
       <Alert type="info" title="先预检，再确认本批付费索引" description="未变化图片会跳过。失败图片可通过下一批增量任务重试。每批最多 100 款。" />
       <Space className="visual-search-actions"><span>本批最多</span><InputNumber min={1} max={100} precision={0} value={limit} disabled={indexBusy} onChange={(value) => { setLimit(value ?? 10); setPlan(undefined); }} /><span>款</span><Button loading={indexBusy} onClick={previewIndex}>预检（不调用 API）</Button></Space>
-      {plan && <><Typography.Paragraph>本批预计处理 {plan.would_process} 款，待处理共 {plan.pending_total} 款；跳过未变化 {plan.unchanged} 款，清理失效索引 {plan.would_clean} 条。</Typography.Paragraph><Button type="primary" disabled={indexBusy || !status?.schema_ready || !status.api_key_configured || running} onClick={() => setPaidConfirm(true)}>确认本批索引</Button></>}
+      {plan && <><Typography.Paragraph>本批预计处理 {plan.would_process} 款，待处理共 {plan.pending_total} 款；跳过未变化 {plan.unchanged} 款，清理失效索引 {plan.would_clean} 条。新增图片向量 {plan.unique_new_images} 个，含重试最多 {plan.max_http_attempts} 次 API 尝试。</Typography.Paragraph><Button type="primary" disabled={indexBusy || !status?.schema_ready || !status.api_key_configured || running} onClick={() => setPaidConfirm(true)}>确认本批索引</Button></>}
       {status?.jobs.map((job) => <Typography.Paragraph key={job.id} type="secondary">任务 {job.id.slice(0, 8)} · {({ running: "进行中", completed: "已完成", failed: "失败", interrupted: "已中断" } as Record<string, string>)[job.status]} · 处理 {job.processed} / 成功 {job.succeeded} / 失败 {job.failed}</Typography.Paragraph>)}
     </Modal>
     <Modal title="确认付费调用" open={paidConfirm} onCancel={() => !indexBusy && setPaidConfirm(false)} onOk={startIndex} confirmLoading={indexBusy} okText="开始本批索引" cancelText="取消">

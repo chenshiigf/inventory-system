@@ -61,7 +61,11 @@ class DashScopeProvider:
                     raise ValueError("invalid usage")
                 request_id = body.get("request_id")
                 embeddings = body["output"]["embeddings"]
-                if len(embeddings) != 1 or embeddings[0].get("type") not in {"image", "fused"}:
+                accepted_types = {"image", "fused"}
+                # Qwen3's default independent mode returns "vl" for an image.
+                if self.config.model == "qwen3-vl-embedding":
+                    accepted_types.add("vl")
+                if len(embeddings) != 1 or embeddings[0].get("type") not in accepted_types:
                     raise ValueError("expected one image embedding")
                 vector = normalize(embeddings[0]["embedding"], self.config.dimension)
                 return Embedding(vector, usage, request_id)

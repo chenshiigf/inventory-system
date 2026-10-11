@@ -24,7 +24,7 @@ class VisualStore:
             return False
         try:
             with sqlite3.connect(f"{self.path.as_uri()}?mode=ro", uri=True) as db:
-                return db.execute("SELECT version_num FROM alembic_version").fetchone() == ("vs01",)
+                return db.execute("SELECT version_num FROM alembic_version").fetchone() in {("vs01",), ("vs02",)}
         except sqlite3.Error:
             return False
 
@@ -44,6 +44,38 @@ class VisualStore:
     def rows(self):
         with self.connection() as db:
             return {row["product_id"]: dict(row) for row in db.execute("SELECT * FROM visual_embeddings WHERE index_key=?", (self.config.index_key,))}
+
+    @property
+    def content_cache_ready(self):
+        if not self.ready:
+            return False
+        with self.connection() as db:
+            return db.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "vs02"
+
+    def content_vector(self, digest):
+        if not self.content_cache_ready:
+            raise VisualError("生产索引需初始化独立 vs02 schema", 503)
+        with self.connection() as db:
+            row = db.execute("SELECT embedding_vector FROM visual_image_vectors WHERE index_key=? AND image_hash=?", (self.config.index_key, digest)).fetchone()
+        if row is None:
+            return None
+        import numpy as np
+        from .provider import normalize
+        try:
+            return normalize(np.frombuffer(row[0], dtype=np.float32), self.config.dimension)
+        except (TypeError, ValueError, VisualError):
+            return None  # Corrupt cache is recomputed, never reused.
+
+    def save_content_vector(self, digest, vector):
+        with self.connection() as db:
+            db.execute("INSERT OR REPLACE INTO visual_image_vectors VALUES (?,?,?,?)", (self.config.index_key, digest, vector.tobytes(), now()))
+
+    def save_source_context(self, context):
+        with self.connection() as db:
+            db.execute("INSERT OR REPLACE INTO visual_source_context VALUES (?,?,?,?,?,?,?,?,?)", (
+                self.config.index_key, context["source_id"], self.config.source_identity,
+                context.get("catalog_fingerprint"), self.config.model, self.config.dimension,
+                self.config.version, PREPROCESS_VERSION, now()))
 
     def save_embedding(self, product_id, identifier, digest, status, vector=None, error=None):
         with self.connection() as db:

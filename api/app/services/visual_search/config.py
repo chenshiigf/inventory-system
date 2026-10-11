@@ -27,6 +27,7 @@ class VisualConfig:
     allowed_origins: tuple[str, ...] = ("http://localhost:3002", "http://127.0.0.1:3002")
     image_price: float = 0.0018
     text_price: float = 0.0007
+    source_identity: str = ""  # Set by the gallery factory, never by browser/env input.
 
     def __post_init__(self):
         if not (1 <= self.dimension <= 4096) or not (1 <= self.timeout <= 60):
@@ -50,6 +51,8 @@ class VisualConfig:
         # Also isolate deployments/workspaces and preprocessing changes.
         import hashlib
         identity = f"{self.model}|{self.dimension}|{self.version}|{self.region}|{self.endpoint}|{PREPROCESS_VERSION}"
+        if self.source_identity:
+            identity += "|source:" + self.source_identity
         return hashlib.sha256(identity.encode()).hexdigest()
 
     @classmethod

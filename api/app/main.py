@@ -21,6 +21,7 @@ from app.services.product_import.session_store import PreviewSessionLifecycle
 from app.routers.visual_search import router as visual_search_router
 from app.services.visual_search.config import VisualConfig, visual_directory
 from app.services.visual_search.service import VisualService
+from app.services.visual_search.factory import VisualSources
 from app.services.visual_search.upload_limit import VisualUploadLimit
 
 
@@ -39,6 +40,8 @@ def create_app(
     product_import_preview_directory: Path | None = None,
     visual_config: VisualConfig | None = None,
     visual_provider=None,
+    production_catalog_directory: Path | None = None,
+    visual_production_provider=None,
 ) -> FastAPI:
     data_root = (data_directory or DATA_DIR).expanduser().resolve()
     default_uploads_directory = (
@@ -67,6 +70,8 @@ def create_app(
     registry = PreviewTaskRegistry(sessions)
     visual_config = visual_config or VisualConfig.from_env()
     visual_service = VisualService(visual_directory(data_root), uploads_root, visual_config, visual_provider)
+    visual_sources = VisualSources(visual_service, visual_directory(data_root), visual_config,
+                                   catalog_root=production_catalog_directory, provider=visual_production_provider)
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI):
@@ -84,11 +89,13 @@ def create_app(
             await asyncio.gather(cleanup, return_exceptions=True)
             await asyncio.to_thread(registry.close)
             await asyncio.to_thread(visual_service.close)
+            await asyncio.to_thread(visual_sources.close)
 
     application = FastAPI(title="Inventory System API", version="0.1.0", lifespan=lifespan)
     application.state.product_import_preview_tasks = registry
     application.state.visual_config = visual_config
     application.state.visual_search = visual_service
+    application.state.visual_sources = visual_sources
     application.state.product_import_preview_sessions = sessions
     application.state.uploads_directory = uploads_root
     application.state.product_image_directory = product_image_directory

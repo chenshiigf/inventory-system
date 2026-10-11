@@ -15,6 +15,10 @@ from app.main import create_app
 from app.models import Product, ProductPackaging
 from app.services.visual_search.config import VisualConfig
 from tests.test_visual_search import MockProvider, image, migrate
+from tests.test_production_catalog import Backend
+from app.services.visual_search.production_catalog import sync_catalog
+from app.services.visual_search.factory import production_service
+from app.services.visual_search.sources import PRODUCTION_ID
 
 
 def main():
@@ -40,9 +44,24 @@ def main():
         db.commit()
     credentials = root / ".htpasswd"
     credentials.write_text("admin:" + apr_md5_crypt.hash("local-mock-only"), encoding="utf8")
-    config = VisualConfig(model="mock-colour-fixture-NOT-real-AI", dimension=256, api_key="mock-only", interval=.1, htpasswd_file=str(credentials), admin_users=("admin",))
+    config = VisualConfig(model="mock-colour-fixture-NOT-real-AI", dimension=256, api_key="mock-only", interval=.1,
+                          htpasswd_file=str(credentials), admin_users=("admin",),
+                          allowed_origins=("http://127.0.0.1:3002", "http://127.0.0.1:3004"))
     provider = MockProvider()
-    application = create_app(data_directory=root, visual_config=config, visual_provider=provider)
+    backend = Backend()
+    catalog_client = backend.client()
+    try:
+        sync_catalog(catalog_client, root / "visual-search/production-catalog", PRODUCTION_ID, "MOCK browser fixture only", execute=True)
+    finally:
+        catalog_client.close()
+    production_provider = MockProvider()
+    production = production_service(root / "visual-search", config, provider=production_provider, initialize=True)
+    production_provider.record = production.store.record_call
+    production.rebuild(None, "admin", 10, False, True, background=False)
+    application = create_app(data_directory=root, visual_config=config, visual_provider=provider,
+                             visual_production_provider=production_provider)
+    application.state.visual_sources.production = production
+    production.slot = application.state.visual_search.slot
     service = application.state.visual_search
     provider.record = service.store.record_call
     def override_db():

@@ -351,12 +351,13 @@ def test_separate_migration_rolls_back_only_visual_tables(tmp_path):
     migrate(path)
 
 
-@pytest.mark.parametrize("response_kind", ["success", "timeout", "server", "auth", "malformed", "dimension"])
+@pytest.mark.parametrize("response_kind", ["success", "legacy_image", "wrong_type", "timeout", "server", "auth", "malformed", "dimension"])
 def test_dashscope_native_contract_usage_timeout_errors(visual, response_kind, monkeypatch):
     _, service, _, _, _ = visual
     calls = []
     def handler(request):
         body = json.loads(request.content)
+        assert str(request.url) == service.config.endpoint
         assert body["model"] == "qwen3-vl-embedding"
         assert body["parameters"]["dimension"] == 256
         assert body["input"]["contents"][0]["image"].startswith("data:image/jpeg;base64,")
@@ -368,12 +369,15 @@ def test_dashscope_native_contract_usage_timeout_errors(visual, response_kind, m
             return httpx.Response(503 if response_kind == "server" else 401, json={"message": "private detail"})
         if response_kind == "malformed":
             return httpx.Response(200, json={"output": {}})
-        return httpx.Response(200, json={"output": {"embeddings": [{"embedding": [1] * (256 if response_kind == "success" else 4), "type": "image", "index": 0}]}, "usage": {"input_tokens": 5, "image_tokens": 100, "total_tokens": 105}, "request_id": "test"})
+        response_type = "image" if response_kind == "legacy_image" else "text" if response_kind == "wrong_type" else "vl"
+        return httpx.Response(200, json={"output": {"embeddings": [{"embedding": [1] * (4 if response_kind == "dimension" else 256), "type": response_type, "index": 0}]}, "usage": {"input_tokens": 5, "image_tokens": 100, "total_tokens": 105}, "request_id": "test"})
     provider = DashScopeProvider(service.config, service.store.record_call, httpx.MockTransport(handler))
     monkeypatch.setattr("app.services.visual_search.provider.time.sleep", lambda _: None)
-    if response_kind == "success":
+    if response_kind in {"success", "legacy_image"}:
         embedded = provider.embed(prepare_image(image()), "search", "contract")
         assert embedded.vector.shape == (256,) and np.linalg.norm(embedded.vector) == pytest.approx(1)
+        assert embedded.request_id == "test"
+        assert embedded.usage == {"input_tokens": 5, "image_tokens": 100, "total_tokens": 105}
         usage = service.store.usage_summary("contract")
         assert usage["total_tokens"] == 105
         assert usage["estimated_cost_cny"] == pytest.approx((5 * .0007 + 100 * .0018) / 1000)

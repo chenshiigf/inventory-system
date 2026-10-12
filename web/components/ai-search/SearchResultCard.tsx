@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckOutlined } from "@ant-design/icons";
+import { CheckOutlined, ReloadOutlined } from "@ant-design/icons";
 import { Button, Card, Tag } from "antd";
 import ProductImage from "@/components/inventory/ProductImage";
 import { formatAISearchPackaging, type AISearchProduct } from "@/lib/ai-search";
@@ -10,14 +10,14 @@ interface SearchResultCardProps {
   confirmed: boolean;
   confirming: boolean;
   disabled: boolean;
-  score: number;
   onConfirm: () => void;
+  onRestart: () => void;
   onDetails: () => void;
 }
 
-export default function SearchResultCard({ product, confirmed, confirming, disabled, score, onConfirm, onDetails }: SearchResultCardProps) {
+export default function SearchResultCard({ product, confirmed, confirming, disabled, onConfirm, onRestart, onDetails }: SearchResultCardProps) {
   return (
-    <Card title="最匹配商品" extra={<Tag color="blue">AI推荐</Tag>} className="ai-search-primary-card">
+    <Card title="找到可能商品" extra={<Tag color="blue">AI推荐</Tag>} className="ai-search-primary-card">
       <div className="ai-search-primary-content">
         <div className="ai-search-product-image">
           <ProductImage imagePath={null} imageUrl={product.image} alt={product.productName} width={220} height={220} loading="eager" />
@@ -31,12 +31,12 @@ export default function SearchResultCard({ product, confirmed, confirming, disab
             <div><dt>所属仓库</dt><dd>{product.warehouse}</dd></div>
           </dl>
           <div className="ai-search-result-actions">
-            <Button type="primary" size="large" icon={<CheckOutlined aria-hidden />} loading={confirming} disabled={disabled || confirmed || !product.active} onClick={onConfirm}>
-              {confirmed ? "已确认商品" : "就是这个"}
+            <Button className="ai-search-confirm-button" type="primary" size="large" icon={<CheckOutlined aria-hidden />} loading={confirming} disabled={disabled || confirmed || !product.active} onClick={onConfirm}>
+              {confirmed ? "已确认商品" : "就是这个商品"}
             </Button>
-            <Button size="large" disabled={disabled} onClick={onDetails}>查看详情</Button>
+            <Button size="large" icon={<ReloadOutlined aria-hidden />} disabled={disabled} onClick={onRestart}>重新搜索</Button>
+            <Button size="large" disabled={disabled} onClick={onDetails}>查看商品资料</Button>
           </div>
-          <p className="ai-search-query-note">匹配分数 {score.toFixed(3)} · 分数不代表正确概率</p>
           {confirmed && <p className="ai-search-confirmed" role="status">人工确认已保存。</p>}
         </div>
       </div>

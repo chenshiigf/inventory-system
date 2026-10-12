@@ -3,7 +3,16 @@
 .ai-search-subtitle { margin: 0; color: var(--text-secondary); font-size: 15px; line-height: 1.7; }
 .ai-search-start { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
 .ai-search-start > span { color: var(--text-secondary); font-size: 14px; }
-.ai-search-loading { min-height: 280px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 16px; color: var(--text-secondary); }
+.ai-search-loading { min-height: 280px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 16px; color: var(--text-secondary); }
+.ai-search-loading h2 { margin: 0; color: var(--text-primary); font-size: 21px; }
+.ai-search-loading p { margin: 0; line-height: 1.7; }
+.ai-search-loading ul { display: flex; flex-wrap: wrap; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.ai-search-loading li { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--page-background); }
+.ai-search-no-match ul { margin: 20px 0; padding-left: 22px; color: var(--text-secondary); line-height: 2; }
+.ai-search-no-match .ant-empty-description { color: var(--text-primary); font-size: 17px; }
+.ai-search-recommendations { scroll-margin-top: 18px; }
+.ai-search-primary-card { border-top: 3px solid var(--accent-color) !important; }
+.ai-search-detail-loading { min-height: 100px; display: flex; align-items: center; justify-content: center; gap: 12px; }
 .ai-search-workspace .ant-card { border-color: var(--border-color); box-shadow: none; }
 .ai-search-workspace .ant-card-head { min-height: 54px; font-size: 17px; }
 .ai-search-upload-card .ant-upload-drag { background: var(--page-background); border-color: #c7d0df; }
@@ -33,7 +42,7 @@
 .ai-search-product-fields dd { margin: 0; overflow-wrap: anywhere; font-size: 15px; }
 .ai-search-product-code { font-weight: 650; color: var(--accent-color); font-variant-numeric: tabular-nums; }
 .ai-search-result-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
-.ai-search-workspace .ant-btn, .ai-search-detail-modal .ant-btn { min-height: 44px; }
+.ai-search-workspace .ant-btn, .ai-search-detail-modal .ant-btn { min-height: 48px; }
 .ai-search-confirmed { margin: 14px 0 0; color: var(--accent-color); font-size: 13px; line-height: 1.6; }
 .ai-search-similar { background: var(--surface); border-color: var(--border-color); }
 .ai-search-similar .ant-collapse-header { min-height: 54px; align-items: center !important; }
@@ -54,7 +63,22 @@
   .ai-search-workspace .ant-card-body { padding: 18px; }
   .ai-search-upload-card .ant-upload-drag .ant-upload { padding: 22px 12px; }
   .ai-search-upload-title { font-size: 16px; }
-  .ai-search-result-actions .ant-btn { flex: 1; }
+  .ai-search-start .ant-btn, .ai-search-no-match .ant-btn { width: 100%; min-height: 50px; }
+  .ai-search-upload-card .ant-btn { min-width: 170px; min-height: 50px; }
+  .ai-search-upload-card--selected .ant-upload-drag .ant-upload { padding: 14px 10px; }
+  .ai-search-upload-card--selected .ai-search-upload-icon, .ai-search-upload-card--selected .ai-search-upload-title, .ai-search-upload-card--selected .ai-search-upload-formats { display: none; }
+  .ai-search-upload-card--selected .ai-search-upload-hint { margin-bottom: 10px; }
+  .ai-search-query-image { max-height: 320px; }
+  .ai-search-query-filename { font-size: 13px; }
+  .ai-search-result-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ai-search-result-actions .ant-btn { min-width: 0; padding-inline: 10px; }
+  .ai-search-confirm-button { grid-column: 1 / -1; min-height: 52px !important; font-size: 18px; }
+  .ai-search-detail-modal .ai-search-result-actions { display: flex; }
+  .ai-search-detail-modal .ai-search-result-actions .ant-btn { flex: 1; }
+  .ai-search-product-info h2 { font-size: 20px; }
+  .ai-search-product-fields > div { grid-template-columns: 74px minmax(0, 1fr); gap: 8px; }
+  .ai-search-loading { min-height: 260px; }
+  .ai-search-loading ul { flex-direction: column; width: 100%; }
   .ai-search-similar-product { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px 14px; }
   .ai-search-similar-product > .ant-btn { grid-column: 2; justify-self: start; }
 }

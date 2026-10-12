@@ -18,12 +18,12 @@ interface ProductReadonlyModalProps {
 
 export default function ProductReadonlyModal({ product, open, loading, error, confirming, confirmed, disabled, onClose, onConfirm }: ProductReadonlyModalProps) {
   return (
-    <Modal title="商品详情" open={open} onCancel={onClose} width={620}
-      footer={<div className="ai-search-result-actions"><Button size="large" onClick={onClose}>关闭</Button>{product && <Button type="primary" size="large" loading={confirming} disabled={disabled || confirmed || !product.active} onClick={onConfirm}>{confirmed ? "已确认商品" : "就是这个"}</Button>}</div>} className="ai-search-detail-modal">
-      {loading && <Spin description="正在加载商品详情..." />}
+    <Modal title="商品资料" open={open} onCancel={onClose} width={620}
+      footer={<div className="ai-search-result-actions"><Button size="large" onClick={onClose}>关闭</Button>{product && <Button type="primary" size="large" loading={confirming} disabled={disabled || confirmed || !product.active} onClick={onConfirm}>{confirmed ? "已确认商品" : "就是这个商品"}</Button>}</div>} className="ai-search-detail-modal">
+      {loading && <div className="ai-search-detail-loading" role="status"><Spin /><p>正在加载商品资料...</p></div>}
       {error && <Alert type="error" showIcon title={error} />}
       {product && <>
-        <Tag color="blue">生产图库资料 · 只读</Tag>
+        <Tag color="blue">商品资料 · 只读</Tag>
         <div className="ai-search-detail-image">
           <ProductImage key={product.productKey} imagePath={null} imageUrl={product.image} alt={product.productName} width={250} height={250} />
         </div>

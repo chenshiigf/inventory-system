@@ -18,11 +18,11 @@ export default function SimilarProducts({ products, disabled, onDetails }: Simil
       items={[{
         key: "similar",
         label: `其他相似商品（${products.length}）`,
-        children: <div className="ai-search-similar-list">{products.map(({ product, score }) => (
+        children: <div className="ai-search-similar-list">{products.map(({ product }) => (
           <article key={product.productKey} className="ai-search-similar-product">
             <ProductImage imagePath={null} imageUrl={product.image} alt={product.productName} width={72} height={72} />
-            <div><h3>{product.productName}</h3><p>货号：{product.productCode}</p><p>匹配分数 {score.toFixed(3)}</p></div>
-            <Button disabled={disabled} onClick={() => onDetails(product)}>查看详情</Button>
+            <div><h3>{product.productName}</h3><p>货号：{product.productCode}</p></div>
+            <Button disabled={disabled} onClick={() => onDetails(product)}>商品资料</Button>
           </article>
         ))}</div>,
       }]}

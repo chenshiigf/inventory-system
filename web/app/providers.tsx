@@ -3,6 +3,7 @@
 import { App as AntApp, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import type { ReactNode } from "react";
+import { AISearchSessionProvider } from "@/components/ai-search/AISearchSessionProvider";
 
 interface AppProvidersProps {
   children: ReactNode;
@@ -21,7 +22,7 @@ export default function AppProviders({ children }: AppProvidersProps) {
         },
       }}
     >
-      <AntApp>{children}</AntApp>
+      <AntApp><AISearchSessionProvider>{children}</AISearchSessionProvider></AntApp>
     </ConfigProvider>
   );
 }

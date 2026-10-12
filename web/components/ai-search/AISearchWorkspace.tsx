@@ -1,13 +1,14 @@
 "use client";
 
-import { PictureOutlined, SearchOutlined } from "@ant-design/icons";
+import { FileTextOutlined, PictureOutlined, SearchOutlined, UploadOutlined } from "@ant-design/icons";
 import { Alert, App, Button, Card, Empty, Image, Spin } from "antd";
 import { useEffect, useRef, useState } from "react";
 import PageHeading from "@/components/common/PageHeading";
 import { ApiResponseError, getApiBaseUrl } from "@/lib/api/client";
-import { getVisualProduct, saveVisualFeedback, searchVisual, type VisualResult } from "@/lib/api/visual-search";
+import { getVisualProduct, saveVisualFeedback, searchVisual } from "@/lib/api/visual-search";
 import { AI_SEARCH_SOURCE, AISearchSourceError, toAISearchProduct, validateProductionDetail, validateProductionResult, type AISearchProduct } from "@/lib/ai-search";
-import ImageUploader from "./ImageUploader";
+import ImageUploader, { type ImageUploaderHandle } from "./ImageUploader";
+import { useAISearchSession } from "./AISearchSessionProvider";
 import ProductReadonlyModal from "./ProductReadonlyModal";
 import SearchResultCard from "./SearchResultCard";
 import SimilarProducts from "./SimilarProducts";
@@ -16,26 +17,26 @@ import "./ai-search.css";
 type SearchState = "idle" | "uploading" | "searching" | "success" | "error";
 
 function failureText(error: unknown): string {
-  if (error instanceof AISearchSourceError) return error.message;
+  if (error instanceof AISearchSourceError) return "商品资料暂时无法核对，请联系管理员。";
   if (error instanceof ApiResponseError && error.statusCode === 413) return "图片大小超过限制";
-  if (error instanceof ApiResponseError && error.statusCode === 401) return "请先登录视觉搜索服务，再开始找商品。";
+  if (error instanceof ApiResponseError && error.statusCode === 401) return "请先登录，再开始找商品。";
   return "识别失败，请重试";
 }
 
 export default function AISearchWorkspace() {
   const { message } = App.useApp();
-  const [state, setState] = useState<SearchState>("idle");
-  const [file, setFile] = useState<File | null>(null);
-  const [queryImage, setQueryImage] = useState({ image: "", name: "" });
-  const [result, setResult] = useState<VisualResult | null>(null);
+  const { session, replacePhoto, clearResult, completeSearch, confirmSelection } = useAISearchSession();
+  const { file, result, confirmedId } = session;
+  const queryImage = { image: session.image, name: file?.name ?? "" };
+  const [state, setState] = useState<SearchState>(result ? "success" : "idle");
   const [error, setError] = useState<string | null>(null);
-  const [confirmedId, setConfirmedId] = useState<number | null>(null);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
   const [detail, setDetail] = useState<AISearchProduct | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const previewUrl = useRef<string | null>(null);
+  const uploader = useRef<ImageUploaderHandle | null>(null);
+  const recommendations = useRef<HTMLDivElement | null>(null);
   const selection = useRef(0);
   const uploadLock = useRef(false);
   const searchLock = useRef(false);
@@ -52,7 +53,6 @@ export default function AISearchWorkspace() {
     detailVersion.current += 1;
     searchController.current?.abort();
     detailController.current?.abort();
-    if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
   }, []);
 
   function closeDetail() {
@@ -61,14 +61,17 @@ export default function AISearchWorkspace() {
     setDetailOpen(false); setDetail(null); setDetailError(null); setDetailLoading(false);
   }
 
+  function chooseAnotherPhoto() {
+    if (uploadLock.current || searchLock.current || feedbackLock.current) return;
+    // Opening the chooser never repeats a paid query; cancel keeps the current result.
+    uploader.current?.open();
+  }
+
   async function selectImage(nextFile: File) {
     if (uploadLock.current || searchLock.current || feedbackLock.current) return;
     uploadLock.current = true;
     const currentSelection = ++selection.current;
-    setState("uploading"); setFile(null); setResult(null); setError(null); setConfirmedId(null); closeDetail();
-    if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
-    previewUrl.current = null;
-    setQueryImage({ image: "", name: "" });
+    setState("uploading"); replacePhoto(null); setError(null); closeDetail();
     if (!nextFile.size || nextFile.size > 10 * 1024 * 1024) {
       uploadLock.current = false;
       setError("图片大小超过限制"); setState("error"); return;
@@ -84,9 +87,7 @@ export default function AISearchWorkspace() {
       bitmap.close();
       if (currentSelection !== selection.current) return;
       if (tooLarge) { setError("图片分辨率过大，请选择较小的照片。"); setState("error"); return; }
-      const url = URL.createObjectURL(nextFile);
-      previewUrl.current = url;
-      setQueryImage({ image: url, name: nextFile.name }); setFile(nextFile); setState("idle");
+      replacePhoto(nextFile); setState("idle");
     } catch {
       if (currentSelection === selection.current) { setError("无法读取图片，请重新选择有效的商品照片。"); setState("error"); }
     } finally {
@@ -100,12 +101,15 @@ export default function AISearchWorkspace() {
     const version = selection.current;
     const controller = new AbortController();
     searchController.current = controller;
-    setState("searching"); setError(null); setResult(null); setConfirmedId(null); closeDetail();
+    setState("searching"); setError(null); clearResult(); closeDetail();
+    if (window.matchMedia("(max-width: 800px)").matches) {
+      recommendations.current?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+    }
     try {
       const response = await searchVisual(file, undefined, AI_SEARCH_SOURCE, controller.signal);
       if (version !== selection.current) return;
       validateProductionResult(response);
-      setResult(response); setState("success");
+      completeSearch(file, response); setState("success");
     } catch (problem) {
       if (version === selection.current && !controller.signal.aborted) { setError(failureText(problem)); setState("error"); }
     } finally {
@@ -126,7 +130,7 @@ export default function AISearchWorkspace() {
       validateProductionDetail(response, product.productId, result);
       setDetail(toAISearchProduct(response.product));
     } catch (problem) {
-      if (version === detailVersion.current && !controller.signal.aborted) setDetailError(problem instanceof AISearchSourceError ? problem.message : "商品详情加载失败，请关闭后重试。");
+      if (version === detailVersion.current && !controller.signal.aborted) setDetailError(problem instanceof AISearchSourceError ? "商品资料暂时无法核对，请联系管理员。" : "商品资料加载失败，请关闭后重试。");
     } finally {
       if (version === detailVersion.current) setDetailLoading(false);
     }
@@ -142,7 +146,7 @@ export default function AISearchWorkspace() {
       const response = await saveVisualFeedback(result.query_id, productId, AI_SEARCH_SOURCE);
       if (version !== selection.current) return;
       if (response.saved !== true || response.query_id !== result.query_id) throw new AISearchSourceError();
-      setConfirmedId(productId); message.success("已确认商品");
+      confirmSelection(result.query_id, productId); message.success("已确认商品");
     } catch {
       if (version === selection.current) message.error("确认保存失败，请重试；不会重新识别照片。");
     } finally {
@@ -157,10 +161,10 @@ export default function AISearchWorkspace() {
         <PageHeading title="AI 找货助手" />
         <p className="ai-search-subtitle">上传商品照片，AI 帮助快速找到对应商品。</p>
       </div>
-      <Alert type="info" showIcon title="搜索真实商品图库，结果请人工核对。" description="商品资料来自独立生产图库镜像，仅供找货与确认。" />
-      <ImageUploader onSelect={selectImage} disabled={busy} />
-      <div className="ai-search-start"><Button type="primary" size="large" icon={<SearchOutlined aria-hidden />} loading={state === "searching"} disabled={!file || busy} onClick={findProduct}>开始找商品</Button><span aria-live="polite">{state === "searching" ? "正在识别商品..." : state === "uploading" ? "正在读取图片..." : "选图后手动开始；搜索失败不会自动重试。"}</span></div>
-      {error && <Alert type="error" showIcon title={error} description={error.startsWith("请先登录") ? <a href={`${getApiBaseUrl()}/api/visual-search/index/status?source=${AI_SEARCH_SOURCE}`} target="_blank" rel="noreferrer">打开服务登录入口</a> : undefined} />}
+      <Alert type="info" showIcon title="AI推荐仅供找货，请人工确认。" description="请核对商品照片和货号后，再确认商品。" />
+      <ImageUploader ref={uploader} onSelect={selectImage} disabled={busy} hasPhoto={file !== null} />
+      <div className="ai-search-start"><Button type="primary" size="large" icon={<SearchOutlined aria-hidden />} loading={state === "searching"} disabled={!file || busy} onClick={findProduct}>开始找商品</Button><span aria-live="polite">{state === "searching" ? "AI 正在寻找商品..." : state === "uploading" ? "正在读取照片..." : "选好照片后，点击开始找商品。"}</span></div>
+      {error && <Alert type="error" showIcon title={error} description={error.startsWith("请先登录") ? <a href={`${getApiBaseUrl()}/api/visual-search/index/status?source=${AI_SEARCH_SOURCE}`} target="_blank" rel="noreferrer">打开登录页面</a> : undefined} />}
       <section className="ai-search-results" aria-label="识别结果">
         <Card title="用户上传照片" className="ai-search-query-card">
           {queryImage.image ? <>
@@ -172,12 +176,25 @@ export default function AISearchWorkspace() {
             <span>选择图片后，在这里查看预览</span>
           </div>}
         </Card>
-        <div className="ai-search-recommendations">
-          {state === "searching" ? <Card><div className="ai-search-loading" role="status"><Spin /><p>正在识别商品...</p></div></Card> : primary ? <>
-            <SearchResultCard product={primary.product} score={primary.score} confirmed={confirmedId === primary.product.productId} confirming={confirmingId === primary.product.productId} disabled={busy} onConfirm={() => confirmProduct(primary.product.productId)} onDetails={() => showDetails(primary.product)} />
-            {candidates.length > 1 && <SimilarProducts key={result!.query_id} products={candidates.slice(1)} disabled={busy} onDetails={showDetails} />}
+        <div ref={recommendations} className="ai-search-recommendations" aria-busy={state === "searching"}>
+          {state === "searching" ? <Card title="匹配结果"><div className="ai-search-loading" role="status">
+            <Spin size="large" /><h2>AI 正在寻找商品...</h2>
+            <p>照片已保留，请稍候。</p>
+            <ul aria-label="搜索包含的处理内容">
+              <li><PictureOutlined aria-hidden />图片分析</li>
+              <li><SearchOutlined aria-hidden />商品匹配</li>
+              <li><FileTextOutlined aria-hidden />加载商品资料</li>
+            </ul>
+            <p className="ai-search-query-note">找到后，请核对商品照片和货号。</p>
+          </div></Card> : primary ? <>
+            <SearchResultCard product={primary.product} confirmed={confirmedId === primary.product.productId} confirming={confirmingId === primary.product.productId} disabled={busy} onConfirm={() => confirmProduct(primary.product.productId)} onRestart={chooseAnotherPhoto} onDetails={() => showDetails(primary.product)} />
             {confirmedId !== null && <Alert type="success" showIcon title={`已确认商品：${candidates.find((c) => c.product.productId === confirmedId)?.product.productCode ?? confirmedId}`} />}
-          </> : <Card><Empty description={state === "success" ? "没有找到匹配商品" : "选择照片并点击开始找商品，显示推荐结果"} /></Card>}
+            {candidates.length > 1 && <SimilarProducts key={result!.query_id} products={candidates.slice(1)} disabled={busy} onDetails={showDetails} />}
+          </> : state === "success" ? <Card title="匹配结果"><div className="ai-search-no-match">
+            <Empty description="没有找到匹配商品" />
+            <ul><li>尝试拍完整商品</li><li>避免多个商品同时出现</li><li>尝试更近距离照片</li></ul>
+            <Button type="primary" size="large" icon={<UploadOutlined aria-hidden />} onClick={chooseAnotherPhoto}>重新上传</Button>
+          </div></Card> : <Card title="匹配结果"><Empty description="上传商品照片后，点击开始找商品。" /></Card>}
         </div>
       </section>
       <ProductReadonlyModal product={detail} open={detailOpen} loading={detailLoading} error={detailError} confirming={detail !== null && confirmingId === detail.productId} confirmed={detail !== null && confirmedId === detail.productId} disabled={busy} onClose={closeDetail} onConfirm={() => detail && confirmProduct(detail.productId)} />

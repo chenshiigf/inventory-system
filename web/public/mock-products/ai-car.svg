@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="280" viewBox="0 0 320 280" role="img" aria-label="车形调味瓶示例插图">
+<title>车形调味瓶 · Mock 示例</title><rect width="320" height="280" fill="#f7f7f8"/>
+<ellipse cx="160" cy="217" rx="116" ry="12" fill="#e3e5e9"/>
+<path d="M47 147 L106 141 L135 98 L191 98 L224 141 L270 149 L270 201 L47 201 Z" fill="#fff" stroke="#d9dce2" stroke-width="2"/>
+<path d="M47 147 L109 141 L128 113 L198 113 L222 141 L270 149 L270 166 L47 166 Z" fill="#264668"/>
+<path d="M129 106 L189 106 L210 140 L116 140 Z" fill="#d4dde4"/>
+<path d="M136 98 L192 98 L198 112 L128 112 Z" fill="#fff"/>
+<ellipse cx="150" cy="103" rx="3" ry="2" fill="#30323a"/><ellipse cx="160" cy="103" rx="3" ry="2" fill="#30323a"/><ellipse cx="170" cy="103" rx="3" ry="2" fill="#30323a"/>
+<circle cx="93" cy="199" r="24" fill="#28303a"/><circle cx="93" cy="199" r="13" fill="#f7f7f8"/>
+<circle cx="227" cy="199" r="24" fill="#28303a"/><circle cx="227" cy="199" r="13" fill="#f7f7f8"/>
+</svg>

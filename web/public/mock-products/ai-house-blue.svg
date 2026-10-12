@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="280" viewBox="0 0 320 280" role="img" aria-label="蓝色房屋调味瓶示例插图">
+<title>蓝色房屋调味瓶 · Mock 示例</title>
+<rect width="320" height="280" fill="#f7f7f8"/>
+<ellipse cx="161" cy="240" rx="80" ry="11" fill="#e3e5e9"/>
+<path d="M99 92 L209 86 L223 228 L108 239 Z" fill="#fff" stroke="#d9dce2" stroke-width="2"/>
+<path d="M209 86 L239 103 L251 213 L223 228 Z" fill="#e4e5e7" stroke="#d9dce2" stroke-width="2"/>
+<path d="M99 92 L150 45 L209 86 L217 136 L104 146 Z" fill="#477e9a"/>
+<path d="M150 45 L181 57 L239 103 L243 134 L217 136 L209 86 Z" fill="#2c546b"/>
+<path d="M108 217 L222 207 L223 228 L108 239 Z" fill="#477e9a"/>
+<path d="M222 207 L249 195 L251 213 L223 228 Z" fill="#2c546b"/>
+<ellipse cx="144" cy="72" rx="4.5" ry="3.5" fill="#30323a"/>
+<ellipse cx="157" cy="76" rx="4.5" ry="3.5" fill="#30323a"/>
+<ellipse cx="170" cy="80" rx="4.5" ry="3.5" fill="#30323a"/>
+<path d="M119 151 L120 207" stroke="#f2f3f6" stroke-width="4"/>
+</svg>

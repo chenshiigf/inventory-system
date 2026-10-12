@@ -29,6 +29,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const isProductImportPage = pathname === "/products/import";
   const isInventoryMovementsPage = pathname === "/inventory-movements";
   const isVisualSearchPage = pathname.replace(/\/$/, "") === "/visual-search";
+  const isAISearchPage = pathname.replace(/\/$/, "") === "/ai-search";
   return (
     <Layout className="inventory-shell">
       <Sider
@@ -53,6 +54,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
           selectedKeys={[
             isDashboardPage
               ? "dashboard"
+              : isAISearchPage
+              ? "ai-search"
               : isVisualSearchPage
               ? "visual-search"
               : isCategoriesPage
@@ -80,6 +83,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
               key: "inventory",
               icon: <AppstoreOutlined />,
               label: <Link href="/products">商品库存</Link>,
+            },
+            {
+              key: "ai-search",
+              icon: <SearchOutlined />,
+              label: <Link href="/ai-search">AI 找货</Link>,
             },
             {
               key: "inventory-movements",

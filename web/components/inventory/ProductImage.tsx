@@ -7,6 +7,8 @@ import { getProductImageUrl } from "@/lib/api/product-images";
 
 interface ProductImageProps {
   imagePath: string | null;
+  /** A resolved URL bypasses the business uploads resolver (mock or mirror images). */
+  imageUrl?: string | null;
   thumbnailPath?: string | null;
   alt: string;
   width: number;
@@ -18,6 +20,7 @@ interface ProductImageProps {
 
 export default function ProductImage({
   imagePath,
+  imageUrl,
   thumbnailPath,
   alt,
   width,
@@ -29,9 +32,9 @@ export default function ProductImage({
   const [thumbnailFailed, setThumbnailFailed] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const previewCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mainUrl = getProductImageUrl(imagePath);
+  const mainUrl = imageUrl === undefined ? getProductImageUrl(imagePath) : imageUrl;
   const thumbnailSource = thumbnailPath?.trim() ? thumbnailPath : imagePath;
-  const thumbnailUrl = getProductImageUrl(thumbnailSource);
+  const thumbnailUrl = imageUrl === undefined ? getProductImageUrl(thumbnailSource) : imageUrl;
 
   useEffect(
     () => () => {

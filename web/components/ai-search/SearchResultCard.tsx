@@ -3,16 +3,19 @@
 import { CheckOutlined } from "@ant-design/icons";
 import { Button, Card, Tag } from "antd";
 import ProductImage from "@/components/inventory/ProductImage";
-import { formatAISearchPackaging, type AISearchProduct } from "@/lib/mock/ai-search";
+import { formatAISearchPackaging, type AISearchProduct } from "@/lib/ai-search";
 
 interface SearchResultCardProps {
   product: AISearchProduct;
   confirmed: boolean;
+  confirming: boolean;
+  disabled: boolean;
+  score: number;
   onConfirm: () => void;
   onDetails: () => void;
 }
 
-export default function SearchResultCard({ product, confirmed, onConfirm, onDetails }: SearchResultCardProps) {
+export default function SearchResultCard({ product, confirmed, confirming, disabled, score, onConfirm, onDetails }: SearchResultCardProps) {
   return (
     <Card title="最匹配商品" extra={<Tag color="blue">AI推荐</Tag>} className="ai-search-primary-card">
       <div className="ai-search-primary-content">
@@ -28,12 +31,13 @@ export default function SearchResultCard({ product, confirmed, onConfirm, onDeta
             <div><dt>所属仓库</dt><dd>{product.warehouse}</dd></div>
           </dl>
           <div className="ai-search-result-actions">
-            <Button type="primary" size="large" icon={<CheckOutlined aria-hidden />} disabled={confirmed} onClick={onConfirm}>
-              {confirmed ? "已确认（演示）" : "确认商品"}
+            <Button type="primary" size="large" icon={<CheckOutlined aria-hidden />} loading={confirming} disabled={disabled || confirmed || !product.active} onClick={onConfirm}>
+              {confirmed ? "已确认商品" : "就是这个"}
             </Button>
-            <Button size="large" onClick={onDetails}>查看详情</Button>
+            <Button size="large" disabled={disabled} onClick={onDetails}>查看详情</Button>
           </div>
-          {confirmed && <p className="ai-search-confirmed" role="status">已确认此示例商品；确认仅保留在当前页面。</p>}
+          <p className="ai-search-query-note">匹配分数 {score.toFixed(3)} · 分数不代表正确概率</p>
+          {confirmed && <p className="ai-search-confirmed" role="status">人工确认已保存。</p>}
         </div>
       </div>
     </Card>

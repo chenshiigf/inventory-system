@@ -1,6 +1,9 @@
 .ai-search-workspace { display: flex; flex-direction: column; gap: 20px; }
 .ai-search-workspace .page-heading { margin-bottom: 8px; }
 .ai-search-subtitle { margin: 0; color: var(--text-secondary); font-size: 15px; line-height: 1.7; }
+.ai-search-start { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+.ai-search-start > span { color: var(--text-secondary); font-size: 14px; }
+.ai-search-loading { min-height: 280px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 16px; color: var(--text-secondary); }
 .ai-search-workspace .ant-card { border-color: var(--border-color); box-shadow: none; }
 .ai-search-workspace .ant-card-head { min-height: 54px; font-size: 17px; }
 .ai-search-upload-card .ant-upload-drag { background: var(--page-background); border-color: #c7d0df; }

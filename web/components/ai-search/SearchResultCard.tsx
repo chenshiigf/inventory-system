@@ -34,7 +34,7 @@ export default function SearchResultCard({ product, confirmed, confirming, disab
             <Button className="ai-search-confirm-button" type="primary" size="large" icon={<CheckOutlined aria-hidden />} loading={confirming} disabled={disabled || confirmed || !product.active} onClick={onConfirm}>
               {confirmed ? "已确认商品" : "就是这个商品"}
             </Button>
-            <Button size="large" icon={<ReloadOutlined aria-hidden />} disabled={disabled} onClick={onRestart}>重新搜索</Button>
+            <Button size="large" icon={<ReloadOutlined aria-hidden />} disabled={disabled} onClick={onRestart}>更换图片</Button>
             <Button size="large" disabled={disabled} onClick={onDetails}>查看商品资料</Button>
           </div>
           {confirmed && <p className="ai-search-confirmed" role="status">人工确认已保存。</p>}

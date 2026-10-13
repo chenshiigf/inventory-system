@@ -3,31 +3,30 @@
 import { useRef, useState, type PointerEvent } from "react";
 import { Button, InputNumber, Space } from "antd";
 import type { CropRegion } from "@/lib/api/visual-search";
+import { cropFromPoints, relativeImagePoint } from "@/lib/image-crop";
 
-export default function RegionSelector({ src, regions, selected, onSelect, onAdd, disabled, drawing = true, numbers, showManual = true }: {
+export default function RegionSelector({ src, regions, selected, onSelect, onAdd, disabled, drawing = true, numbers, showManual = true, minRatio = 0.015 }: {
   src: string; regions: CropRegion[]; selected: number; onSelect: (index: number) => void;
   onAdd: (region: CropRegion) => void; disabled: boolean;
-  drawing?: boolean; numbers?: number[]; showManual?: boolean;
+  drawing?: boolean; numbers?: number[]; showManual?: boolean; minRatio?: number;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const start = useRef<[number, number] | null>(null);
   const [draft, setDraft] = useState<CropRegion | null>(null);
   const [manual, setManual] = useState<CropRegion>([0, 0, 0.5, 0.5]);
   function point(event: PointerEvent): [number, number] {
-    const bounds = stage.current!.getBoundingClientRect();
-    return [Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)), Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height))];
+    return relativeImagePoint(event.clientX, event.clientY, stage.current!.getBoundingClientRect());
   }
   function move(event: PointerEvent): CropRegion | null {
     if (!start.current) return null;
-    const [x, y] = point(event), [sx, sy] = start.current;
-    return [Math.min(x, sx), Math.min(y, sy), Math.abs(x - sx), Math.abs(y - sy)];
+    return cropFromPoints(start.current, point(event));
   }
   return <>
     <div ref={stage} className={`visual-region-stage${disabled ? " is-disabled" : ""}${drawing ? " is-drawing" : ""}`}
       onPointerDown={(event) => { if (disabled || !drawing || regions.length >= 10 || event.button !== 0) return; start.current = point(event); event.currentTarget.setPointerCapture(event.pointerId); }}
       onPointerMove={(event) => { if (start.current) setDraft(move(event)); }}
       onPointerCancel={() => { start.current = null; setDraft(null); }}
-      onPointerUp={(event) => { const region = move(event); start.current = null; setDraft(null); if (region && region[2] > 0.015 && region[3] > 0.015) onAdd(region); }}>
+      onPointerUp={(event) => { const region = move(event); start.current = null; setDraft(null); if (region && !disabled && drawing && region[2] > minRatio && region[3] > minRatio) onAdd(region); }}>
       {/* Native image preserves exact displayed bounds for source-relative crops. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt="上传原图，在商品周围拖动框选" draggable={false} />

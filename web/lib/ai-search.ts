@@ -92,7 +92,7 @@ export function toAISearchProduct(product: VisualProduct): AISearchProduct {
     productId: product.id,
     productKey: product.product_key!,
     productCode: product.product_code?.trim() || "货号未填写",
-    productName: product.product_name?.trim() || "商品名称未填写",
+    productName: product.product_name?.trim() || product.product_code?.trim() || "商品资料",
     image: product.image_path ? `${getVisualApiBaseUrl()}${product.image_path}` : null,
     size: product.size || "尺寸未填写",
     packagings: product.packagings.map((p) => ({ id: p.id, packingQty: p.packing_qty, unit })),
@@ -100,6 +100,10 @@ export function toAISearchProduct(product: VisualProduct): AISearchProduct {
     imageSyncedAt: product.synced_at || null,
     active: product.is_active && product.source_present === true,
   };
+}
+export function confirmedProductCode(result: VisualResult | null, confirmedId: number | null): string | null {
+  if (!result || confirmedId === null) return null;
+  return result.candidates.find((c) => c.product.id === confirmedId)?.product.product_code?.trim() || null;
 }
 export function formatAISearchPackaging(product: AISearchProduct): string {
   return product.packagings.map((p) => p.packingQty === null ? "装箱数未填写" : `${p.packingQty}${p.unit}/箱`).join("、") || "包装规格未填写";

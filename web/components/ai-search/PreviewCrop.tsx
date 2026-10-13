@@ -2,17 +2,17 @@
 
 import { useEffect, useRef } from "react";
 import type { CropRegion } from "@/lib/api/visual-search";
+import { cropPixelBounds } from "@/lib/image-crop";
 
-export default function PreviewCrop({ src, crop, label }: { src: string; crop: CropRegion | null; label: string }) {
+export default function PreviewCrop({ src, crop, label, className = "ai-preview-crop" }: { src: string; crop: CropRegion | null; label: string; className?: string }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     let active = true;
+    canvas.current?.getContext("2d")?.clearRect(0, 0, canvas.current.width, canvas.current.height);
     const image = new window.Image();
     image.onload = () => {
       if (!active || !canvas.current) return;
-      const [x, y, w, h] = crop ?? [0, 0, 1, 1];
-      const left = Math.round(x * image.naturalWidth), top = Math.round(y * image.naturalHeight);
-      const width = Math.round((x + w) * image.naturalWidth) - left, height = Math.round((y + h) * image.naturalHeight) - top;
+      const { left, top, width, height } = cropPixelBounds(crop ?? [0, 0, 1, 1], image.naturalWidth, image.naturalHeight);
       const scale = Math.min(1, 520 / Math.max(width, height));
       canvas.current.width = Math.max(1, Math.round(width * scale));
       canvas.current.height = Math.max(1, Math.round(height * scale));
@@ -21,5 +21,5 @@ export default function PreviewCrop({ src, crop, label }: { src: string; crop: C
     image.src = src;
     return () => { active = false; image.onload = null; };
   }, [src, crop]);
-  return <canvas ref={canvas} className="ai-preview-crop" role="img" aria-label={label} />;
+  return <canvas ref={canvas} className={className} role="img" aria-label={label} />;
 }

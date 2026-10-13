@@ -23,6 +23,8 @@ function load(relative) {
   return compiledModule.exports;
 }
 const adapter = load("lib/ai-search.ts");
+const cropTools = load("lib/image-crop.ts");
+const sessionTools = load("lib/ai-search-session.ts");
 const api = load("lib/api/visual-search.ts");
 const endpoint = load("lib/api/visual-endpoint.ts");
 const nextConfig = load("next.config.ts").default;
@@ -45,10 +47,104 @@ test("production adapter preserves identity, missing names and multiple packagin
   adapter.validateProductionResult(result());
   const view = adapter.toAISearchProduct(p);
   assert.equal(view.productKey, p.product_key);
-  assert.equal(view.productName, "商品名称未填写");
+  assert.equal(view.productName, p.product_code);
   assert.equal(view.image, p.image_path);
   assert.equal(adapter.formatAISearchPackaging(view), "48件/箱、192件/箱");
   assert.equal("carton_count" in view, false);
+});
+
+test("cropped request retains the original File and adds only the selected crop", async () => {
+  const original = globalThis.fetch;
+  const file = new File(["original-image-bytes"], "scene.png", { type: "image/png" });
+  const crop = [0.1, 0.2, 0.3, 0.4];
+  let count = 0;
+  try {
+    globalThis.fetch = async (url, init) => {
+      count += 1;
+      assert.equal(url, "/api/visual-search/search?source=production-catalog");
+      assert.equal(await init.body.get("file").text(), await file.text());
+      assert.equal(init.body.get("file").name, file.name);
+      assert.equal(init.body.get("crop"), JSON.stringify(crop));
+      assert.equal(init.body.get("top_k"), "5");
+      return Response.json({ ...result(), crop });
+    };
+    await api.searchVisual(file, crop, "production-catalog");
+    assert.equal(count, 1);
+  } finally { globalThis.fetch = original; }
+});
+
+test("scaled and reverse mouse drags use source ratios, clamp at image bounds", () => {
+  const bounds = { left: 100, top: 50, width: 400, height: 200 };
+  const start = cropTools.relativeImagePoint(420, 210, bounds);
+  const end = cropTools.relativeImagePoint(180, 90, bounds);
+  const crop = cropTools.cropFromPoints(start, end);
+  crop.forEach((v, i) => assert.ok(Math.abs(v - [0.2, 0.2, 0.6, 0.6][i]) < 1e-9));
+  assert.deepEqual(cropTools.cropPixelBounds(crop, 2000, 1000), { left: 400, top: 200, width: 1200, height: 600 });
+  assert.deepEqual(cropTools.relativeImagePoint(-1, 400, bounds), [0, 1]);
+  assert.equal(cropTools.validSingleCrop([0, 0, 0.01, 0.01], 100, 100), false);
+  assert.equal(cropTools.validSingleCrop([0.9, 0, 0.2, 1], 100, 100), false);
+  assert.equal(cropTools.validSingleCrop([0, 0, 0.0025, 0.003333334], 4000, 3000), true, "small regions follow the backend pixel minimum, not a fixed display ratio");
+});
+
+test("half-pixel preview bounds match Python ties-to-even crop coordinates", () => {
+  assert.deepEqual(cropTools.cropPixelBounds([0.005, 0.015, 0.3, 0.3], 100, 100), { left: 0, top: 2, width: 30, height: 30 });
+});
+
+function photoSession() {
+  return sessionTools.searchSessionReducer(sessionTools.initialSearchSession(), { type: "photo", file: new File(["original"], "original.png"), image: "blob:original", width: 1000, height: 800 });
+}
+function requestFor(state, requestId = "one") { return { ...sessionTools.currentSearchInput(state), requestId }; }
+function complete(state, request) {
+  state = sessionTools.searchSessionReducer(state, { type: "start", request });
+  return sessionTools.searchSessionReducer(state, { type: "complete", request, result: { ...result(), crop: request.crop } });
+}
+
+test("single crop replaces previous crop and invalidates result, confirmation and stale input", () => {
+  let state = photoSession();
+  const file = state.file;
+  const initial = requestFor(state);
+  state = complete(state, initial);
+  state = sessionTools.searchSessionReducer(state, { type: "confirm", input: initial, queryId: state.result.query_id, productId: 318 });
+  assert.equal(state.confirmedId, 318);
+  state = sessionTools.searchSessionReducer(state, { type: "crop", crop: [0, 0, 0.5, 1] });
+  assert.equal(state.result, null); assert.equal(state.confirmedId, null);
+  assert.equal(state.file, file); assert.equal(state.image, "blob:original");
+  const firstCrop = requestFor(state);
+  state = complete(state, firstCrop);
+  state = sessionTools.searchSessionReducer(state, { type: "crop", crop: [0.5, 0, 0.5, 1] });
+  assert.deepEqual(state.crop, [0.5, 0, 0.5, 1]);
+  assert.equal(state.cropVersion, 2);
+  assert.equal("regions" in state, false);
+  assert.equal(sessionTools.searchSessionReducer(state, { type: "complete", request: firstCrop, result: { ...result(), crop: firstCrop.crop } }), state);
+  assert.equal(sessionTools.searchSessionReducer(state, { type: "confirm", input: firstCrop, queryId: result().query_id, productId: 318 }), state);
+  state = sessionTools.searchSessionReducer(state, { type: "crop", crop: null });
+  assert.equal(state.crop, null); assert.equal(state.result, null); assert.equal(state.file, file);
+});
+
+test("new photo or newer request cannot be overwritten by late responses or old cleanup", () => {
+  let state = photoSession();
+  const old = requestFor(state);
+  state = sessionTools.searchSessionReducer(state, { type: "start", request: old });
+  state = sessionTools.searchSessionReducer(state, { type: "finish", request: old });
+  const next = requestFor(state, "next");
+  state = sessionTools.searchSessionReducer(state, { type: "start", request: next });
+  assert.equal(sessionTools.searchSessionReducer(state, { type: "complete", request: old, result: result() }), state);
+  assert.equal(sessionTools.searchSessionReducer(state, { type: "finish", request: old }), state);
+  assert.equal(sessionTools.searchSessionReducer(state, { type: "complete", request: next, result: { ...result(), crop: [0, 0, 0.5, 1] } }), state, "wrong backend crop rejected");
+  state = sessionTools.searchSessionReducer(state, { type: "photo", file: new File(["new"], "new.png"), image: "blob:new", width: 100, height: 100 });
+  assert.equal(state.imageVersion, 2);
+  assert.equal(sessionTools.searchSessionReducer(state, { type: "complete", request: next, result: result() }), state);
+});
+
+test("copy uses the finally confirmed candidate, excludes empty codes and preserves stable ID", () => {
+  const r = result();
+  r.candidates.push({ product: { ...product(), id: 319, product_key: "aliyun-inventory-production:319", product_code: "NEW-CODE-319" }, similarity: 0.6 });
+  assert.equal(adapter.confirmedProductCode(r, null), null);
+  assert.equal(adapter.confirmedProductCode(r, 319), "NEW-CODE-319");
+  assert.equal(adapter.confirmedProductCode(r, 999), null);
+  r.candidates[1].product.product_code = " ";
+  assert.equal(adapter.confirmedProductCode(r, 319), null);
+  assert.equal(adapter.toAISearchProduct({ ...product(), product_code: null }).productName, "商品资料");
 });
 test("reject development IDs, unsafe images, duplicate candidates and reversed scores", () => {
   for (const change of [r => { r.source = "development"; }, r => { r.source_id = "development"; },

@@ -243,6 +243,68 @@ def test_multi_product_crop_and_query_reference(visual):
     assert Image.open(BytesIO(normalized)).size == (100, 100)
 
 
+@pytest.mark.parametrize("orientation", range(1, 9))
+def test_crop_provider_receives_only_selected_content_after_exif(visual, monkeypatch, orientation):
+    client, _, _, _, provider = visual
+    red = add_product(visual, "red")
+    add_product(visual, "blue")
+    index(visual)
+    original = Image.new("RGB", (240, 160), "red")
+    original.paste(Image.new("RGB", (120, 160), "blue"), (120, 0))
+    exif = Image.Exif()
+    exif[274] = orientation
+    output = BytesIO()
+    original.save(output, "JPEG", quality=98, exif=exif)
+    data = output.getvalue()
+    crop = ([0, 0, .5, 1] if orientation in {1, 4} else
+            [.5, 0, .5, 1] if orientation in {2, 3} else
+            [0, 0, 1, .5] if orientation in {5, 6} else
+            [0, .5, 1, .5])
+    received = []
+    embed = provider.embed
+    def capture(prepared, purpose, task_id):
+        if purpose == "search":
+            received.append(prepared)
+        return embed(prepared, purpose, task_id)
+    monkeypatch.setattr(provider, "embed", capture)
+    response = search(client, data, crop)
+    assert response.status_code == 200
+    assert response.json()["candidates"][0]["product"]["id"] == red
+    assert response.json()["crop"] == crop
+    assert len(received) == 1
+    actual = Image.open(BytesIO(received[0])).convert("RGB")
+    assert actual.size == ((120, 160) if orientation <= 4 else (160, 120))
+    pixels = np.asarray(actual)
+    assert pixels[:, :, 0].mean() > 240 and pixels[:, :, 2].mean() < 8
+    query_id = response.json()["query_id"]
+    assert client.get(f"/api/visual-search/queries/{query_id}/image").content == received[0]
+    assert Image.open(BytesIO(data)).size == (240, 160)  # Original remains untouched.
+
+
+def test_crop_matches_pixel_coordinates_and_native_provider_payload(visual):
+    _, service, _, _, _ = visual
+    source = Image.new("RGB", (100, 100), "blue")
+    source.paste(Image.new("RGB", (30, 30), "red"), (0, 2))
+    out = BytesIO()
+    source.save(out, "PNG")
+    crop = [.005, .015, .3, .3]  # Python ties-to-even: (0,2) to (30,32).
+    prepared = prepare_image(out.getvalue(), tuple(crop))
+    decoded = Image.open(BytesIO(prepared))
+    assert decoded.size == (30, 30)
+    requests = []
+    def handler(request):
+        import base64
+        body = json.loads(request.content)
+        sent = base64.b64decode(body["input"]["contents"][0]["image"].split(",", 1)[1])
+        assert sent == prepared
+        assert Image.open(BytesIO(sent)).getpixel((15, 15))[0] > 240
+        requests.append(request)
+        return httpx.Response(200, json={"output": {"embeddings": [{"embedding": [1] * 256, "type": "vl", "index": 0}]}, "usage": {"input_tokens": 5, "image_tokens": 100, "total_tokens": 105}})
+    provider = DashScopeProvider(service.config, service.store.record_call, httpx.MockTransport(handler))
+    assert provider.embed(prepared, "search", "crop-payload").vector.shape == (256,)
+    assert len(requests) == 1
+
+
 def test_dimensions_and_stable_sort():
     assert rank_candidates([1, 0], {3: [1, 0], 1: [1, 0], 2: [0, 1]}, 2) == [(1, 1), (3, 1), (2, 0)]
     assert rank_candidates([1, 0], {}, 2) == []

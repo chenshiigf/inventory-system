@@ -29,7 +29,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
   const isProductImportPage = pathname === "/products/import";
   const isInventoryMovementsPage = pathname === "/inventory-movements";
   const isVisualSearchPage = pathname.replace(/\/$/, "") === "/visual-search";
-  const isAISearchPage = pathname.replace(/\/$/, "") === "/ai-search";
+  const isAISearchPage = pathname.replace(/\/$/, "") === "/ai-search"
+    || (process.env.NODE_ENV === "development" && pathname.replace(/\/$/, "") === "/ai-search-preview");
   return (
     <Layout className="inventory-shell">
       <Sider

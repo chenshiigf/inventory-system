@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { VisualResult } from "@/lib/api/visual-search";
+import { AISearchPreviewSessionProvider } from "./AISearchPreviewSessionProvider";
 
 interface SearchSession {
   file: File | null;
@@ -53,7 +54,9 @@ export function AISearchSessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({ session, replacePhoto, clearResult, completeSearch, confirmSelection }),
     [session, replacePhoto, clearResult, completeSearch, confirmSelection]);
 
-  return <SearchSessionContext.Provider value={value}>{children}</SearchSessionContext.Provider>;
+  return <SearchSessionContext.Provider value={value}>
+    {process.env.NODE_ENV === "development" ? <AISearchPreviewSessionProvider>{children}</AISearchPreviewSessionProvider> : children}
+  </SearchSessionContext.Provider>;
 }
 
 export function useAISearchSession() {

@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from "@/lib/api/client";
+import { getVisualApiBaseUrl } from "@/lib/api/visual-endpoint";
 import type { VisualProduct, VisualProductResponse, VisualResult } from "@/lib/api/visual-search";
 
 export const AI_SEARCH_SOURCE = "production-catalog" as const;
@@ -93,7 +93,7 @@ export function toAISearchProduct(product: VisualProduct): AISearchProduct {
     productKey: product.product_key!,
     productCode: product.product_code?.trim() || "货号未填写",
     productName: product.product_name?.trim() || "商品名称未填写",
-    image: product.image_path ? `${getApiBaseUrl()}${product.image_path}` : null,
+    image: product.image_path ? `${getVisualApiBaseUrl()}${product.image_path}` : null,
     size: product.size || "尺寸未填写",
     packagings: product.packagings.map((p) => ({ id: p.id, packingQty: p.packing_qty, unit })),
     warehouse: product.warehouse_name || "所属仓库未填写",

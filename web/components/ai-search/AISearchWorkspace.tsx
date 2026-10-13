@@ -4,7 +4,8 @@ import { FileTextOutlined, PictureOutlined, SearchOutlined, UploadOutlined } fro
 import { Alert, App, Button, Card, Empty, Image, Spin } from "antd";
 import { useEffect, useRef, useState } from "react";
 import PageHeading from "@/components/common/PageHeading";
-import { ApiResponseError, getApiBaseUrl } from "@/lib/api/client";
+import { ApiResponseError } from "@/lib/api/client";
+import { getVisualApiBaseUrl } from "@/lib/api/visual-endpoint";
 import { getVisualProduct, saveVisualFeedback, searchVisual } from "@/lib/api/visual-search";
 import { AI_SEARCH_SOURCE, AISearchSourceError, toAISearchProduct, validateProductionDetail, validateProductionResult, type AISearchProduct } from "@/lib/ai-search";
 import ImageUploader, { type ImageUploaderHandle } from "./ImageUploader";
@@ -164,7 +165,7 @@ export default function AISearchWorkspace() {
       <Alert type="info" showIcon title="AI推荐仅供找货，请人工确认。" description="请核对商品照片和货号后，再确认商品。" />
       <ImageUploader ref={uploader} onSelect={selectImage} disabled={busy} hasPhoto={file !== null} />
       <div className="ai-search-start"><Button type="primary" size="large" icon={<SearchOutlined aria-hidden />} loading={state === "searching"} disabled={!file || busy} onClick={findProduct}>开始找商品</Button><span aria-live="polite">{state === "searching" ? "AI 正在寻找商品..." : state === "uploading" ? "正在读取照片..." : "选好照片后，点击开始找商品。"}</span></div>
-      {error && <Alert type="error" showIcon title={error} description={error.startsWith("请先登录") ? <a href={`${getApiBaseUrl()}/api/visual-search/index/status?source=${AI_SEARCH_SOURCE}`} target="_blank" rel="noreferrer">打开登录页面</a> : undefined} />}
+      {error && <Alert type="error" showIcon title={error} description={error.startsWith("请先登录") ? <a href={`${getVisualApiBaseUrl()}/api/visual-search/index/status?source=${AI_SEARCH_SOURCE}`} target="_blank" rel="noreferrer">打开登录页面</a> : undefined} />}
       <section className="ai-search-results" aria-label="识别结果">
         <Card title="用户上传照片" className="ai-search-query-card">
           {queryImage.image ? <>

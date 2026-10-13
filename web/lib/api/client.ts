@@ -40,8 +40,9 @@ function getErrorDetail(payload: unknown): string | undefined {
 export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
+  baseUrl = getApiBaseUrl(),
 ): Promise<T> {
-  const url = `${getApiBaseUrl()}${path}`;
+  const url = `${baseUrl}${path}`;
   let response: Response;
   try {
     response = await fetch(url, {
@@ -72,8 +73,8 @@ export async function apiRequest<T>(
   return (await response.json()) as T;
 }
 
-export async function apiUpload<T>(path: string, body: FormData, init: Pick<RequestInit, "credentials" | "signal"> = {}): Promise<T> {
-  const url = `${getApiBaseUrl()}${path}`;
+export async function apiUpload<T>(path: string, body: FormData, init: Pick<RequestInit, "credentials" | "signal"> = {}, baseUrl = getApiBaseUrl()): Promise<T> {
+  const url = `${baseUrl}${path}`;
   let response: Response;
   try {
     response = await fetch(url, {

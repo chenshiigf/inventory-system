@@ -24,6 +24,9 @@ function load(relative) {
 }
 const adapter = load("lib/ai-search.ts");
 const api = load("lib/api/visual-search.ts");
+const endpoint = load("lib/api/visual-endpoint.ts");
+const nextConfig = load("next.config.ts").default;
+const { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD } = requirePackage("next/constants");
 const source = { source: "production-catalog", source_id: "aliyun-inventory-production", index_namespace: `production-${"a".repeat(64)}`, catalog_fingerprint: "b".repeat(64) };
 const product = () => ({ id: 318, product_key: "aliyun-inventory-production:318", source_id: source.source_id,
   product_code: "test-code", image_path: "/api/visual-search/catalog/products/318/image?source=production-catalog",
@@ -95,4 +98,59 @@ test("search failure is never automatically retried; feedback sends no_match=fal
     };
     await api.saveVisualFeedback("d".repeat(32), 318, "production-catalog");
   } finally { globalThis.fetch = original; }
+});
+
+test("development visuals use same-origin requests and images without embedding credentials", async () => {
+  const originalFetch = globalThis.fetch;
+  const oldMode = process.env.NODE_ENV;
+  const oldBase = process.env.NEXT_PUBLIC_API_BASE_URL;
+  try {
+    process.env.NODE_ENV = "development";
+    process.env.NEXT_PUBLIC_API_BASE_URL = "http://127.0.0.1:8002";
+    const requests = [];
+    globalThis.fetch = async (url, init) => { requests.push({ url, init }); return Response.json(result()); };
+    assert.equal(endpoint.getVisualApiBaseUrl(), "");
+    assert.equal(adapter.toAISearchProduct(product()).image, product().image_path);
+    await api.searchVisual(new File(["test"], "field.jpg"), undefined, "production-catalog");
+    await api.getVisualProduct(318, "production-catalog");
+    await api.saveVisualFeedback("d".repeat(32), 318, "production-catalog");
+    await api.getVisualStatus("production-catalog");
+    assert.equal(requests.length, 4);
+    for (const req of requests) {
+      assert.ok(req.url.startsWith("/api/visual-search/"));
+      assert.ok(req.url.endsWith("?source=production-catalog"));
+      assert.equal(req.init.credentials, "include");
+      assert.equal(req.init.headers.Authorization, undefined);
+    }
+    await load("lib/api/client.ts").apiRequest("/api/products");
+    assert.equal(requests[4].url, "http://127.0.0.1:8002/api/products");
+    process.env.NODE_ENV = "production";
+    assert.equal(endpoint.getVisualApiBaseUrl(), "http://127.0.0.1:8002");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldMode === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = oldMode;
+    if (oldBase === undefined) delete process.env.NEXT_PUBLIC_API_BASE_URL; else process.env.NEXT_PUBLIC_API_BASE_URL = oldBase;
+  }
+});
+
+test("proxy is local and development-only, production preserves the static export", async () => {
+  const previous = process.env.VISUAL_DEV_API_ORIGIN;
+  try {
+    delete process.env.VISUAL_DEV_API_ORIGIN;
+    const dev = nextConfig(PHASE_DEVELOPMENT_SERVER);
+    assert.equal(dev.output, undefined);
+    assert.equal(dev.skipTrailingSlashRedirect, true);
+    assert.deepEqual(await dev.rewrites(), [{ source: "/api/visual-search/:path*", destination: "http://127.0.0.1:8002/api/visual-search/:path*" }]);
+    process.env.VISUAL_DEV_API_ORIGIN = "http://127.0.0.1:8128";
+    assert.match((await nextConfig(PHASE_DEVELOPMENT_SERVER).rewrites())[0].destination, /^http:\/\/127\.0\.0\.1:8128\//);
+    for (const target of ["https://external.invalid", "http://external.invalid", "http://placeholder-user:placeholder-value@127.0.0.1:8002",
+      "http://127.0.0.1:8002/api", "http://127.0.0.1:8002/?key=placeholder", "http://127.0.0.1:8002/#fragment",
+      "http://127.0.0.1.attacker.invalid:8002", "http://127.0.0.1@attacker.invalid:8002", "ftp://127.0.0.1:8002", "invalid"]) {
+      process.env.VISUAL_DEV_API_ORIGIN = target;
+      assert.throws(() => nextConfig(PHASE_DEVELOPMENT_SERVER), /local HTTP origin/);
+    }
+    assert.deepEqual(nextConfig(PHASE_PRODUCTION_BUILD), { output: "export", trailingSlash: true });
+  } finally {
+    if (previous === undefined) delete process.env.VISUAL_DEV_API_ORIGIN; else process.env.VISUAL_DEV_API_ORIGIN = previous;
+  }
 });

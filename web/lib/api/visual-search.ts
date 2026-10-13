@@ -1,5 +1,6 @@
 import { apiRequest, apiUpload } from "@/lib/api/client";
 import type { ProductApiRecord } from "@/types/inventory";
+import { getVisualApiBaseUrl } from "@/lib/api/visual-endpoint";
 
 export type VisualSource = "development" | "production-catalog";
 export type VisualProduct = Pick<ProductApiRecord, "id" | "product_code" | "image_path" | "thumbnail_path" | "category_id" | "warehouse_id" | "category_name" | "warehouse_name" | "size" | "unit" | "is_active"> & {
@@ -81,7 +82,7 @@ export interface VisualStatus {
 }
 
 export function getVisualStatus(source: VisualSource = "development") {
-  return apiRequest<VisualStatus>(`/api/visual-search/index/status?source=${source}`, { credentials: "include" });
+  return apiRequest<VisualStatus>(`/api/visual-search/index/status?source=${source}`, { credentials: "include" }, getVisualApiBaseUrl());
 }
 export function searchVisual(file: File, crop?: CropRegion, source: VisualSource = "development", signal?: AbortSignal) {
   const body = new FormData();
@@ -89,21 +90,21 @@ export function searchVisual(file: File, crop?: CropRegion, source: VisualSource
   body.append("top_k", "5");
   if (crop) body.append("crop", JSON.stringify(crop));
   const timeout = AbortSignal.timeout(240_000);
-  return apiUpload<VisualResult>(`/api/visual-search/search?source=${source}`, body, { credentials: "include", signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
+  return apiUpload<VisualResult>(`/api/visual-search/search?source=${source}`, body, { credentials: "include", signal: signal ? AbortSignal.any([signal, timeout]) : timeout }, getVisualApiBaseUrl());
 }
 export function saveVisualFeedback(query_id: string, productId: number | null, source: VisualSource = "development") {
   return apiRequest<{ saved: boolean; query_id: string }>(`/api/visual-search/feedback?source=${source}`, {
     method: "POST", credentials: "include",
     body: JSON.stringify({ query_id, selected_product_id: productId, no_match: productId === null }),
-  });
+  }, getVisualApiBaseUrl());
 }
 export function rebuildVisual(dry_run: boolean, max_items: number, source: VisualSource = "development") {
   return apiRequest<{ job_id?: string; would_process: number; pending_total: number; unchanged: number; would_clean: number; unique_new_images: number; max_http_attempts: number }>(`/api/visual-search/index/rebuild?source=${source}`, {
     method: "POST", credentials: "include",
     body: JSON.stringify({ dry_run, max_items, confirm_paid: !dry_run, confirm_large_batch: !dry_run && max_items > 10 }),
-  });
+  }, getVisualApiBaseUrl());
 }
 
 export function getVisualProduct(id: number, source: VisualSource, signal?: AbortSignal) {
-  return apiRequest<VisualProductResponse>(`/api/visual-search/catalog/products/${id}?source=${source}`, { credentials: "include", signal });
+  return apiRequest<VisualProductResponse>(`/api/visual-search/catalog/products/${id}?source=${source}`, { credentials: "include", signal }, getVisualApiBaseUrl());
 }

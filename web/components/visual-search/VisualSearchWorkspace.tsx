@@ -8,7 +8,7 @@ import PageHeading from "@/components/common/PageHeading";
 import ProductImage from "@/components/inventory/ProductImage";
 import RegionSelector from "./RegionSelector";
 import { getVisualProduct, getVisualStatus, rebuildVisual, saveVisualFeedback, searchVisual, type CropRegion, type VisualProduct, type VisualResult, type VisualSource, type VisualStatus } from "@/lib/api/visual-search";
-import { getApiBaseUrl } from "@/lib/api/client";
+import { getVisualApiBaseUrl } from "@/lib/api/visual-endpoint";
 
 interface SearchTask {
   key: string;
@@ -143,7 +143,7 @@ export default function VisualSearchWorkspace() {
       actions={<Space><Button icon={<ReloadOutlined />} onClick={refresh}>刷新状态</Button><Button onClick={() => setIndexOpen(true)}>图库索引</Button></Space>} />
     <Typography.Paragraph type="secondary">上传照片查找相似商品。多款商品可手动框选后分别搜索，结果需由你核对。</Typography.Paragraph>
     <Space wrap className="visual-search-actions"><Typography.Text strong>搜索图库</Typography.Text><Select aria-label="搜索图库" value={source} style={{ minWidth: 200 }} disabled={busy || indexBusy || detailBusy || running || indexOpen} options={[{ value: "production-catalog", label: "生产商品图库" }, { value: "development", label: "本地开发测试商品" }]} onChange={changeSource} /><Tag color={source === "production-catalog" ? "blue" : "orange"}>{source === "production-catalog" ? "独立生产镜像 · 只读商品资料" : "开发测试数据"}</Tag></Space>
-    {statusError && <Alert type="error" showIcon title={statusError} description={<span>本地首次使用：<a href={`${getApiBaseUrl()}/api/visual-search/index/status?source=${source}`} target="_blank" rel="noreferrer">打开所选图库接口并登录管理员账号</a>，再刷新状态。</span>} />}
+    {statusError && <Alert type="error" showIcon title={statusError} description={<span>本地首次使用：<a href={`${getVisualApiBaseUrl()}/api/visual-search/index/status?source=${source}`} target="_blank" rel="noreferrer">打开所选图库接口并登录管理员账号</a>，再刷新状态。</span>} />}
     {status && (!status.schema_ready || !status.api_key_configured) && <Alert type="warning" showIcon title={!status.schema_ready ? "视觉索引尚未初始化" : "尚未配置百炼 API Key"} description="可以上传和框选图片；管理员完成配置及图库索引后可执行真实搜索。" />}
     <Upload.Dragger accept="image/jpeg,image/png,image/webp" multiple disabled={busy} showUploadList={false}
       beforeUpload={async (file) => {
@@ -189,10 +189,10 @@ export default function VisualSearchWorkspace() {
         {!task?.result && !task?.error && <Empty description="执行搜索后显示最多 5 款候选商品" />}
         {task?.result && <>
           <Typography.Paragraph type="secondary">{task.result.message} · 耗时 {(task.result.elapsed_ms / 1000).toFixed(2)} 秒</Typography.Paragraph>
-          <Image width={100} src={`${getApiBaseUrl()}/api/visual-search/queries/${task.result.query_id}/image?source=${task.result.source}`} alt="本次实际用于检索的商品区域" />
+          <Image width={100} src={`${getVisualApiBaseUrl()}/api/visual-search/queries/${task.result.query_id}/image?source=${task.result.source}`} alt="本次实际用于检索的商品区域" />
           {task.result.candidates.length === 0 && <Empty description="没有匹配候选，可调整区域后重新搜索" />}
           {task.result.candidates.map(({ product, similarity }, i) => <div className="visual-candidate" key={product.product_key ?? `${task.result!.source}:${product.id}`}>
-            {task.result!.source === "production-catalog" ? (product.image_path ? <Image src={`${getApiBaseUrl()}${product.image_path}`} alt={product.product_code ?? `生产商品 ${product.id}`} width={100} height={100} /> : <span>暂无主图</span>) : <ProductImage imagePath={product.image_path} thumbnailPath={product.thumbnail_path} alt={product.product_code ?? `商品 ${product.id}`} width={100} height={100} />}
+            {task.result!.source === "production-catalog" ? (product.image_path ? <Image src={`${getVisualApiBaseUrl()}${product.image_path}`} alt={product.product_code ?? `生产商品 ${product.id}`} width={100} height={100} /> : <span>暂无主图</span>) : <ProductImage imagePath={product.image_path} thumbnailPath={product.thumbnail_path} alt={product.product_code ?? `商品 ${product.id}`} width={100} height={100} />}
             <div className="visual-candidate-info">
               <Flex justify="space-between" gap={8}><Typography.Text strong>{i + 1}. {product.product_code ?? `商品 ${product.id}`}</Typography.Text><Tag>相似度 {similarity.toFixed(3)}</Tag></Flex>
               <Typography.Paragraph type="secondary">{product.category_name || "未分类"} · {product.warehouse_name || "未关联仓库"}</Typography.Paragraph>
@@ -205,7 +205,7 @@ export default function VisualSearchWorkspace() {
       </Card>
     </div>}
     <Modal title="生产商品图库详情" open={!!detail} onCancel={() => setDetail(undefined)} footer={<Button onClick={() => setDetail(undefined)}>关闭</Button>}>
-      {detail && <><Typography.Paragraph strong>{detail.product_code ?? "未填货号"} · 生产商品 ID {detail.id}</Typography.Paragraph>{detail.image_path && <Image src={`${getApiBaseUrl()}${detail.image_path}`} alt="镜像主图" width={240} />}<Typography.Paragraph>{detail.category_name || "未分类"} · {detail.warehouse_name || "未关联仓库"}</Typography.Paragraph><Typography.Paragraph>尺寸：{detail.size || "未填写"}</Typography.Paragraph><Typography.Paragraph>每箱装箱数：{detail.packagings.map((p) => p.packing_qty ?? "未填写").join("、") || "未填写"}</Typography.Paragraph><Typography.Paragraph>状态：{detail.source_present === false ? "已失效" : detail.is_active ? "启用" : "停用"}</Typography.Paragraph></>}
+      {detail && <><Typography.Paragraph strong>{detail.product_code ?? "未填货号"} · 生产商品 ID {detail.id}</Typography.Paragraph>{detail.image_path && <Image src={`${getVisualApiBaseUrl()}${detail.image_path}`} alt="镜像主图" width={240} />}<Typography.Paragraph>{detail.category_name || "未分类"} · {detail.warehouse_name || "未关联仓库"}</Typography.Paragraph><Typography.Paragraph>尺寸：{detail.size || "未填写"}</Typography.Paragraph><Typography.Paragraph>每箱装箱数：{detail.packagings.map((p) => p.packing_qty ?? "未填写").join("、") || "未填写"}</Typography.Paragraph><Typography.Paragraph>状态：{detail.source_present === false ? "已失效" : detail.is_active ? "启用" : "停用"}</Typography.Paragraph></>}
     </Modal>
     <Modal title="图库索引" open={indexOpen} onCancel={() => { if (!indexBusy) { setIndexOpen(false); setPlan(undefined); } }} footer={null}>
       {status && <><Typography.Paragraph>已索引 {status.indexed} · 待索引 {status.unindexed} · 失败 {status.failed} · 跳过 {status.skipped}</Typography.Paragraph><Typography.Paragraph type="secondary">{status.model} · {status.dimension} 维 · {status.version}</Typography.Paragraph></>}

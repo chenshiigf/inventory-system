@@ -3,7 +3,7 @@ from collections.abc import Generator
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
@@ -486,6 +486,59 @@ def test_missing_packaging_ids_still_reject_stocked_replacement_and_rollback(cli
     assert response.json()["detail"] == "包装规格仍有库存，请先盘点调整为 0 后再删除"
     assert packaging_database_state(client) == before
     assert client.get(f"/api/products/{created['id']}").json()["remark"] == created["remark"]
+
+
+@pytest.mark.parametrize("cleared", [None, "", " \n "])
+def test_quick_remark_add_modify_clear_preserves_all_other_data(client: TestClient, cleared):
+    created = create_product(client, remark=None, packagings=[
+        {"packing_qty": 24, "carton_count": 122}, {"packing_qty": 144, "carton_count": 0},
+    ])
+    assert client.post(f"/api/products/{created['id']}/stock/adjust", json={
+        "product_packaging_id": created["packagings"][0]["id"],
+        "actual_carton_count": 121, "remark": "历史记录不能改变",
+    }).status_code == 201
+    before = packaging_database_state(client)
+    baseline = client.get(f"/api/products/{created['id']}").json()
+    for submitted, expected in [("新增备注", "新增备注"), (" 修改备注 ", "修改备注"), (cleared, None)]:
+        response = client.patch(f"/api/products/{created['id']}", json={"remark": submitted})
+        assert response.status_code == 200, response.text
+        result = response.json()
+        assert result["remark"] == expected
+        assert packaging_database_state(client) == before
+        persisted = client.get(f"/api/products/{created['id']}").json()
+        assert persisted["remark"] == expected
+        assert {key: value for key, value in persisted.items() if key not in {"remark", "updated_at"}} == {
+            key: value for key, value in baseline.items() if key not in {"remark", "updated_at"}
+        }
+
+
+@pytest.mark.parametrize("failure", ["too_long", "invalid_type", "missing_product", "commit"])
+def test_failed_quick_remark_keeps_product_packaging_stock_and_history(client: TestClient, monkeypatch, failure):
+    created = create_product(client, remark="原备注", packagings=[{"packing_qty": 24, "carton_count": 122}])
+    assert client.post(f"/api/products/{created['id']}/stock/adjust", json={
+        "product_packaging_id": created["packagings"][0]["id"],
+        "actual_carton_count": 121, "remark": "失败保存也不得影响这条流水",
+    }).status_code == 201
+    before = packaging_database_state(client)
+    baseline = client.get(f"/api/products/{created['id']}").json()
+    payload = {"remark": "x" * 2001 if failure == "too_long" else 123 if failure == "invalid_type" else "不能保存"}
+    product_id = created["id"] + 9999 if failure == "missing_product" else created["id"]
+    if failure == "commit":
+        def fail_commit(session):
+            session.flush()  # Force the UPDATE before simulating a commit failure.
+            raise RuntimeError("Simulated local database failure")
+        with monkeypatch.context() as patcher:
+            patcher.setattr(Session, "commit", fail_commit)
+            failing_client = TestClient(client.app, raise_server_exceptions=False)
+            try:
+                response = failing_client.patch(f"/api/products/{product_id}", json=payload)
+            finally:
+                failing_client.close()
+    else:
+        response = client.patch(f"/api/products/{product_id}", json=payload)
+    assert response.status_code == (500 if failure == "commit" else 404 if failure == "missing_product" else 422)
+    assert packaging_database_state(client) == before
+    assert client.get(f"/api/products/{created['id']}").json() == baseline
 
 
 def test_update_reorders_rows_by_payload_order(client: TestClient) -> None:

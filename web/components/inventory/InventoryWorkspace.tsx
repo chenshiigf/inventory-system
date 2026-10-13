@@ -35,6 +35,7 @@ import {
 } from "@/lib/api/products";
 import { listWarehouses } from "@/lib/api/warehouses";
 import { packagingUpdateFields, toInventoryProduct } from "@/lib/inventory-products";
+import { applyRemarkToProducts, applyRemarkUpdatesToResponse, saveProductRemark, type RemarkUpdate } from "@/lib/product-remarks";
 import {
   MAX_PRODUCT_BATCH_SELECTION,
   useProductBatchSelection,
@@ -129,6 +130,8 @@ export default function InventoryWorkspace({
   const [warehousesError, setWarehousesError] = useState<string | null>(null);
   const [warehousesReloadCounter, setWarehousesReloadCounter] = useState(0);
   const [products, setProducts] = useState<InventoryProduct[]>([]);
+  const remarkRevision = useRef(0);
+  const remarkUpdates = useRef(new Map<number, RemarkUpdate>());
   const [total, setTotal] = useState(0);
   const [completedRequestKey, setCompletedRequestKey] = useState<string | null>(
     null,
@@ -379,6 +382,7 @@ export default function InventoryWorkspace({
   useEffect(() => {
     const controller = new AbortController();
 
+    const requestRemarkRevision = remarkRevision.current;
     void listProducts(
       {
         page: currentPage,
@@ -396,7 +400,7 @@ export default function InventoryWorkspace({
         if (controller.signal.aborted) {
           return;
         }
-        setProducts(response.items.map(toInventoryProduct));
+        setProducts(applyRemarkUpdatesToResponse(response.items.map(toInventoryProduct), remarkUpdates.current, requestRemarkRevision));
         setTotal(response.total);
         setLoadError(null);
       })
@@ -688,6 +692,15 @@ export default function InventoryWorkspace({
       cancelText: "取消",
       onOk: () => confirmBatchStatus(true),
     });
+  }
+
+  async function saveRemark(productId: number, draft: string): Promise<string> {
+    const remark = await saveProductRemark(productId, draft);
+    const revision = ++remarkRevision.current;
+    remarkUpdates.current.set(productId, { revision, remark });
+    setProducts(previous => applyRemarkToProducts(previous, productId, remark));
+    messageApi.success("备注已保存");
+    return remark;
   }
 
   async function saveProduct(values: ProductEditorFormValues) {
@@ -985,6 +998,7 @@ export default function InventoryWorkspace({
               onViewMovements={(product) => setMovementProduct(product)}
               onAdjust={(product) => setAdjustmentProduct(product)}
               onEdit={(product) => setProductEditor({ product })}
+              onSaveRemark={saveRemark}
               onDeactivate={(product) => confirmProductStatusChange(product, false)}
               onActivate={(product) => confirmProductStatusChange(product, true)}
             />

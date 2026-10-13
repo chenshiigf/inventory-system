@@ -1,10 +1,11 @@
 "use client";
 
-import { Button, Dropdown, Popover, Space, Table, Tag, Tooltip } from "antd";
+import { Button, Dropdown, Popover, Space, Table, Tag } from "antd";
 import { MoreOutlined } from "@ant-design/icons";
 import type { ColumnsType, TablePaginationConfig } from "antd/es/table";
 import Link from "next/link";
 import ProductImage from "@/components/inventory/ProductImage";
+import ProductRemarkEditor from "@/components/inventory/ProductRemarkEditor";
 import type { InventoryProduct } from "@/types/inventory";
 
 interface ProductTableProps {
@@ -28,6 +29,7 @@ interface ProductTableProps {
   onViewMovements: (product: InventoryProduct) => void;
   onAdjust: (product: InventoryProduct) => void;
   onEdit: (product: InventoryProduct) => void;
+  onSaveRemark: (productId: number, draft: string) => Promise<string>;
   onDeactivate: (product: InventoryProduct) => void;
   onActivate: (product: InventoryProduct) => void;
 }
@@ -70,6 +72,7 @@ export default function ProductTable({
   onViewMovements,
   onAdjust,
   onEdit,
+  onSaveRemark,
   onDeactivate,
   onActivate,
 }: ProductTableProps) {
@@ -230,16 +233,7 @@ export default function ProductTable({
       title: "备注",
       dataIndex: "remark",
       key: "remark",
-      render: (value: string | null) => {
-        const note = value?.trim() ?? "";
-        return note ? (
-          <Tooltip title={note} mouseEnterDelay={0.2}>
-            <span className="table-note-value">{note}</span>
-          </Tooltip>
-        ) : (
-          <span className="table-note-empty">—</span>
-        );
-      },
+      render: (_value: string | null, product: InventoryProduct) => <ProductRemarkEditor key={product.id} product={product} disabled={loading} onSave={onSaveRemark} />,
     },
     {
       title: "操作",

@@ -1626,6 +1626,12 @@ textarea {
   color: #a0a8b5;
 }
 
+.product-remark-cell { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.product-remark-cell .table-note-value { flex: 1; min-width: 0; }
+.product-remark-edit { flex-shrink: 0; color: #8491a2; }
+.product-remark-popover { display: grid; gap: 14px; width: min(320px, calc(100vw - 56px)); }
+.product-remark-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
 .table-price {
   color: #354052;
   font-size: 14px;

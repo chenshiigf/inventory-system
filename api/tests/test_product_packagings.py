@@ -2,7 +2,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
@@ -417,6 +417,75 @@ def test_update_without_packagings_preserves_rows(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.json()["packagings"] == created["packagings"]
     assert response.json()["remark"] == "只改备注"
+
+
+def packaging_database_state(client: TestClient):
+    dependency = client.app.dependency_overrides[get_db]()
+    try:
+        engine = next(dependency).get_bind()
+        with engine.connect() as connection:
+            return {
+                table: [tuple(row) for row in connection.exec_driver_sql(f"SELECT * FROM {table} ORDER BY id")]
+                for table in ("product_packagings", "inventory_movements")
+            }
+    finally:
+        dependency.close()
+
+
+@pytest.mark.parametrize("cartons", [0, 121])
+@pytest.mark.parametrize("changes", [
+    {"remark": "只新增备注"}, {"remark": None}, {"size": "更新尺寸"},
+    {"unit": "set"}, {"price": "3.50"}, {"image_path": "products/main/updated.webp"},
+])
+def test_ordinary_patch_never_touches_packaging_or_history(client: TestClient, cartons, changes):
+    created = create_product(client, packagings=[
+        {"packing_qty": 24, "carton_count": cartons + 1},
+        {"packing_qty": 144, "carton_count": 0},
+    ])
+    adjusted = client.post(f"/api/products/{created['id']}/stock/adjust", json={
+        "product_packaging_id": created["packagings"][0]["id"],
+        "actual_carton_count": cartons, "remark": "已有历史流水",
+    })
+    assert adjusted.status_code == 201
+    before_product = client.get(f"/api/products/{created['id']}").json()
+    before = packaging_database_state(client)
+    assert len(before["inventory_movements"]) == 1
+    dependency = client.app.dependency_overrides[get_db]()
+    engine = next(dependency).get_bind()
+    writes = []
+    def capture(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE")) and any(
+            name in statement.lower() for name in ("product_packagings", "inventory_movements")
+        ):
+            writes.append(statement)
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        response = client.patch(f"/api/products/{created['id']}", json=changes)
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+        dependency.close()
+    assert response.status_code == 200, response.text
+    assert writes == []
+    assert packaging_database_state(client) == before
+    result = response.json()
+    assert result["packagings"] == before_product["packagings"]
+    assert result["total_carton_count"] == cartons
+    assert result["id"] == created["id"] and result["product_code"] == created["product_code"]
+    for key, value in changes.items():
+        assert result[key] == value
+
+
+def test_missing_packaging_ids_still_reject_stocked_replacement_and_rollback(client: TestClient):
+    created = create_product(client, packagings=[{"packing_qty": 24, "carton_count": 121}])
+    before = packaging_database_state(client)
+    # Reproduce the old frontend payload: an existing row's ID was lost.
+    response = client.patch(f"/api/products/{created['id']}", json={
+        "remark": "不得部分保存", "packagings": [{"packing_qty": 24}],
+    })
+    assert response.status_code == 409
+    assert response.json()["detail"] == "包装规格仍有库存，请先盘点调整为 0 后再删除"
+    assert packaging_database_state(client) == before
+    assert client.get(f"/api/products/{created['id']}").json()["remark"] == created["remark"]
 
 
 def test_update_reorders_rows_by_payload_order(client: TestClient) -> None:

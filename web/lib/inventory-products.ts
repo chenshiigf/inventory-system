@@ -1,4 +1,18 @@
-import type { InventoryProduct, ProductApiRecord } from "@/types/inventory";
+import type { InventoryProduct, ProductApiRecord, ProductEditorFormValues, ProductUpdatePayload } from "@/types/inventory";
+
+// PATCH omission means leave packaging rows untouched. Never infer identity by
+// position or packing quantity: rows can be removed, added or reordered.
+export function packagingUpdateFields(
+  original: InventoryProduct["packagings"],
+  submitted: ProductEditorFormValues["packagings"],
+): Pick<ProductUpdatePayload, "packagings"> {
+  const unchanged = original.length === submitted.length && original.every((row, i) =>
+    row.id === submitted[i].id && row.packingQty === submitted[i].packingQty);
+  return unchanged ? {} : { packagings: submitted.map((row) => ({
+    ...(row.id !== undefined ? { id: row.id } : {}),
+    packing_qty: row.packingQty,
+  })) };
+}
 
 export function toInventoryProduct(product: ProductApiRecord): InventoryProduct {
   return {

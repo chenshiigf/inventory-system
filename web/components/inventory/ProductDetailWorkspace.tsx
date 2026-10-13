@@ -49,7 +49,7 @@ import {
 } from "@/lib/api/inventory-movements";
 import { listCategories } from "@/lib/api/categories";
 import { listWarehouses } from "@/lib/api/warehouses";
-import { toInventoryProduct } from "@/lib/inventory-products";
+import { packagingUpdateFields, toInventoryProduct } from "@/lib/inventory-products";
 import { getProductStatusConfirmConfig } from "@/lib/confirm-actions";
 import { getSafeProductListReturnTo } from "@/lib/product-list-state";
 import type {
@@ -316,10 +316,7 @@ export default function ProductDetailWorkspace({
       unit: values.unit,
       price: values.price,
       remark: values.remark.trim() || null,
-      packagings: values.packagings.map((packaging) => ({
-        ...(packaging.id ? { id: packaging.id } : {}),
-        packing_qty: packaging.packingQty,
-      })),
+      ...packagingUpdateFields(product.packagings, values.packagings),
     };
 
     await updateProduct(product.id, updatePayload);

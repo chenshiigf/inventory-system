@@ -14,6 +14,7 @@ import { Layout, Menu } from "antd";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
+import { selectedNavigationKey } from "@/lib/navigation";
 
 const { Sider, Content } = Layout;
 
@@ -23,14 +24,7 @@ interface AppLayoutProps {
 
 export default function AppLayout({ children }: AppLayoutProps) {
   const pathname = usePathname();
-  const isDashboardPage = pathname === "/";
-  const isCategoriesPage = pathname === "/categories";
-  const isWarehousesPage = pathname === "/warehouses";
-  const isProductImportPage = pathname === "/products/import";
-  const isInventoryMovementsPage = pathname === "/inventory-movements";
-  const isVisualSearchPage = pathname.replace(/\/$/, "") === "/visual-search";
-  const isAISearchPage = pathname.replace(/\/$/, "") === "/ai-search"
-    || (process.env.NODE_ENV === "development" && pathname.replace(/\/$/, "") === "/ai-search-preview");
+  const selectedKey = selectedNavigationKey(pathname, process.env.NODE_ENV === "development");
   return (
     <Layout className="inventory-shell">
       <Sider
@@ -52,23 +46,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
         <Menu
           mode="inline"
-          selectedKeys={[
-            isDashboardPage
-              ? "dashboard"
-              : isAISearchPage
-              ? "ai-search"
-              : isVisualSearchPage
-              ? "visual-search"
-              : isCategoriesPage
-              ? "categories"
-              : isWarehousesPage
-                ? "warehouses"
-                : isProductImportPage
-                  ? "product-import"
-                  : isInventoryMovementsPage
-                    ? "inventory-movements"
-                    : "inventory",
-          ]}
+          selectedKeys={selectedKey ? [selectedKey] : []}
           items={[
             {
               key: "visual-search",

@@ -34,7 +34,7 @@ import {
   updateProduct as updateProductRequest,
 } from "@/lib/api/products";
 import { listWarehouses } from "@/lib/api/warehouses";
-import { toInventoryProduct } from "@/lib/inventory-products";
+import { packagingUpdateFields, toInventoryProduct } from "@/lib/inventory-products";
 import {
   MAX_PRODUCT_BATCH_SELECTION,
   useProductBatchSelection,
@@ -713,10 +713,7 @@ export default function InventoryWorkspace({
     if (productEditor?.product) {
       const updatePayload: ProductUpdatePayload = {
         ...editableFields,
-        packagings: values.packagings.map((packaging) => ({
-          ...(packaging.id ? { id: packaging.id } : {}),
-          packing_qty: packaging.packingQty,
-        })),
+        ...packagingUpdateFields(productEditor.product.packagings, values.packagings),
       };
       await updateProductRequest(productEditor.product.id, updatePayload);
     } else {

@@ -396,6 +396,9 @@ export default function ProductEditorModal({
                         return (
                           <tr className="packaging-editor-row" key={field.key}>
                             <td className="packaging-editor-index">
+                              <Form.Item name={[field.name, "id"]} hidden>
+                                <Input />
+                              </Form.Item>
                               {index + 1}
                             </td>
                             <td>

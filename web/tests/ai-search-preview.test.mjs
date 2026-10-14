@@ -192,3 +192,15 @@ test("preview page denies production before loading any Mock workspace", async (
     }
   } finally { if (previous === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous; }
 });
+
+test("multi-region and indexing test page denies production without importing its workspace", async () => {
+  const previous = process.env.NODE_ENV;
+  try {
+    const page = load("app/visual-search/page.tsx").default;
+    for (const mode of ["production", "test"]) {
+      process.env.NODE_ENV = mode;
+      await assert.rejects(page(), /NEXT_HTTP_ERROR_FALLBACK;404/);
+    }
+    assert.equal(modules.has(path.join(root, "components/visual-search/VisualSearchWorkspace.tsx")), false);
+  } finally { if (previous === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous; }
+});

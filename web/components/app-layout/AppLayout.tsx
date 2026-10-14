@@ -48,11 +48,11 @@ export default function AppLayout({ children }: AppLayoutProps) {
           mode="inline"
           selectedKeys={selectedKey ? [selectedKey] : []}
           items={[
-            {
+            ...(process.env.NODE_ENV === "development" ? [{
               key: "visual-search",
               icon: <SearchOutlined />,
               label: <Link href="/visual-search">商品视觉搜索</Link>,
-            },
+            }] : []),
             {
               key: "dashboard",
               icon: <DashboardOutlined />,

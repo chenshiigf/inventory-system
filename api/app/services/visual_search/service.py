@@ -59,14 +59,20 @@ class VisualService:
     def _acquire(self):
         if not self.slot.acquire(blocking=False):
             return False
-        if not self.process_slot.acquire():
+        try:
+            if self.process_slot.acquire():
+                return True
+        except BaseException:
             self.slot.release()
-            return False
-        return True
+            raise
+        self.slot.release()
+        return False
 
     def _release(self):
-        self.process_slot.release()
-        self.slot.release()
+        try:
+            self.process_slot.release()
+        finally:
+            self.slot.release()
 
     def plan(self, db: Session):
         rows = self.store.rows() if self.store.ready else {}
@@ -227,10 +233,27 @@ class VisualService:
         finally:
             self._release()
 
-    def search(self, db, owner, data, crop=None, top_k=5):
+    def search(self, db, owner, data, crop=None, top_k=5, *, max_image_bytes=None, max_image_pixels=None):
+        if not self._acquire():
+            raise VisualError("AI找货正忙，请稍后重试", 409)
+        try:
+            return self._search_locked(
+                db, owner, data, crop, top_k,
+                max_image_bytes=max_image_bytes,
+                max_image_pixels=max_image_pixels,
+            )
+        finally:
+            self._release()
+
+    def _search_locked(self, db, owner, data, crop=None, top_k=5, *, max_image_bytes=None, max_image_pixels=None):
         started = time.perf_counter()
         timing = SearchTiming()
-        prepared = prepare_image(data, crop)
+        image_options = {}
+        if max_image_bytes is not None:
+            image_options["max_bytes"] = max_image_bytes
+        if max_image_pixels is not None:
+            image_options["max_pixels"] = max_image_pixels
+        prepared = prepare_image(data, crop, **image_options)
         timing.mark("image_preprocessing")
         rows = self.store.rows()
         timing.mark("sqlite_vectors")
@@ -259,29 +282,24 @@ class VisualService:
         usage = {}
         ranked = []
         if gallery:
-            if not self._acquire():
-                raise VisualError("正在搜索或建立索引，请稍后重试", 409)
-            try:
-                result = self.provider.embed(prepared, "search", query_id)
-                usage = result.usage
-                timing.mark("query_embedding")
-                if self.source.production:
-                    # Re-read all current metadata once, preserving the post-API
-                    # state/image checks without 2 SQLite connections per ID.
-                    current_products = {p.id: p for p in self.source.products(None)}
-                    for pid in list(gallery):
-                        try:
-                            current = current_products.get(pid)
-                            if current is None or not current.is_active or current.image_path != rows[pid]["image_identifier"] or image_hash(self.source.raw(current)) != rows[pid]["image_hash"]:
-                                raise VisualError("图库已更新")
-                            available[pid] = current
-                        except VisualError:
-                            del gallery[pid]
-                timing.mark("catalog_revalidation")
-                ranked = rank_candidates(result.vector, gallery, self.config.dimension, top_k, self.config.min_score)
-                timing.mark("numpy_similarity")
-            finally:
-                self._release()
+            result = self.provider.embed(prepared, "search", query_id)
+            usage = result.usage
+            timing.mark("query_embedding")
+            if self.source.production:
+                # Re-read all current metadata once, preserving the post-API
+                # state/image checks without 2 SQLite connections per ID.
+                current_products = {p.id: p for p in self.source.products(None)}
+                for pid in list(gallery):
+                    try:
+                        current = current_products.get(pid)
+                        if current is None or not current.is_active or current.image_path != rows[pid]["image_identifier"] or image_hash(self.source.raw(current)) != rows[pid]["image_hash"]:
+                            raise VisualError("图库已更新")
+                        available[pid] = current
+                    except VisualError:
+                        del gallery[pid]
+            timing.mark("catalog_revalidation")
+            ranked = rank_candidates(result.vector, gallery, self.config.dimension, top_k, self.config.min_score)
+            timing.mark("numpy_similarity")
         # Keep only the normalized query crop, outside the public uploads mount.
         directory = self.store.root / "queries"
         directory.mkdir(parents=True, exist_ok=True)

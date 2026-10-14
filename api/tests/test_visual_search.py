@@ -1,8 +1,12 @@
+import asyncio
+import json
+import socket
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from io import BytesIO
-import json
 from pathlib import Path
-import socket
 
 from alembic import command
 from alembic.config import Config
@@ -20,9 +24,10 @@ from app.database import Base, get_db
 from app.main import create_app
 from app.models import Product, ProductPackaging
 from app.services.visual_search.config import VisualConfig
-from app.services.visual_search.images import VisualError, gallery_image, image_hash, prepare_image
+from app.services.visual_search.images import SEARCH_MAX_BYTES, SEARCH_MAX_PIXELS, VisualError, gallery_image, image_hash, prepare_image
 from app.services.visual_search.provider import DashScopeProvider, Embedding, normalize
 from app.services.visual_search.service import VisualService, rank_candidates
+from app.services.visual_search.upload_limit import SEARCH_BODY_MAX_BYTES, VisualUploadLimit
 
 API_ROOT = Path(__file__).resolve().parents[1]
 
@@ -196,6 +201,8 @@ def test_failure_then_resume_and_no_paid_confirmation(visual):
     assert search(client).status_code == 502
     assert service.slot.acquire(blocking=False)
     service.slot.release()
+    provider.fail = False
+    assert search(client).status_code == 200
 
 
 def test_interrupted_job_and_new_model_isolation(visual):
@@ -367,6 +374,220 @@ def test_concurrency_guard(visual):
     finally:
         service.slot.release()
     assert provider.calls == 1
+
+
+def test_http_search_admission_rejects_concurrent_requests_before_decode(visual, monkeypatch):
+    client, service, _, _, provider = visual
+    add_product(visual)
+    index(visual)
+    original_calls = provider.calls
+    entered_provider, finish_provider = threading.Event(), threading.Event()
+    original_embed = provider.embed
+
+    def blocked_embed(data, purpose, task_id):
+        entered_provider.set()
+        if not finish_provider.wait(timeout=5):
+            raise AssertionError("test provider release timed out")
+        return original_embed(data, purpose, task_id)
+
+    monkeypatch.setattr(provider, "embed", blocked_embed)
+    service_module = __import__("app.services.visual_search.service", fromlist=["prepare_image"])
+    original_prepare = service_module.prepare_image
+    decoded = []
+
+    def counted_prepare(*args, **kwargs):
+        decoded.append(1)
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(service_module, "prepare_image", counted_prepare)
+    query = image(size=(2000, 1500), image_format="JPEG")  # exactly the API pixel cap
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        first = pool.submit(client.post, "/api/visual-search/search", files={"file": ("query.jpg", query, "image/jpeg")})
+        assert entered_provider.wait(timeout=5)
+        started = time.perf_counter()
+        rejected = client.post("/api/visual-search/search", files={"file": ("query.jpg", query, "image/jpeg")})
+        rejected_elapsed = time.perf_counter() - started
+        assert rejected.status_code == 429
+        assert rejected.json()["detail"] == "AI找货正忙，请稍后重试"
+        assert rejected_elapsed < 1
+        stock_started = time.perf_counter()
+        stock_response = client.get("/api/products?page=1&page_size=20")
+        stock_elapsed = time.perf_counter() - stock_started
+        assert stock_response.status_code == 200
+        assert stock_elapsed < 1
+        finish_provider.set()
+        completed = first.result(timeout=10)
+
+    assert completed.status_code == 200
+    assert len(decoded) == 1
+    assert provider.calls == original_calls + 1
+
+
+def test_search_admission_does_not_consume_rejected_body_and_releases_on_cancel(tmp_path):
+    from app.services.visual_search.admission import VisualSearchAdmission
+
+    async def exercise():
+        entered, hold = asyncio.Event(), asyncio.Event()
+        received = {"first": 0, "second": 0, "third": 0}
+
+        async def downstream(scope, receive, send):
+            entered.set()
+            await hold.wait()
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"ok"})
+
+        middleware = VisualSearchAdmission(downstream, tmp_path)
+        another_worker = VisualSearchAdmission(downstream, tmp_path)
+        scope = {"type": "http", "method": "POST", "path": "/api/visual-search/search", "headers": []}
+
+        def make_receive(key):
+            async def receive():
+                received[key] += 1
+                return {"type": "http.request", "body": b"multipart body", "more_body": False}
+            return receive
+
+        def collect_send(messages):
+            async def send(message):
+                messages.append(message)
+            return send
+
+        first_messages = []
+        first = asyncio.create_task(middleware(scope, make_receive("first"), collect_send(first_messages)))
+        await entered.wait()
+
+        second_messages = []
+        await another_worker(scope, make_receive("second"), collect_send(second_messages))
+        assert received["second"] == 0
+        assert next(m["status"] for m in second_messages if m["type"] == "http.response.start") == 429
+
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+
+        hold.set()
+        third_messages = []
+        await middleware(scope, make_receive("third"), collect_send(third_messages))
+        assert next(m["status"] for m in third_messages if m["type"] == "http.response.start") == 200
+
+    asyncio.run(exercise())
+
+
+def test_chunked_search_body_is_bounded_before_multipart_parser():
+    async def exercise():
+        chunks = [
+            b"a" * (1024 * 1024),
+            b"b" * (1024 * 1024),
+            b"c" * (SEARCH_BODY_MAX_BYTES - 2 * 1024 * 1024 + 1),
+        ]
+        received_from_server, delivered_to_parser, messages = 0, 0, []
+
+        async def receive():
+            nonlocal received_from_server
+            chunk = chunks[received_from_server]
+            more = received_from_server < len(chunks) - 1
+            received_from_server += 1
+            return {"type": "http.request", "body": chunk, "more_body": more}
+
+        async def downstream(scope, bounded_receive, send):
+            nonlocal delivered_to_parser
+            while True:
+                message = await bounded_receive()
+                delivered_to_parser += len(message.get("body", b""))
+                if not message.get("more_body"):
+                    break
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"parsed"})
+
+        async def send(message):
+            messages.append(message)
+
+        scope = {"type": "http", "method": "POST", "path": "/api/visual-search/search", "headers": []}
+        await VisualUploadLimit(downstream)(scope, receive, send)
+        response = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
+        assert received_from_server == 3
+        assert delivered_to_parser == 2 * 1024 * 1024
+        assert next(message["status"] for message in messages if message["type"] == "http.response.start") == 413
+        assert b"2MiB" in response
+
+    asyncio.run(exercise())
+
+
+def test_api_search_limits_before_decode_and_direct_service_keeps_legacy_limits(visual, monkeypatch):
+    client, service, engine, _, provider = visual
+    add_product(visual)
+    index(visual)
+    original_calls = provider.calls
+    assert SEARCH_MAX_PIXELS == 3_000_000
+
+    too_large = b"x" * (SEARCH_MAX_BYTES + 1)
+    response = client.post("/api/visual-search/search", files={"file": ("large.jpg", too_large, "image/jpeg")})
+    assert response.status_code == 413
+    assert provider.calls == original_calls
+    over_body_limit = b"x" * (SEARCH_MAX_BYTES + 200 * 1024)
+    response = client.post("/api/visual-search/search", files={"file": ("large.jpg", over_body_limit, "image/jpeg")})
+    assert response.status_code == 413
+    assert "请求过大" in response.json()["detail"]
+    assert provider.calls == original_calls
+
+    over_pixels = image(size=(2000, 1600), image_format="JPEG")
+    assert len(over_pixels) < SEARCH_MAX_BYTES
+    import PIL.Image
+    original_load = PIL.Image.Image.load
+    loads = []
+
+    def tracked_load(self, *args, **kwargs):
+        loads.append(self.size)
+        return original_load(self, *args, **kwargs)
+
+    monkeypatch.setattr(PIL.Image.Image, "load", tracked_load)
+    response = client.post("/api/visual-search/search", files={"file": ("pixels.jpg", over_pixels, "image/jpeg")})
+    assert response.status_code == 413
+    assert "像素" in response.json()["detail"]
+    assert loads == []  # Header/size rejected before pixel decoding.
+    assert provider.calls == original_calls
+
+    # The local evaluation CLI calls VisualService directly; its established
+    # 10MiB/40MP defaults remain intact while the public API uses stricter caps.
+    with Session(engine) as db:
+        result = service.search(db, "local-cli", over_pixels)
+    assert result["candidates"]
+    assert provider.calls == original_calls + 1
+
+
+def test_search_lock_released_after_decode_error_and_cancellation(visual, monkeypatch):
+    client, service, engine, _, provider = visual
+    add_product(visual)
+    index(visual)
+    assert search(client, b"broken image").status_code == 400
+    assert service._acquire()
+    service._release()
+
+    service_module = __import__("app.services.visual_search.service", fromlist=["prepare_image"])
+    original_prepare = service_module.prepare_image
+
+    def cancelled(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(service_module, "prepare_image", cancelled)
+    with pytest.raises(asyncio.CancelledError):
+        service.search(None, "test", image())
+    assert service._acquire()
+    service._release()
+    monkeypatch.setattr(service_module, "prepare_image", original_prepare)
+
+    original_embed = provider.embed
+
+    def cancelled_provider(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(provider, "embed", cancelled_provider)
+    with Session(engine) as db:
+        with pytest.raises(asyncio.CancelledError):
+            service.search(db, "test", image())
+    assert service._acquire()
+    service._release()
+    monkeypatch.setattr(provider, "embed", original_embed)
+    assert search(client).status_code == 200
 
 
 def test_cross_site_paid_requests_rejected(visual):

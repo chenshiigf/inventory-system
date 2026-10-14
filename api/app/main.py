@@ -22,6 +22,7 @@ from app.routers.visual_search import router as visual_search_router
 from app.services.visual_search.config import VisualConfig, visual_directory
 from app.services.visual_search.service import VisualService
 from app.services.visual_search.factory import VisualSources
+from app.services.visual_search.admission import VisualSearchAdmission
 from app.services.visual_search.upload_limit import VisualUploadLimit
 
 
@@ -107,6 +108,7 @@ def create_app(
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "Authorization"],
     )
+    application.add_middleware(VisualSearchAdmission, lock_root=visual_directory(data_root))
     application.add_middleware(VisualUploadLimit)
 
     application.include_router(products_router)

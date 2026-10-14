@@ -3,8 +3,8 @@ import os
 
 
 class CallLock:
-    def __init__(self, root):
-        self.path = root / "calls.lock"
+    def __init__(self, root, filename="calls.lock"):
+        self.path = root / filename
         self.file = None
 
     def acquire(self):

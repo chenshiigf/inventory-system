@@ -29,6 +29,7 @@ function failureText(error: unknown): string {
   if (error instanceof ApiResponseError && error.statusCode === 413) return "图片大小超过限制";
   if (error instanceof ApiResponseError && error.statusCode === 401) return "请先登录，再开始找商品。";
   if (error instanceof ApiResponseError && error.statusCode === 403) return "当前账号无权限或请求来源未获允许，请联系管理员。";
+  if (error instanceof ApiResponseError && [409, 429].includes(error.statusCode)) return "AI正在处理另一张图片，请稍后重试。";
   if (error instanceof ApiResponseError && error.statusCode === 503) return "找货服务暂未就绪，请联系管理员。";
   if (error instanceof ApiResponseError && [400, 415, 422].includes(error.statusCode)) return "图片或框选区域无效，请重新选择图片或框选完整商品。";
   return "识别失败，请手动重试；网络中断时，本次请求可能已产生费用。";

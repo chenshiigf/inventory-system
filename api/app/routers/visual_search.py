@@ -8,7 +8,7 @@ from starlette.responses import FileResponse
 
 from app.database import get_db
 from app.services.visual_search.auth import require_visual_admin
-from app.services.visual_search.images import MAX_BYTES, VisualError
+from app.services.visual_search.images import SEARCH_MAX_BYTES, SEARCH_MAX_PIXELS, VisualError
 
 router = APIRouter(prefix="/api/visual-search", tags=["visual-search"])
 Admin = Annotated[str, Depends(require_visual_admin)]
@@ -83,8 +83,14 @@ def search(request: Request, db: SourceDB, admin: Admin,
                 region = tuple(float(x) for x in region)
             except (TypeError, ValueError):
                 raise HTTPException(422, "框选区域需为原图的 [x,y,宽,高] 比例")
-        data = file.file.read(MAX_BYTES + 1)
-        return run(lambda: service(request, source).search(db, admin, data, region, top_k))
+        data = file.file.read(SEARCH_MAX_BYTES + 1)
+        if len(data) > SEARCH_MAX_BYTES:
+            raise HTTPException(413, "图片不能超过 2MiB")
+        return run(lambda: service(request, source).search(
+            db, admin, data, region, top_k,
+            max_image_bytes=SEARCH_MAX_BYTES,
+            max_image_pixels=SEARCH_MAX_PIXELS,
+        ))
     finally:
         file.file.close()
 

@@ -277,6 +277,32 @@ def protection_manifest():
     return result
 
 
+def create_browser_sized_fixture(source, destination):
+    """Make a private, offline approximation of the browser's 1600px JPEG output."""
+    from PIL import Image, ImageOps
+
+    with Image.open(source) as original:
+        oriented = ImageOps.exif_transpose(original)
+        if oriented.width * oriented.height > 40_000_000:
+            raise ValueError("field fixture exceeds the browser's original-pixel guard")
+        oriented.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+        has_alpha = "A" in oriented.getbands() or "transparency" in oriented.info
+        if has_alpha:
+            rgba = oriented.convert("RGBA")
+            normalized = Image.new("RGB", rgba.size, "white")
+            normalized.paste(rgba, mask=rgba.getchannel("A"))
+        else:
+            normalized = oriented.convert("RGB")
+        normalized.save(destination, "JPEG", quality=90)
+        metadata = {"width": normalized.width, "height": normalized.height,
+                    "pixels": normalized.width * normalized.height,
+                    "bytes": Path(destination).stat().st_size,
+                    "source_bytes": Path(source).stat().st_size,
+                    "method": "offline Pillow approximation of browser EXIF/1600px/JPEG preprocessing"}
+        normalized.close()
+        return metadata
+
+
 def stats(values):
     values = sorted(values)
     if not values:
@@ -601,6 +627,8 @@ def prepare_run(run):
     # Keep private source provenance in ignored outputs only.
     originals = source / "field-evaluation/originals"
     shutil.copy2(sorted(originals.glob("*.jpg"))[0], run / "field.jpg")
+    fixture = create_browser_sized_fixture(run / "field.jpg", run / "field-preprocessed.jpg")
+    json_write(run / "phase1-preprocessed-fixture.json", fixture)
     archive = run / "legacy.tar"
     subprocess.run(["git", "archive", "2da620b", "api", "-o", str(archive)], cwd=ROOT, check=True)
     legacy = run / "legacy"
@@ -623,6 +651,9 @@ def run_suite(run, resume=False):
     results = {"host": host_memory(), "python": sys.version, "code_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "linux": "not performed; no installed WSL distribution/running Docker engine", "cases": {}}
+    fixture_report = run / "phase1-preprocessed-fixture.json"
+    if fixture_report.is_file():
+        results["phase1_preprocessed_fixture"] = json.loads(fixture_report.read_text(encoding="utf8"))
     if resume:
         previous = json.loads((run / "summary.json").read_text(encoding="utf8"))
         if previous.get("harness_sha256") != results["harness_sha256"] or previous.get("code_head") != results["code_head"]:
@@ -643,8 +674,11 @@ def run_suite(run, resume=False):
             print(name, result["job_peak_commit_mib"], flush=True)
         def stock_driver(ready):
             data = {name: [request(ready["port"], path) for _ in range(40)] for name, path in STOCK.items()}
+            statuses = {n: sorted({r["status"] for r in rows}) for n, rows in data.items()}
+            if any(any(r["status"] != 200 for r in rows) for rows in data.values()):
+                raise RuntimeError("ordinary inventory API failed during isolated baseline")
             return {"ready": ready, "stock": {n: stats([r["elapsed_ms"] for r in rows]) for n, rows in data.items()},
-                    "statuses": {n: sorted({r["status"] for r in rows}) for n, rows in data.items()}}
+                    "statuses": statuses}
         for variant in ("legacy", "unconfigured", "enabled"):
             if "server-" + variant in results["cases"]:
                 continue
@@ -669,7 +703,7 @@ def run_suite(run, resume=False):
             baseline = stock_driver(ready)
             queries = []
             for i in range(30):
-                q = request(port, SEARCH, run / "field.jpg")
+                q = request(port, SEARCH, run / "field-preprocessed.jpg")
                 if q["status"] != 200 or len(q["body"].get("candidates", [])) != 5 or q["body"].get("source_id") != "aliyun-inventory-production":
                     raise RuntimeError("invalid offline search/source/mapping")
                 queries.append(q)
@@ -693,7 +727,7 @@ def run_suite(run, resume=False):
             gate = threading.Barrier(3)
             def search_one():
                 gate.wait(timeout=5)
-                return request(port, SEARCH, run / "fixtures/12mp.jpeg")
+                return request(port, SEARCH, run / "fixtures/3mp.jpeg")
             mixed = {key: [] for key in STOCK}
             with ThreadPoolExecutor(max_workers=3) as pool:
                 futures = [pool.submit(search_one) for _ in range(3)]
@@ -702,14 +736,28 @@ def run_suite(run, resume=False):
                         mixed[key].append(request(port, path))
                     time.sleep(.02)
                 responses = [f.result() for f in futures]
+            statuses = sorted(q["status"] for q in responses)
+            if statuses != [200, 429, 429]:
+                raise RuntimeError(f"concurrent visual-search admission failed: {statuses}")
+            if max((q["elapsed_ms"] for q in responses if q["status"] == 429), default=0) >= 1000:
+                raise RuntimeError("busy response did not return promptly")
+            if any(q["body"].get("detail") != "AI找货正忙，请稍后重试" for q in responses if q["status"] == 429):
+                raise RuntimeError("busy response message was not returned")
             return {"ready": ready, "baseline": baseline, "responses": responses,
+                    "statuses": statuses,
                     "mixed": {n: stats([q["elapsed_ms"] for q in rows]) for n, rows in mixed.items()},
                     "mixed_statuses": {n: sorted({q["status"] for q in rows}) for n, rows in mixed.items()}}
         if "concurrent" not in results["cases"]:
             target = unused_path(run / "concurrent")
             target.mkdir()
             shutil.copytree(run / "snapshot/visual-search", target / "data/visual-search")
-            results["cases"]["concurrent"] = run_child({"mode": "server", "variant": "enabled", "api_path": str(ROOT / "api"), "data": str(target / "data"), "delay": 5}, target / "job", concurrent_driver)
+            concurrent = run_child({"mode": "server", "variant": "enabled", "api_path": str(ROOT / "api"), "data": str(target / "data"), "delay": 5}, target / "job", concurrent_driver)
+            worker = concurrent["worker"] or {}
+            if worker.get("max_parallel_preprocessing") != 1 or worker.get("preprocessing_entries") != 1 or worker.get("mock_calls") != 1:
+                raise RuntimeError("concurrent admission allowed more than one decode or provider call")
+            if any(any(status != 200 for status in rows) for rows in concurrent["driver"]["mixed_statuses"].values()):
+                raise RuntimeError("inventory API returned a failure during concurrent search")
+            results["cases"]["concurrent"] = concurrent
     finally:
         after = protection_manifest()
         results["protection"] = {"files": len(before), "unchanged": before == after,

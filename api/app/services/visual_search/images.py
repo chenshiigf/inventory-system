@@ -9,6 +9,8 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 MAX_BYTES = 10 * 1024 * 1024
 MAX_PIXELS = 40_000_000
+SEARCH_MAX_BYTES = 2 * 1024 * 1024
+SEARCH_MAX_PIXELS = 3_000_000
 
 
 class VisualError(Exception):
@@ -18,20 +20,35 @@ class VisualError(Exception):
         self.status_code = status_code
 
 
-def prepare_image(data: bytes, crop: tuple[float, float, float, float] | None = None) -> bytes:
-    if not data or len(data) > MAX_BYTES:
-        raise VisualError("图片不能为空且不能超过 10MB", 413 if data else 400)
+def prepare_image(
+    data: bytes,
+    crop: tuple[float, float, float, float] | None = None,
+    *,
+    max_bytes: int = MAX_BYTES,
+    max_pixels: int = MAX_PIXELS,
+) -> bytes:
+    if not data or len(data) > max_bytes:
+        limit_mib = max_bytes / (1024 * 1024)
+        limit_text = "10MB" if max_bytes == MAX_BYTES else f"{limit_mib:g}MiB"
+        raise VisualError(f"图片不能为空且不能超过 {limit_text}", 413 if data else 400)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(BytesIO(data)) as probe:
-                if probe.format not in {"JPEG", "PNG", "WEBP"}:
-                    raise VisualError("仅支持 JPG、PNG、WEBP 静态图片", 415)
-                if probe.width * probe.height > MAX_PIXELS or getattr(probe, "n_frames", 1) > 1:
-                    raise VisualError("图片过大或为动画，请上传静态图片", 413)
-                probe.verify()
             with Image.open(BytesIO(data)) as source:
-                image = ImageOps.exif_transpose(source).convert("RGBA")
+                if source.format not in {"JPEG", "PNG", "WEBP"}:
+                    raise VisualError("仅支持 JPG、PNG、WEBP 静态图片", 415)
+                width, height = source.size
+                if width * height > max_pixels:
+                    pixel_limit = f"{max_pixels // 100_000}万" if max_pixels % 100_000 == 0 else f"{max_pixels:,}"
+                    raise VisualError(f"图片分辨率不能超过 {pixel_limit} 像素", 413)
+                if getattr(source, "n_frames", 1) > 1:
+                    raise VisualError("不支持动画图片，请上传静态图片", 413)
+
+                # Pillow reads headers before pixel data. Validate dimensions and
+                # format above, then decode the original only once. Crop before
+                # converting modes so a small selection does not expand the
+                # entire source image into an RGBA buffer.
+                image = ImageOps.exif_transpose(source)
                 if crop is not None:
                     x, y, w, h = crop
                     if not all(math.isfinite(v) for v in crop) or min(x, y) < 0 or min(w, h) <= 0 or x + w > 1.000001 or y + h > 1.000001:
@@ -41,9 +58,16 @@ def prepare_image(data: bytes, crop: tuple[float, float, float, float] | None = 
                     if right - left < 10 or bottom - top < 10:
                         raise VisualError("框选区域太小，请至少选取 10×10 像素")
                     image = image.crop((left, top, right, bottom))
-                image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
-                background = Image.new("RGB", image.size, "white")
-                background.paste(image, mask=image.getchannel("A"))
+                has_alpha = "A" in image.getbands() or "transparency" in image.info
+                if has_alpha:
+                    if image.mode != "RGBA":
+                        image = image.convert("RGBA")
+                    image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+                    background = Image.new("RGB", image.size, "white")
+                    background.paste(image, mask=image.getchannel("A"))
+                else:
+                    background = image if image.mode == "RGB" else image.convert("RGB")
+                    background.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
                 out = BytesIO()
                 background.save(out, "JPEG", quality=90)
                 return out.getvalue()

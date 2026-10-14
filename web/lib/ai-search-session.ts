@@ -24,7 +24,7 @@ export type SearchSessionAction =
   | { type: "photo"; file: File | null; image: string; width: number; height: number }
   | { type: "crop"; crop: CropRegion | null }
   | { type: "start"; request: SearchRequest }
-  | { type: "complete"; request: SearchRequest; result: VisualResult }
+  | { type: "complete"; request: SearchRequest; result: VisualResult; submittedCrop?: CropRegion | null }
   | { type: "finish"; request: SearchRequest }
   | { type: "confirm"; input: SearchInput; queryId: string; productId: number };
 
@@ -49,7 +49,8 @@ export function searchSessionReducer(session: SearchSession, action: SearchSessi
       return { ...session, activeRequestId: action.request.requestId, result: null, confirmedId: null };
     }
     case "complete": {
-      if (!matchesSearchInput(session, action.request) || session.activeRequestId !== action.request.requestId || !sameCrop(action.result.crop, action.request.crop)) return session;
+      const submittedCrop = action.submittedCrop === undefined ? action.request.crop : action.submittedCrop;
+      if (!matchesSearchInput(session, action.request) || session.activeRequestId !== action.request.requestId || !sameCrop(action.result.crop, submittedCrop)) return session;
       return { ...session, activeRequestId: null, result: action.result, confirmedId: null };
     }
     case "finish": return matchesSearchInput(session, action.request) && session.activeRequestId === action.request.requestId ? { ...session, activeRequestId: null } : session;

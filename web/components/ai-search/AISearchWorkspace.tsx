@@ -10,6 +10,7 @@ import { getVisualProduct, saveVisualFeedback, searchVisual } from "@/lib/api/vi
 import { AI_SEARCH_SOURCE, AISearchSourceError, confirmedProductCode, toAISearchProduct, validateProductionDetail, validateProductionResult, type AISearchProduct } from "@/lib/ai-search";
 import { currentSearchInput, type SearchRequest } from "@/lib/ai-search-session";
 import { sameCrop, validSingleCrop } from "@/lib/image-crop";
+import { AIImageProcessingError, prepareAISearchImage, readAIPhoto } from "@/lib/ai-search-image";
 import type { CropRegion } from "@/lib/api/visual-search";
 import ImageUploader, { type ImageUploaderHandle } from "./ImageUploader";
 import { useAISearchSession } from "./AISearchSessionProvider";
@@ -23,6 +24,7 @@ import "./ai-search.css";
 type SearchState = "idle" | "uploading" | "searching" | "success" | "error";
 
 function failureText(error: unknown): string {
+  if (error instanceof AIImageProcessingError) return error.message;
   if (error instanceof AISearchSourceError) return "识别区域或商品资料无法核对，请重新框选或联系管理员。";
   if (error instanceof ApiResponseError && error.statusCode === 413) return "图片大小超过限制";
   if (error instanceof ApiResponseError && error.statusCode === 401) return "请先登录，再开始找商品。";
@@ -88,25 +90,14 @@ export default function AISearchWorkspace() {
     uploadLock.current = true;
     const currentSelection = ++selection.current;
     setState("uploading"); replacePhoto(null); setDrawing(false); setCopyError(false); setError(null); closeDetail();
-    if (!nextFile.size || nextFile.size > 10 * 1024 * 1024) {
-      uploadLock.current = false;
-      setError("图片大小超过限制"); setState("error"); return;
-    }
-    if (!["image/jpeg", "image/png", "image/webp"].includes(nextFile.type)) {
-      uploadLock.current = false;
-      setError("请选择 JPG、PNG 或 WEBP 图片。"); setState("error");
-      return;
-    }
     try {
-      const bitmap = await createImageBitmap(nextFile, { imageOrientation: "from-image" });
+      const bitmap = await readAIPhoto(nextFile);
       const width = bitmap.width, height = bitmap.height;
-      const tooLarge = bitmap.width * bitmap.height > 40_000_000;
       bitmap.close();
       if (currentSelection !== selection.current) return;
-      if (tooLarge) { setError("图片分辨率过大，请选择较小的照片。"); setState("error"); return; }
       replacePhoto(nextFile, width, height); setState("idle");
-    } catch {
-      if (currentSelection === selection.current) { setError("无法读取图片，请重新选择有效的商品照片。"); setState("error"); }
+    } catch (problem) {
+      if (currentSelection === selection.current) { setError(failureText(problem)); setState("error"); }
     } finally {
       uploadLock.current = false;
     }
@@ -136,11 +127,15 @@ export default function AISearchWorkspace() {
       recommendations.current?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
     }
     try {
-      const response = await searchVisual(request.file, request.crop ?? undefined, AI_SEARCH_SOURCE, controller.signal);
+      const prepared = await prepareAISearchImage(request.file, request.crop, { signal: controller.signal, sourceSize: { width: session.width, height: session.height } });
+      // Navigation/photo/crop changes during local preparation must never send a
+      // stale paid request. The original File/crop remain the session identity.
+      if (version !== selection.current || controller.signal.aborted || activeRequest.current !== request) return;
+      const response = await searchVisual(prepared.file, undefined, AI_SEARCH_SOURCE, controller.signal);
       if (version !== selection.current || controller.signal.aborted || activeRequest.current !== request) return;
       validateProductionResult(response);
-      if (!sameCrop(response.crop, request.crop)) throw new AISearchSourceError();
-      completeSearch(request, response); setState("success");
+      if (!sameCrop(response.crop, prepared.serverCrop)) throw new AISearchSourceError();
+      completeSearch(request, response, prepared.serverCrop); setState("success");
     } catch (problem) {
       if (version === selection.current && !controller.signal.aborted) { setError(failureText(problem)); setState("error"); }
     } finally {
@@ -214,7 +209,7 @@ export default function AISearchWorkspace() {
         <p className="ai-search-subtitle">上传商品照片，AI 帮助快速找到对应商品。</p>
       </div>
       <Alert type="info" showIcon title="AI推荐仅供找货，请人工确认。" description="请核对商品照片和货号后，再确认商品。" />
-      <ImageUploader ref={uploader} onSelect={selectImage} disabled={busy} hasPhoto={file !== null} />
+      <ImageUploader ref={uploader} onSelect={selectImage} disabled={busy} hasPhoto={file !== null} autoProcess />
       <div className="ai-search-start"><Button type="primary" size="large" icon={<SearchOutlined aria-hidden />} loading={state === "searching"} disabled={!file || busy || drawing} onClick={findProduct}>{crop ? "识别框选商品" : "开始找商品"}</Button><span aria-live="polite">{state === "searching" ? "AI 正在寻找商品..." : state === "uploading" ? "正在读取照片..." : drawing ? "请在原图上框住一个完整商品。" : crop ? "仅识别框内商品；重新框选会清空旧结果。" : "可以直接整图搜索，也可框选单个商品。"}</span></div>
       {error && <Alert type="error" showIcon title={error} description={error.startsWith("请先登录") ? <a href={`${getVisualApiBaseUrl()}/api/visual-search/index/status?source=${AI_SEARCH_SOURCE}`} target="_blank" rel="noreferrer">打开登录页面</a> : undefined} />}
       <section className="ai-search-results" aria-label="识别结果">

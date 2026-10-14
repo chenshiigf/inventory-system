@@ -8,11 +8,12 @@ interface ImageUploaderProps {
   onSelect: (file: File) => Promise<void>;
   disabled?: boolean;
   hasPhoto?: boolean;
+  autoProcess?: boolean;
 }
 
 export interface ImageUploaderHandle { open: () => void; }
 
-const ImageUploader = forwardRef<ImageUploaderHandle, ImageUploaderProps>(function ImageUploader({ onSelect, disabled = false, hasPhoto = false }, ref) {
+const ImageUploader = forwardRef<ImageUploaderHandle, ImageUploaderProps>(function ImageUploader({ onSelect, disabled = false, hasPhoto = false, autoProcess = false }, ref) {
   const input = useRef<HTMLInputElement | null>(null);
   useImperativeHandle(ref, () => ({ open: () => { if (!disabled) input.current?.click(); } }), [disabled]);
   return (
@@ -42,7 +43,7 @@ const ImageUploader = forwardRef<ImageUploaderHandle, ImageUploaderProps>(functi
         <p className="ai-search-upload-hint">建议上传单个商品照片，保持商品主体完整。</p>
         <Button type="primary" icon={<UploadOutlined aria-hidden />} size="large" disabled={disabled}
           onClick={(event) => { event.stopPropagation(); input.current?.click(); }}>选择图片</Button>
-        <p className="ai-search-upload-formats">JPG、PNG、WEBP · 每张不超过 10MB · 选图后点击开始找商品</p>
+        <p className="ai-search-upload-formats">{autoProcess ? "JPG、PNG、WEBP · 大照片自动优化后上传 · 选图后点击开始找商品" : "JPG、PNG、WEBP · 每张不超过 10MB · 选图后点击开始找商品"}</p>
       </Upload.Dragger>
     </Card>
   );

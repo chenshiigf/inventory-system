@@ -99,6 +99,22 @@ function complete(state, request) {
   return sessionTools.searchSessionReducer(state, { type: "complete", request, result: { ...result(), crop: request.crop } });
 }
 
+test("browser-cropped search preserves original crop identity but validates uncropped wire response", () => {
+  let state = sessionTools.searchSessionReducer(photoSession(), { type: "crop", crop: [0.2, 0.1, 0.4, 0.5] });
+  const request = requestFor(state);
+  state = sessionTools.searchSessionReducer(state, { type: "start", request });
+  assert.equal(sessionTools.searchSessionReducer(state, { type: "complete", request, submittedCrop: null, result: { ...result(), crop: request.crop } }), state, "double-cropped response rejected");
+  state = sessionTools.searchSessionReducer(state, { type: "complete", request, submittedCrop: null, result: result() });
+  assert.equal(state.result.query_id, result().query_id);
+  assert.equal(state.result.crop, null, "preserve actual backend record");
+  assert.deepEqual(state.crop, request.crop, "original crop remains available for feedback/re-crop");
+  state = sessionTools.searchSessionReducer(state, { type: "confirm", input: request, queryId: result().query_id, productId: 318 });
+  assert.equal(state.confirmedId, 318);
+  state = sessionTools.searchSessionReducer(state, { type: "crop", crop: null });
+  assert.equal(state.result, null);
+  assert.equal(sessionTools.searchSessionReducer(state, { type: "complete", request, submittedCrop: null, result: result() }), state);
+});
+
 test("single crop replaces previous crop and invalidates result, confirmation and stale input", () => {
   let state = photoSession();
   const file = state.file;

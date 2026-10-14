@@ -10,7 +10,7 @@ interface SessionContext {
   replacePhoto: (file: File | null, width?: number, height?: number) => void;
   setCrop: (crop: CropRegion | null) => void;
   startSearch: (request: SearchRequest) => void;
-  completeSearch: (request: SearchRequest, result: VisualResult) => void;
+  completeSearch: (request: SearchRequest, result: VisualResult, submittedCrop?: CropRegion | null) => void;
   finishSearch: (request: SearchRequest) => void;
   confirmSelection: (input: SearchInput, queryId: string, productId: number) => void;
 }
@@ -35,7 +35,7 @@ export function AISearchSessionProvider({ children }: { children: ReactNode }) {
 
   const setCrop = useCallback((crop: CropRegion | null) => dispatch({ type: "crop", crop }), []);
   const startSearch = useCallback((request: SearchRequest) => dispatch({ type: "start", request }), []);
-  const completeSearch = useCallback((request: SearchRequest, result: VisualResult) => dispatch({ type: "complete", request, result }), []);
+  const completeSearch = useCallback((request: SearchRequest, result: VisualResult, submittedCrop?: CropRegion | null) => dispatch({ type: "complete", request, result, submittedCrop }), []);
   const finishSearch = useCallback((request: SearchRequest) => dispatch({ type: "finish", request }), []);
   const confirmSelection = useCallback((input: SearchInput, queryId: string, productId: number) => dispatch({ type: "confirm", input, queryId, productId }), []);
   const value = useMemo(() => ({ session, replacePhoto, setCrop, startSearch, completeSearch, finishSearch, confirmSelection }),

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from starlette.responses import JSONResponse
 
+from .images import VisualError
 from .lock import CallLock
 
 
@@ -17,10 +18,15 @@ class VisualSearchAdmission:
     indexing, and is acquired before image decoding.
     """
 
-    def __init__(self, app, lock_root: Path):
+    def __init__(self, app, lock_root: Path, *, runtime_switch=None, budget=None,
+                 config=None, configuration_available=True):
         self.app = app
         self._lock = threading.Lock()
         self._process_lock = CallLock(Path(lock_root), filename="http-search-admission.lock")
+        self.runtime_switch = runtime_switch
+        self.budget = budget
+        self.config = config
+        self.configuration_available = configuration_available
 
     async def __call__(self, scope, receive, send):
         if not (
@@ -29,6 +35,21 @@ class VisualSearchAdmission:
             and scope["path"] == "/api/visual-search/search"
         ):
             return await self.app(scope, receive, send)
+
+        try:
+            if not self.configuration_available:
+                raise VisualError("找货服务配置暂不可用，请联系管理员", 503)
+            if self.runtime_switch is None:
+                raise VisualError("AI找货当前已关闭，请联系管理员", 503)
+            self.runtime_switch.require_enabled()
+            if self.config is None or not self.config.api_key:
+                raise VisualError("找货服务暂未配置，请联系管理员", 503)
+            if self.budget is None:
+                raise VisualError("AI每日调用预算尚未配置，已暂停模型请求", 503)
+            self.budget.preflight()
+        except VisualError as error:
+            response = JSONResponse({"detail": error.detail}, status_code=error.status_code)
+            return await response(scope, receive, send)
 
         if not self._lock.acquire(blocking=False):
             return await self._busy(scope, receive, send)

@@ -1,5 +1,6 @@
 """Offline source separation and content reuse; every image/product is synthetic."""
 from dataclasses import replace
+from decimal import Decimal
 import hashlib
 import json
 import socket
@@ -21,6 +22,7 @@ from app.services.visual_search.config import VisualConfig
 from app.services.visual_search.factory import production_service
 from app.services.visual_search.images import VisualError
 from app.services.visual_search.production_catalog import sync_catalog
+from app.services.visual_search.runtime_control import RuntimeSwitch
 from app.services.visual_search.sources import PRODUCTION_ID
 from .test_production_catalog import Backend, photo
 from .test_visual_search import MockProvider, image, migrate
@@ -52,9 +54,12 @@ def production(tmp_path):
     auth = tmp_path / ".htpasswd"
     auth.write_text("admin:" + apr_md5_crypt.hash("mock-password"), encoding="utf8")
     config = VisualConfig(dimension=256, api_key="mock-only", retries=0, interval=.1,
+                          daily_max_calls=100, daily_budget_cny=Decimal("10"), call_reserve_cny=Decimal("0.05"),
                           htpasswd_file=str(auth), admin_users=("admin",))
     provider = MockProvider()
-    service = production_service(tmp_path / "visual-search", config, provider=provider, initialize=True)
+    visual_root = tmp_path / "visual-search"
+    RuntimeSwitch(visual_root).set_enabled(True)
+    service = production_service(visual_root, config, provider=provider, initialize=True)
     provider.record = service.store.record_call
     yield backend, service, provider, sync, tmp_path, config
     service.close()

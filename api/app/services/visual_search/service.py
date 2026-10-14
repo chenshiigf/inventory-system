@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import numpy as np
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from sqlalchemy.orm import Session
 from .config import VisualConfig
 from .images import VisualError, image_hash, prepare_image
 from .provider import DashScopeProvider, normalize
+from .runtime_control import DailyBudgetLedger, RuntimeSwitch
 from .store import VisualStore, now
 from .lock import CallLock
 from .sources import DevelopmentSource
@@ -33,14 +35,19 @@ def rank_candidates(query, gallery, dimension, top_k=5, min_score=0):
 
 
 class VisualService:
-    def __init__(self, root, uploads_root, config: VisualConfig, provider=None, *, source=None, call_lock_root=None):
+    def __init__(self, root, uploads_root, config: VisualConfig, provider=None, *, source=None,
+                 call_lock_root=None, runtime_switch=None, budget=None):
         self.config = config
         self.uploads_root = uploads_root
         self.source = source or DevelopmentSource(uploads_root)
         if self.source.production and config.source_identity != self.source.identity_key:
             raise VisualError("生产图库与索引来源配置不一致", 503)
         self.store = VisualStore(root, config)
-        self.provider = provider or DashScopeProvider(config, self.store.record_call)
+        budget_root = Path(call_lock_root or root).resolve()
+        self.runtime_switch = runtime_switch or RuntimeSwitch(budget_root)
+        self.budget = budget or DailyBudgetLedger(budget_root / "daily-budget.sqlite3", config)
+        self.provider = provider or DashScopeProvider(config, self.store.record_call,
+                                                       budget=self.budget, runtime_switch=self.runtime_switch)
         self.index_guard = None  # Optional local full-run policy; ordinary V0.1 unchanged.
         self.slot = threading.Lock()  # Query and index calls share one paid-call slot.
         self.process_slot = CallLock(call_lock_root or root)
@@ -110,6 +117,8 @@ class VisualService:
         return {
             **self.source.context(),
             "schema_ready": self.store.ready, "api_key_configured": bool(self.config.api_key),
+            "ai_search_enabled": self.runtime_switch.is_enabled(),
+            "daily_budget": self.budget.report(),
             "model": self.config.model, "dimension": self.config.dimension,
             "version": self.config.version, "index_key": self.config.index_key,
             "indexed": len(plan["unchanged"]), "unindexed": len(plan["pending"]),
@@ -145,6 +154,9 @@ class VisualService:
             raise VisualError("生产图库需初始化独立 vs02 索引", 503)
         if not self.config.api_key:
             raise VisualError("尚未配置百炼 API Key，未执行实际索引", 503)
+        if getattr(self.provider, "paid_calls", False):
+            self.runtime_switch.require_enabled()
+            self.budget.preflight()
         if not self._acquire():
             raise VisualError("正在搜索或建立索引，请稍后重试", 409)
         job_id = uuid.uuid4().hex
@@ -248,6 +260,13 @@ class VisualService:
     def _search_locked(self, db, owner, data, crop=None, top_k=5, *, max_image_bytes=None, max_image_pixels=None):
         started = time.perf_counter()
         timing = SearchTiming()
+        if getattr(self.provider, "paid_calls", False):
+            self.runtime_switch.require_enabled()
+            if not self.config.api_key:
+                raise VisualError("尚未配置百炼 API Key，请联系管理员配置后再搜索", 503)
+            if not self.store.ready:
+                raise VisualError("视觉索引尚未初始化，请管理员检查独立索引", 503)
+            self.budget.preflight()
         image_options = {}
         if max_image_bytes is not None:
             image_options["max_bytes"] = max_image_bytes

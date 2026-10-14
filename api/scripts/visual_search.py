@@ -18,7 +18,7 @@ def main():
     parser.add_argument("action", choices=["init", "status", "index", "evaluate"])
     parser.add_argument("--source", choices=["development", "production-catalog"], default="development")
     parser.add_argument("--load-local-env", action="store_true", help="仅在此本地进程读取 api/.env，不输出密钥")
-    parser.add_argument("--no-retries", action="store_true", help="真实小样本关闭付费自动重试")
+    parser.add_argument("--no-retries", action="store_true", help="兼容旧命令；所有付费模型调用都不自动重试")
     parser.add_argument("--confirm-large-batch", action="store_true", help="另行确认超过 10 款的生产图库批次")
     parser.add_argument("--max-items", type=int, default=10)
     parser.add_argument("--execute-paid", action="store_true", help="明确同意本次有限付费调用；默认 dry-run")

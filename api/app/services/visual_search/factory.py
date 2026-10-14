@@ -8,9 +8,11 @@ from .images import VisualError
 from .production_catalog import atomic_json
 from .service import VisualService
 from .sources import ProductionSource
+from .runtime_control import DailyBudgetLedger, RuntimeSwitch
 
 
-def production_service(visual_root, config, *, catalog_root=None, provider=None, initialize=False):
+def production_service(visual_root, config, *, catalog_root=None, provider=None, initialize=False,
+                       runtime_switch=None, budget=None):
     visual_root = Path(visual_root).resolve()
     source = ProductionSource(catalog_root or visual_root / "production-catalog")
     root = visual_root / "production-indices" / source.identity_key
@@ -39,13 +41,17 @@ def production_service(visual_root, config, *, catalog_root=None, provider=None,
         migration.set_main_option("sqlalchemy.url", f"sqlite:///{(root / 'index.db').as_posix()}")
         command.upgrade(migration, "vs02")
     return VisualService(root, None, replace(config, source_identity=source.identity_key), provider,
-                         source=source, call_lock_root=visual_root)
+                         source=source, call_lock_root=visual_root,
+                         runtime_switch=runtime_switch or RuntimeSwitch(visual_root),
+                         budget=budget or DailyBudgetLedger(Path(visual_root) / "daily-budget.sqlite3", config))
 
 
 class VisualSources:
-    def __init__(self, development, root, config, *, catalog_root=None, provider=None):
+    def __init__(self, development, root, config, *, catalog_root=None, provider=None,
+                 runtime_switch=None, budget=None):
         self.development, self.root, self.config = development, root, config
         self.catalog_root, self.provider = catalog_root, provider
+        self.runtime_switch, self.budget = runtime_switch, budget
         self.production = None
         self.lock = threading.Lock()
 
@@ -56,7 +62,9 @@ class VisualSources:
             raise VisualError("未知图库数据源", 422)
         with self.lock:
             if self.production is None:
-                self.production = production_service(self.root, self.config, catalog_root=self.catalog_root, provider=self.provider)
+                self.production = production_service(self.root, self.config, catalog_root=self.catalog_root,
+                                                    provider=self.provider, runtime_switch=self.runtime_switch,
+                                                    budget=self.budget)
                 self.production.slot = self.development.slot
             return self.production
 

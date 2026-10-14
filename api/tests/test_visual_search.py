@@ -5,8 +5,10 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
+from types import SimpleNamespace
 
 from alembic import command
 from alembic.config import Config
@@ -26,6 +28,7 @@ from app.models import Product, ProductPackaging
 from app.services.visual_search.config import VisualConfig
 from app.services.visual_search.images import SEARCH_MAX_BYTES, SEARCH_MAX_PIXELS, VisualError, gallery_image, image_hash, prepare_image
 from app.services.visual_search.provider import DashScopeProvider, Embedding, normalize
+from app.services.visual_search.runtime_control import DailyBudgetLedger, RuntimeSwitch
 from app.services.visual_search.service import VisualService, rank_candidates
 from app.services.visual_search.upload_limit import SEARCH_BODY_MAX_BYTES, VisualUploadLimit
 
@@ -92,8 +95,10 @@ def visual(tmp_path):
     Base.metadata.create_all(engine)
     credentials = tmp_path / ".htpasswd"
     credentials.write_text("admin:" + apr_md5_crypt.hash("test-password") + "\nviewer:" + apr_md5_crypt.hash("viewer-password"), encoding="utf8")
-    config = VisualConfig(dimension=256, api_key="mock-test-only", interval=0.1, htpasswd_file=str(credentials), admin_users=("admin",))
+    config = VisualConfig(dimension=256, api_key="mock-test-only", interval=0.1, htpasswd_file=str(credentials), admin_users=("admin",),
+                          daily_max_calls=100, daily_budget_cny=Decimal("10"), call_reserve_cny=Decimal("0.05"))
     provider = MockProvider()
+    RuntimeSwitch(root).set_enabled(True)
     application = create_app(data_directory=tmp_path, visual_config=config, visual_provider=provider)
     service = application.state.visual_search
     provider.record = service.store.record_call
@@ -307,7 +312,8 @@ def test_crop_matches_pixel_coordinates_and_native_provider_payload(visual):
         assert Image.open(BytesIO(sent)).getpixel((15, 15))[0] > 240
         requests.append(request)
         return httpx.Response(200, json={"output": {"embeddings": [{"embedding": [1] * 256, "type": "vl", "index": 0}]}, "usage": {"input_tokens": 5, "image_tokens": 100, "total_tokens": 105}})
-    provider = DashScopeProvider(service.config, service.store.record_call, httpx.MockTransport(handler))
+    provider = DashScopeProvider(service.config, service.store.record_call, httpx.MockTransport(handler),
+                                 budget=service.budget, runtime_switch=service.runtime_switch)
     assert provider.embed(prepared, "search", "crop-payload").vector.shape == (256,)
     assert len(requests) == 1
 
@@ -324,20 +330,175 @@ def test_dimensions_and_stable_sort():
 def test_auth_all_endpoints_no_paid_calls(visual):
     client, _, _, _, provider = visual
     paths = [("GET", "/index/status"), ("POST", "/index/rebuild"), ("POST", "/feedback"), ("GET", "/queries/unknown/image"), ("GET", "/index/jobs/unknown")]
-    for auth in [None, ("admin", "wrong"), ("viewer", "viewer-password")]:
+    for auth in [None, ("admin", "wrong")]:
         client.auth = auth
         for method, suffix in paths:
             assert client.request(method, "/api/visual-search" + suffix, json={} if method == "POST" else None).status_code == 401
         assert search(client).status_code == 401
+    client.auth = ("viewer", "viewer-password")
+    assert client.get("/api/visual-search/index/status").status_code == 403
+    assert client.post("/api/visual-search/index/rebuild", json={}).status_code == 403
+    # A valid htpasswd account may search without being an index administrator.
+    assert search(client).status_code == 200
     assert provider.calls == 0
+
+
+def test_regular_visual_user_can_search_feedback_and_read_but_not_manage(visual):
+    client, _, _, _, _ = visual
+    product_id = add_product(visual, "red")
+    assert index(visual)["succeeded"] == 1
+    client.auth = ("viewer", "viewer-password")
+    result = search(client).json()
+    assert [candidate["product"]["id"] for candidate in result["candidates"]] == [product_id]
+    assert client.post("/api/visual-search/feedback", json={
+        "query_id": result["query_id"], "selected_product_id": product_id,
+    }).json()["saved"] is True
+    assert client.get(f"/api/visual-search/queries/{result['query_id']}/image").status_code == 200
+    product = client.get(f"/api/visual-search/catalog/products/{product_id}")
+    assert product.status_code == 200 and product.json()["product"]["id"] == product_id
+    assert client.get("/api/visual-search/index/status").status_code == 403
+    assert client.post("/api/visual-search/index/rebuild", json={"dry_run": False, "confirm_paid": True}).status_code == 403
 
 
 def test_bcrypt_htpasswd_and_unconfigured_auth(visual):
     client, service, _, _, _ = visual
+    assert "mock-test-only" not in repr(service.config)
     Path(service.config.htpasswd_file).write_text("admin:" + bcrypt.hashpw(b"test-password", bcrypt.gensalt()).decode(), encoding="utf8")
     assert client.get("/api/visual-search/index/status").status_code == 200
     client.app.state.visual_config = replace(service.config, htpasswd_file="")
     assert client.get("/api/visual-search/index/status").status_code == 503
+
+
+def test_runtime_switch_missing_marker_is_closed(tmp_path):
+    switch = RuntimeSwitch(tmp_path / "visual-search")
+    assert not switch.is_enabled()
+    switch.set_enabled(True)
+    assert switch.is_enabled()
+    switch.enabled_file.write_text("unexpected\n", encoding="ascii")
+    assert not switch.is_enabled()
+
+
+def test_runtime_switch_is_off_by_default_and_changes_without_app_restart(visual, monkeypatch):
+    client, service, _, _, provider = visual
+    prepared = []
+    service_module = __import__("app.services.visual_search.service", fromlist=["prepare_image"])
+    original_prepare = service_module.prepare_image
+
+    def count_prepare(*args, **kwargs):
+        prepared.append(True)
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(service_module, "prepare_image", count_prepare)
+    service.runtime_switch.set_enabled(False)
+    assert client.get("/api/products?page=1&page_size=20").status_code == 200
+    disabled = search(client)
+    assert disabled.status_code == 503
+    assert "已关闭" in disabled.json()["detail"]
+    assert prepared == [] and provider.calls == 0
+
+    # Same live TestClient instance: changing the private marker takes effect immediately.
+    service.runtime_switch.set_enabled(True)
+    assert search(client).status_code == 200
+    assert prepared == [True]
+    service.runtime_switch.set_enabled(False)
+    assert search(client).status_code == 503
+
+
+def test_daily_budget_is_durable_conservative_and_provider_never_retries(visual, tmp_path):
+    _, service, _, _, _ = visual
+    config = replace(service.config, retries=2, daily_max_calls=5,
+                     daily_budget_cny=Decimal("0.05"), call_reserve_cny=Decimal("0.05"))
+    ledger_path = tmp_path / "private" / "daily-budget.sqlite3"
+    ledger = DailyBudgetLedger(ledger_path, config)
+    calls = []
+
+    def handler(_request):
+        calls.append(True)
+        return httpx.Response(503, json={"message": "provider unavailable"})
+
+    provider = DashScopeProvider(config, service.store.record_call, httpx.MockTransport(handler),
+                                 budget=ledger, runtime_switch=service.runtime_switch)
+    with pytest.raises(VisualError) as failure:
+        provider.embed(prepare_image(image()), "search", "budget-failure")
+    assert failure.value.status_code == 502
+    assert len(calls) == 1
+    restarted_ledger = DailyBudgetLedger(ledger_path, config)
+    snapshot = restarted_ledger.snapshot()
+    assert snapshot["call_count"] == 1
+    assert Decimal(snapshot["budgeted_cny"]) == Decimal("0.05")
+    assert snapshot["unknown_calls"] == 1
+    with pytest.raises(VisualError, match="额度已用完"):
+        restarted_ledger.preflight()
+    with pytest.raises(VisualError):
+        provider.embed(prepare_image(image()), "search", "budget-blocked")
+    assert len(calls) == 1
+
+
+def test_budget_survives_app_recreation(tmp_path):
+    from app.services.visual_search.config import visual_directory
+
+    config = VisualConfig(dimension=256, api_key="mock-only", daily_max_calls=4,
+                          daily_budget_cny=Decimal("0.20"), call_reserve_cny=Decimal("0.05"))
+    root = visual_directory(tmp_path)
+    ledger = DailyBudgetLedger(root / "daily-budget.sqlite3", config)
+    reservation = ledger.reserve()
+    ledger.settle(reservation, {}, known=True)
+
+    application = create_app(data_directory=tmp_path, visual_config=config, visual_provider=MockProvider())
+    try:
+        snapshot = application.state.visual_search.budget.snapshot()
+        assert snapshot["call_count"] == 1
+        assert snapshot["unknown_calls"] == 1
+        assert Decimal(snapshot["budgeted_cny"]) == Decimal("0.05")
+    finally:
+        application.state.visual_search.close()
+        application.state.visual_sources.close()
+
+
+def test_missing_or_corrupt_budget_fails_closed_before_provider_call(visual, tmp_path):
+    _, service, _, _, _ = visual
+    config = replace(service.config, daily_max_calls=None, daily_budget_cny=None, call_reserve_cny=None)
+    ledger = DailyBudgetLedger(tmp_path / "budget.sqlite3", config)
+    called = []
+    provider = DashScopeProvider(config, service.store.record_call,
+                                 httpx.MockTransport(lambda _request: called.append(True)),
+                                 budget=ledger, runtime_switch=service.runtime_switch)
+    with pytest.raises(VisualError, match="预算尚未配置"):
+        provider.embed(prepare_image(image()), "search", "no-budget")
+    assert called == [] and not ledger.path.exists()
+
+    valid_config = replace(service.config, daily_max_calls=5,
+                           daily_budget_cny=Decimal("1"), call_reserve_cny=Decimal("0.1"))
+    corrupt = tmp_path / "corrupt.sqlite3"
+    corrupt.write_bytes(b"not a sqlite ledger")
+    broken = DailyBudgetLedger(corrupt, valid_config)
+    with pytest.raises(VisualError, match="费用记录不可用"):
+        broken.preflight()
+
+
+def test_invalid_visual_config_does_not_block_inventory_startup(tmp_path, monkeypatch):
+    from app.services.visual_search.runtime_control import RuntimeSwitch
+
+    monkeypatch.setenv("VISUAL_EMBEDDING_DIMENSION", "invalid")
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    engine = create_engine(f"sqlite:///{(tmp_path / 'business.db').as_posix()}")
+    Base.metadata.create_all(engine)
+    application = create_app(data_directory=tmp_path, visual_config=None)
+
+    def override_db():
+        with Session(engine) as db:
+            yield db
+
+    application.dependency_overrides[get_db] = override_db
+    assert application.state.visual_config_error is True
+    with TestClient(application) as client:
+        assert client.get("/api/products?page=1&page_size=20").status_code == 200
+        RuntimeSwitch(tmp_path / "visual-search").set_enabled(True)
+        response = search(client)
+        assert response.status_code == 503
+        assert "配置暂不可用" in response.json()["detail"]
+    engine.dispose()
 
 
 def test_feedback_rejects_wrong_candidates_and_inactive(visual):
@@ -360,7 +521,21 @@ def test_missing_key_status_dryrun_and_real_request_blocked(visual):
     assert client.get("/api/visual-search/index/status").json()["api_key_configured"] is False
     assert client.post("/api/visual-search/index/rebuild", json={}).status_code == 200
     assert client.post("/api/visual-search/index/rebuild", json={"dry_run": False, "confirm_paid": True}).status_code == 503
+    provider.paid_calls = True
+    assert search(client).status_code == 503
     assert provider.calls == 0
+
+
+def test_missing_visual_index_rejects_before_image_decode_or_model_call(visual, monkeypatch):
+    client, service, _, _, provider = visual
+    provider.paid_calls = True
+    service.store.path.unlink()
+    service_module = __import__("app.services.visual_search.service", fromlist=["prepare_image"])
+    decoded = []
+    monkeypatch.setattr(service_module, "prepare_image", lambda *args, **kwargs: decoded.append(True))
+    response = search(client)
+    assert response.status_code == 503
+    assert decoded == [] and provider.calls == 0
 
 
 def test_concurrency_guard(visual):
@@ -436,8 +611,18 @@ def test_search_admission_does_not_consume_rejected_body_and_releases_on_cancel(
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"ok"})
 
-        middleware = VisualSearchAdmission(downstream, tmp_path)
-        another_worker = VisualSearchAdmission(downstream, tmp_path)
+        class EnabledSwitch:
+            def require_enabled(self):
+                return None
+
+        class ReadyBudget:
+            def preflight(self):
+                return None
+
+        gate_options = {"runtime_switch": EnabledSwitch(), "budget": ReadyBudget(),
+                        "config": SimpleNamespace(api_key="mock-only")}
+        middleware = VisualSearchAdmission(downstream, tmp_path, **gate_options)
+        another_worker = VisualSearchAdmission(downstream, tmp_path, **gate_options)
         scope = {"type": "http", "method": "POST", "path": "/api/visual-search/search", "headers": []}
 
         def make_receive(key):
@@ -634,7 +819,7 @@ def test_separate_migration_rolls_back_only_visual_tables(tmp_path):
     migrate(path)
 
 
-@pytest.mark.parametrize("response_kind", ["success", "legacy_image", "wrong_type", "timeout", "server", "auth", "malformed", "dimension"])
+@pytest.mark.parametrize("response_kind", ["success", "legacy_image", "wrong_type", "timeout", "server", "auth", "malformed", "non_object", "dimension"])
 def test_dashscope_native_contract_usage_timeout_errors(visual, response_kind, monkeypatch):
     _, service, _, _, _ = visual
     calls = []
@@ -652,10 +837,12 @@ def test_dashscope_native_contract_usage_timeout_errors(visual, response_kind, m
             return httpx.Response(503 if response_kind == "server" else 401, json={"message": "private detail"})
         if response_kind == "malformed":
             return httpx.Response(200, json={"output": {}})
+        if response_kind == "non_object":
+            return httpx.Response(200, json=[])
         response_type = "image" if response_kind == "legacy_image" else "text" if response_kind == "wrong_type" else "vl"
         return httpx.Response(200, json={"output": {"embeddings": [{"embedding": [1] * (4 if response_kind == "dimension" else 256), "type": response_type, "index": 0}]}, "usage": {"input_tokens": 5, "image_tokens": 100, "total_tokens": 105}, "request_id": "test"})
-    provider = DashScopeProvider(service.config, service.store.record_call, httpx.MockTransport(handler))
-    monkeypatch.setattr("app.services.visual_search.provider.time.sleep", lambda _: None)
+    provider = DashScopeProvider(service.config, service.store.record_call, httpx.MockTransport(handler),
+                                 budget=service.budget, runtime_switch=service.runtime_switch)
     if response_kind in {"success", "legacy_image"}:
         embedded = provider.embed(prepare_image(image()), "search", "contract")
         assert embedded.vector.shape == (256,) and np.linalg.norm(embedded.vector) == pytest.approx(1)
@@ -667,7 +854,7 @@ def test_dashscope_native_contract_usage_timeout_errors(visual, response_kind, m
     else:
         with pytest.raises(VisualError):
             provider.embed(prepare_image(image()), "search", "contract")
-        assert len(calls) == (2 if response_kind in {"timeout", "server"} else 1)
+        assert len(calls) == 1
         assert service.store.usage_summary("contract")["failed_calls"] == len(calls)
 
 

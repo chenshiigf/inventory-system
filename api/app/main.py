@@ -1,5 +1,6 @@
 from pathlib import Path
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -24,6 +25,23 @@ from app.services.visual_search.service import VisualService
 from app.services.visual_search.factory import VisualSources
 from app.services.visual_search.admission import VisualSearchAdmission
 from app.services.visual_search.upload_limit import VisualUploadLimit
+from app.services.visual_search.runtime_control import DailyBudgetLedger, RuntimeSwitch
+from app.services.visual_search.images import VisualError
+
+logger = logging.getLogger(__name__)
+
+
+class UnavailableVisualService:
+    def close(self):
+        return None
+
+
+class UnavailableVisualSources:
+    def get(self, _name):
+        raise VisualError("找货服务配置暂不可用，请联系管理员", 503)
+
+    def close(self):
+        return None
 
 
 class CachedStaticFiles(StaticFiles):
@@ -69,10 +87,30 @@ def create_app(
 
     sessions = PreviewSessionLifecycle(product_import_root)
     registry = PreviewTaskRegistry(sessions)
-    visual_config = visual_config or VisualConfig.from_env()
-    visual_service = VisualService(visual_directory(data_root), uploads_root, visual_config, visual_provider)
-    visual_sources = VisualSources(visual_service, visual_directory(data_root), visual_config,
-                                   catalog_root=production_catalog_directory, provider=visual_production_provider)
+    visual_root = visual_directory(data_root)
+    visual_config_error = False
+    runtime_switch = RuntimeSwitch(visual_root)
+    budget = None
+    try:
+        visual_config = visual_config if visual_config is not None else VisualConfig.from_env()
+        budget = DailyBudgetLedger(visual_root / "daily-budget.sqlite3", visual_config)
+        visual_service = VisualService(
+            visual_root, uploads_root, visual_config, visual_provider,
+            call_lock_root=visual_root, runtime_switch=runtime_switch, budget=budget,
+        )
+        visual_sources = VisualSources(
+            visual_service, visual_root, visual_config,
+            catalog_root=production_catalog_directory, provider=visual_production_provider,
+            runtime_switch=runtime_switch, budget=budget,
+        )
+    except Exception:
+        # A broken visual-only config/index must never prevent inventory startup.
+        logger.error("Visual search is unavailable because its configuration or local index could not be loaded")
+        visual_config_error = True
+        visual_config = VisualConfig()
+        visual_service = UnavailableVisualService()
+        visual_sources = UnavailableVisualSources()
+        budget = None
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI):
@@ -95,6 +133,7 @@ def create_app(
     application = FastAPI(title="Inventory System API", version="0.1.0", lifespan=lifespan)
     application.state.product_import_preview_tasks = registry
     application.state.visual_config = visual_config
+    application.state.visual_config_error = visual_config_error
     application.state.visual_search = visual_service
     application.state.visual_sources = visual_sources
     application.state.product_import_preview_sessions = sessions
@@ -108,7 +147,14 @@ def create_app(
         allow_methods=["GET", "POST", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "Authorization"],
     )
-    application.add_middleware(VisualSearchAdmission, lock_root=visual_directory(data_root))
+    application.add_middleware(
+        VisualSearchAdmission,
+        lock_root=visual_root,
+        runtime_switch=runtime_switch,
+        budget=budget,
+        config=visual_config,
+        configuration_available=not visual_config_error,
+    )
     application.add_middleware(VisualUploadLimit)
 
     application.include_router(products_router)

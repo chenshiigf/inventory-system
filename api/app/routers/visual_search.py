@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 from starlette.responses import FileResponse
 
 from app.database import get_db
-from app.services.visual_search.auth import require_visual_admin
+from app.services.visual_search.auth import require_visual_admin, require_visual_user
 from app.services.visual_search.images import SEARCH_MAX_BYTES, SEARCH_MAX_PIXELS, VisualError
 
 router = APIRouter(prefix="/api/visual-search", tags=["visual-search"])
 Admin = Annotated[str, Depends(require_visual_admin)]
+User = Annotated[str, Depends(require_visual_user)]
 DB = Annotated[Session, Depends(get_db)]
 SourceName = Literal["development", "production-catalog"]
 
@@ -70,7 +71,7 @@ def index_job(job_id: str, request: Request, admin: Admin, source: SourceName = 
 
 
 @router.post("/search")
-def search(request: Request, db: SourceDB, admin: Admin,
+def search(request: Request, db: SourceDB, admin: User,
            file: Annotated[UploadFile, File()], crop: Annotated[str | None, Form()] = None,
            top_k: Annotated[int, Form(ge=1, le=5)] = 5, source: SourceName = "development"):
     try:
@@ -96,12 +97,12 @@ def search(request: Request, db: SourceDB, admin: Admin,
 
 
 @router.post("/feedback")
-def feedback(payload: FeedbackRequest, request: Request, db: SourceDB, admin: Admin, source: SourceName = "development"):
+def feedback(payload: FeedbackRequest, request: Request, db: SourceDB, admin: User, source: SourceName = "development"):
     return run(lambda: service(request, source).feedback(db, admin, **payload.model_dump()))
 
 
 @router.get("/queries/{query_id}/image")
-def query_image(query_id: str, request: Request, admin: Admin, source: SourceName = "development"):
+def query_image(query_id: str, request: Request, admin: User, source: SourceName = "development"):
     def load():
         store = service(request, source).store
         with store.connection() as connection:
@@ -116,7 +117,7 @@ def query_image(query_id: str, request: Request, admin: Admin, source: SourceNam
 
 
 @router.get("/catalog/products/{product_id}")
-def catalog_product(product_id: int, request: Request, db: SourceDB, admin: Admin, source: SourceName = "development"):
+def catalog_product(product_id: int, request: Request, db: SourceDB, admin: User, source: SourceName = "development"):
     def load():
         if product_id <= 0:
             raise VisualError("商品 ID 无效", 422)
@@ -129,7 +130,7 @@ def catalog_product(product_id: int, request: Request, db: SourceDB, admin: Admi
 
 
 @router.get("/catalog/products/{product_id}/image")
-def catalog_image(product_id: int, request: Request, admin: Admin, source: SourceName = "production-catalog"):
+def catalog_image(product_id: int, request: Request, admin: User, source: SourceName = "production-catalog"):
     def load():
         selected = service(request, source)
         if not selected.source.production or product_id <= 0:

@@ -1,6 +1,8 @@
 """Server-only visual search configuration; no dotenv or secret logging."""
 import os
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
+import math
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -19,7 +21,8 @@ class VisualConfig:
     endpoint: str = ENDPOINT
     api_key: str = field(default="", repr=False)
     timeout: float = 30
-    retries: int = 1
+    # Kept for old local scripts/configs. The paid provider never retries.
+    retries: int = 0
     interval: float = 1
     min_score: float = 0
     htpasswd_file: str = ""
@@ -27,6 +30,9 @@ class VisualConfig:
     allowed_origins: tuple[str, ...] = ("http://localhost:3002", "http://127.0.0.1:3002")
     image_price: float = 0.0018
     text_price: float = 0.0007
+    daily_max_calls: int | None = None
+    daily_budget_cny: Decimal | None = None
+    call_reserve_cny: Decimal | None = None
     source_identity: str = ""  # Set by the gallery factory, never by browser/env input.
 
     def __post_init__(self):
@@ -34,7 +40,9 @@ class VisualConfig:
             raise ValueError("视觉模型维度或超时配置无效")
         if not (0 <= self.retries <= 2 and 0.1 <= self.interval <= 60):
             raise ValueError("视觉模型重试或速率配置无效")
-        if not (-1 <= self.min_score <= 1) or min(self.image_price, self.text_price) < 0:
+        if (not (-1 <= self.min_score <= 1) or
+                not math.isfinite(self.image_price) or not math.isfinite(self.text_price) or
+                min(self.image_price, self.text_price) < 0):
             raise ValueError("相似度阈值或计费配置无效")
         endpoint = urlparse(self.endpoint)
         if endpoint.scheme != "https" or endpoint.username or endpoint.password or endpoint.query:
@@ -45,6 +53,21 @@ class VisualConfig:
             raise ValueError("首版仅启用北京地域；更换地域需核对官方端点和新建索引版本")
         if self.model == "qwen3-vl-embedding" and self.dimension not in {256, 512, 768, 1024, 1536, 2048, 2560}:
             raise ValueError("qwen3-vl-embedding 不支持该维度")
+        if self.daily_max_calls is not None and (type(self.daily_max_calls) is not int or self.daily_max_calls <= 0):
+            raise ValueError("AI每日最大调用次数必须是正整数")
+        for name in ("daily_budget_cny", "call_reserve_cny"):
+            value = getattr(self, name)
+            if value is not None:
+                try:
+                    value = Decimal(str(value))
+                except (InvalidOperation, ValueError) as error:
+                    raise ValueError("AI每日费用预算配置无效") from error
+                if not value.is_finite() or value <= 0:
+                    raise ValueError("AI每日费用预算配置必须是正数")
+                object.__setattr__(self, name, value)
+        if (self.daily_budget_cny is not None and self.call_reserve_cny is not None and
+                self.call_reserve_cny > self.daily_budget_cny):
+            raise ValueError("单次费用预留不能大于每日预算")
 
     @property
     def index_key(self) -> str:
@@ -65,7 +88,7 @@ class VisualConfig:
             endpoint=os.getenv("VISUAL_EMBEDDING_ENDPOINT", ENDPOINT),
             api_key=os.getenv("DASHSCOPE_API_KEY", "").strip(),
             timeout=float(os.getenv("VISUAL_EMBEDDING_TIMEOUT", "30")),
-            retries=int(os.getenv("VISUAL_EMBEDDING_RETRIES", "1")),
+            retries=0,
             interval=float(os.getenv("VISUAL_INDEX_INTERVAL", "1")),
             min_score=float(os.getenv("VISUAL_MIN_SCORE", "0")),
             htpasswd_file=os.getenv("INVENTORY_HTPASSWD_FILE", ""),
@@ -73,6 +96,9 @@ class VisualConfig:
             allowed_origins=tuple(x.strip().rstrip("/") for x in os.getenv("VISUAL_ALLOWED_ORIGINS", "http://localhost:3002,http://127.0.0.1:3002").split(",") if x.strip()),
             image_price=float(os.getenv("VISUAL_IMAGE_PRICE_PER_1K", "0.0018")),
             text_price=float(os.getenv("VISUAL_TEXT_PRICE_PER_1K", "0.0007")),
+            daily_max_calls=(int(os.environ["VISUAL_DAILY_MAX_CALLS"]) if os.getenv("VISUAL_DAILY_MAX_CALLS", "").strip() else None),
+            daily_budget_cny=(Decimal(os.environ["VISUAL_DAILY_BUDGET_CNY"].strip()) if os.getenv("VISUAL_DAILY_BUDGET_CNY", "").strip() else None),
+            call_reserve_cny=(Decimal(os.environ["VISUAL_CALL_RESERVE_CNY"].strip()) if os.getenv("VISUAL_CALL_RESERVE_CNY", "").strip() else None),
         )
 
 

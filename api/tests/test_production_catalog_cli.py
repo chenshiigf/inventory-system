@@ -55,6 +55,47 @@ def test_small_cap_and_conflicting_scope_rejected_before_network(cli, tmp_path):
     assert not backend.requests
 
 
+@pytest.mark.parametrize("limit", [0, 1, 10, 11])
+@pytest.mark.parametrize("all_first", [True, False])
+def test_conflicting_scope_in_either_order_rejected_before_client_creation(cli, tmp_path, monkeypatch, limit, all_first):
+    module, backend = cli
+
+    def forbidden_client(*args, **kwargs):
+        pytest.fail("Conflicting scope must fail before constructing a network client")
+
+    monkeypatch.setattr(module, "CatalogClient", forbidden_client)
+    scope = ["--all", "--limit", str(limit)] if all_first else ["--limit", str(limit), "--all"]
+    with pytest.raises(SystemExit) as error:
+        module.main(["sync", *arguments(tmp_path / "mirror"), *scope, "--expected-total", "2414"])
+    assert error.value.code == 2
+    assert not backend.requests
+    assert not (tmp_path / "mirror").exists()
+
+
+@pytest.mark.parametrize("scope, expected_limit", [
+    ([], 10),
+    (["--limit", "1"], 1),
+    (["--limit", "10"], 10),
+    (["--all", "--expected-total", "2414"], None),
+])
+def test_scope_defaults_preserve_sample_limit_and_dryrun(cli, tmp_path, monkeypatch, capsys, scope, expected_limit):
+    module, backend = cli
+    captured = {}
+
+    def capture_sync(*args, **kwargs):
+        captured.update(kwargs)
+        return {"dry_run": not kwargs["execute"]}
+
+    monkeypatch.setattr(module, "sync_catalog", capture_sync)
+    assert module.main(["sync", *arguments(tmp_path / "mirror"), *scope]) == 0
+    assert captured["limit"] == expected_limit
+    assert captured["execute"] is False
+    assert captured["expected_total"] == (2414 if expected_limit is None else None)
+    assert json.loads(capsys.readouterr().out)["dry_run"] is True
+    assert not backend.requests
+    assert not (tmp_path / "mirror").exists()
+
+
 def test_cli_degraded_images_have_nonzero_exit(cli, tmp_path, capsys):
     module, backend = cli
     backend.images["/uploads/products/main/other.webp"] = b"broken"

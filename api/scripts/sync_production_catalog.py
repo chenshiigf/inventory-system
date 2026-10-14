@@ -24,7 +24,7 @@ def main(argv=None):
     parser.add_argument("--source-id", default="aliyun-inventory-production")
     parser.add_argument("--source-label", default="ecs-8.136.127.226-inventory-system")
     scope = parser.add_mutually_exclusive_group()
-    scope.add_argument("--limit", type=int, default=10)
+    scope.add_argument("--limit", type=int, default=None)
     scope.add_argument("--all", action="store_true", help="单独批准后的全量模式")
     parser.add_argument("--expected-total", type=int)
     parser.add_argument("--execute-download", action="store_true", help="明确批准本次图片下载；默认仅预检")
@@ -33,6 +33,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.all and args.expected_total is None:
         parser.error("--all 还需要 --expected-total；不要在小批量阶段使用")
+    if not args.all and args.limit is None:
+        args.limit = 10
     client = None
     try:
         if args.action == "sync":

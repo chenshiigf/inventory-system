@@ -434,6 +434,61 @@ def test_daily_budget_is_durable_conservative_and_provider_never_retries(visual,
     assert len(calls) == 1
 
 
+def test_unlimited_daily_call_count_stops_only_when_cost_budget_is_exhausted(visual, tmp_path):
+    _, service, _, _, _ = visual
+    config = replace(service.config, retries=0, daily_max_calls=None,
+                     daily_budget_cny=Decimal("0.006"), call_reserve_cny=Decimal("0.003"))
+    ledger_path = tmp_path / "unlimited-count" / "daily-budget.sqlite3"
+    ledger = DailyBudgetLedger(ledger_path, config)
+    requests = []
+
+    def handler(_request):
+        requests.append(True)
+        return httpx.Response(200, json={
+            "output": {"embeddings": [{"embedding": [1] * 256, "type": "vl", "index": 0}]},
+            "usage": {"input_tokens": 0, "image_tokens": 100, "total_tokens": 100},
+        })
+
+    provider = DashScopeProvider(config, service.store.record_call, httpx.MockTransport(handler),
+                                 budget=ledger, runtime_switch=service.runtime_switch)
+    for attempt in range(2):
+        provider.embed(prepare_image(image()), "search", f"unlimited-{attempt}")
+    assert len(requests) == 2
+    assert ledger.report()["daily_max_calls"] is None
+    assert ledger.report()["state"] == "exhausted"
+    with pytest.raises(VisualError, match="额度已用完"):
+        provider.embed(prepare_image(image()), "search", "unlimited-blocked-by-budget")
+    assert len(requests) == 2
+    # The budget is durable across a newly constructed ledger, with no count cap.
+    restarted = DailyBudgetLedger(ledger_path, config)
+    assert restarted.snapshot()["call_count"] == 2
+    assert Decimal(restarted.snapshot()["budgeted_cny"]) == Decimal("0.006")
+
+
+def test_unlimited_daily_budget_resets_by_beijing_day(visual, tmp_path, monkeypatch):
+    _, service, _, _, _ = visual
+    config = replace(service.config, daily_max_calls=None,
+                     daily_budget_cny=Decimal("0.006"), call_reserve_cny=Decimal("0.003"))
+    ledger = DailyBudgetLedger(tmp_path / "cross-day" / "daily-budget.sqlite3", config)
+    current_day = ["2026-10-14"]
+    monkeypatch.setattr(DailyBudgetLedger, "_day", staticmethod(lambda: current_day[0]))
+
+    first = ledger.reserve()
+    ledger.settle(first, {}, known=True)
+    second = ledger.reserve()
+    ledger.settle(second, {}, known=True)
+    with pytest.raises(VisualError, match="额度已用完"):
+        ledger.preflight()
+    assert ledger.snapshot("2026-10-14")["call_count"] == 2
+
+    current_day[0] = "2026-10-15"
+    ledger.preflight()
+    next_day = ledger.reserve()
+    ledger.settle(next_day, {}, known=True)
+    assert ledger.snapshot("2026-10-14")["call_count"] == 2
+    assert ledger.snapshot("2026-10-15")["call_count"] == 1
+
+
 def test_budget_survives_app_recreation(tmp_path):
     from app.services.visual_search.config import visual_directory
 

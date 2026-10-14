@@ -83,18 +83,18 @@ class DailyBudgetLedger:
         self.path = Path(path)
         self.config = config
 
-    def _policy(self) -> tuple[int, Decimal, Decimal]:
+    def _policy(self) -> tuple[int | None, Decimal, Decimal]:
         calls = getattr(self.config, "daily_max_calls", None)
         budget = getattr(self.config, "daily_budget_cny", None)
         reserve = getattr(self.config, "call_reserve_cny", None)
-        if calls is None or budget is None or reserve is None:
+        if budget is None or reserve is None:
             raise VisualError("AI每日调用预算尚未配置，已暂停模型请求", 503)
         try:
             budget = Decimal(str(budget))
             reserve = Decimal(str(reserve))
         except (InvalidOperation, ValueError) as error:
             raise VisualError("AI每日调用预算配置无效，已暂停模型请求", 503) from error
-        if (type(calls) is not int or calls <= 0 or not budget.is_finite() or
+        if ((calls is not None and (type(calls) is not int or calls <= 0)) or not budget.is_finite() or
                 not reserve.is_finite() or budget <= 0 or reserve <= 0 or reserve > budget):
             raise VisualError("AI每日调用预算配置无效，已暂停模型请求", 503)
         return calls, budget, reserve
@@ -162,7 +162,8 @@ class DailyBudgetLedger:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT call_count,budgeted_cny FROM daily_budget WHERE day=?", (self._day(),)).fetchone()
             call_count, budgeted = self._daily_values(row)
-            if call_count >= calls_limit or budgeted + reserve > budget_limit:
+            if ((calls_limit is not None and call_count >= calls_limit) or
+                    budgeted + reserve > budget_limit):
                 raise VisualError("AI今日调用额度已用完，请明天再试或联系管理员", 503)
             db.rollback()
         except VisualError:
@@ -183,7 +184,8 @@ class DailyBudgetLedger:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT call_count,budgeted_cny FROM daily_budget WHERE day=?", (day,)).fetchone()
             call_count, budgeted = self._daily_values(row)
-            if call_count >= calls_limit or budgeted + reserve > budget_limit:
+            if ((calls_limit is not None and call_count >= calls_limit) or
+                    budgeted + reserve > budget_limit):
                 raise VisualError("AI今日调用额度已用完，请明天再试或联系管理员", 503)
             next_count, next_budgeted = call_count + 1, budgeted + reserve
             db.execute("""INSERT INTO daily_budget(day,call_count,budgeted_cny,actual_cny,unknown_calls)
@@ -261,7 +263,7 @@ class DailyBudgetLedger:
             spent = Decimal(current["budgeted_cny"])
             return {
                 "configured": True,
-                "state": "ready" if current["call_count"] < calls_limit and spent + reserve <= budget_limit else "exhausted",
+                "state": "ready" if (calls_limit is None or current["call_count"] < calls_limit) and spent + reserve <= budget_limit else "exhausted",
                 "daily_max_calls": calls_limit,
                 "daily_budget_cny": str(budget_limit),
                 "per_call_reserve_cny": str(reserve),

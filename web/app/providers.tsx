@@ -4,6 +4,7 @@ import { App as AntApp, ConfigProvider } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import type { ReactNode } from "react";
 import { AISearchSessionProvider } from "@/components/ai-search/AISearchSessionProvider";
+import { ProductBatchSelectionProvider } from "@/components/inventory/ProductBatchSelectionProvider";
 
 interface AppProvidersProps {
   children: ReactNode;
@@ -22,7 +23,11 @@ export default function AppProviders({ children }: AppProvidersProps) {
         },
       }}
     >
-      <AntApp><AISearchSessionProvider>{children}</AISearchSessionProvider></AntApp>
+      <AntApp>
+        <AISearchSessionProvider>
+          <ProductBatchSelectionProvider>{children}</ProductBatchSelectionProvider>
+        </AISearchSessionProvider>
+      </AntApp>
     </ConfigProvider>
   );
 }

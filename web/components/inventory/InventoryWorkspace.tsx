@@ -11,6 +11,7 @@ import BatchActionBar, {
   type BatchStatusSelection,
 } from "@/components/inventory/BatchActionBar";
 import BatchStockOutModal from "@/components/inventory/BatchStockOutModal";
+import { useProductBatchSelectionContext } from "@/components/inventory/ProductBatchSelectionProvider";
 import BatchCategoryModal from "@/components/inventory/BatchCategoryModal";
 import BatchQuoteExportModal, {
   type BatchQuoteExportValues,
@@ -36,10 +37,7 @@ import {
 import { listWarehouses } from "@/lib/api/warehouses";
 import { packagingUpdateFields, toInventoryProduct } from "@/lib/inventory-products";
 import { applyRemarkToProducts, applyRemarkUpdatesToResponse, saveProductRemark, type RemarkUpdate } from "@/lib/product-remarks";
-import {
-  MAX_PRODUCT_BATCH_SELECTION,
-  useProductBatchSelection,
-} from "@/hooks/useProductBatchSelection";
+import { MAX_PRODUCT_BATCH_SELECTION } from "@/hooks/useProductBatchSelection";
 import {
   createStockAdjustment,
   createStockMovement,
@@ -150,12 +148,14 @@ export default function InventoryWorkspace({
     useState<InventoryProduct | null>(null);
   const [adjustmentProduct, setAdjustmentProduct] =
     useState<InventoryProduct | null>(null);
-  const [batchMode, setBatchMode] = useState(false);
   const [batchCategoryModalOpen, setBatchCategoryModalOpen] = useState(false);
   const [batchCategorySubmitting, setBatchCategorySubmitting] = useState(false);
   const [batchQuoteModalOpen, setBatchQuoteModalOpen] = useState(false);
   const [batchQuoteSubmitting, setBatchQuoteSubmitting] = useState(false);
-  const [batchStockOutOpen, setBatchStockOutOpen] = useState(false);
+  const [batchStockOut, setBatchStockOut] = useState<{
+    productIds: number[];
+    onCommitted: () => void;
+  } | null>(null);
   const [batchOperationSuccess, setBatchOperationSuccess] = useState<{
     title: string;
     description: string;
@@ -163,6 +163,9 @@ export default function InventoryWorkspace({
   const [messageApi, messageContextHolder] = message.useMessage();
   const { modal } = App.useApp();
   const {
+    batchMode,
+    setBatchMode,
+    captureCompletion,
     selectedProducts,
     selectedProductIds,
     selectedCount,
@@ -170,7 +173,7 @@ export default function InventoryWorkspace({
     addProducts,
     removeProducts,
     clear: clearSelectedProducts,
-  } = useProductBatchSelection();
+  } = useProductBatchSelectionContext();
   const warehouseValue: WarehouseSelection = urlState.warehouseId ?? "all";
   const warehouseId = urlState.warehouseId ?? undefined;
   const categoryValue = useMemo<CategorySelection>(() => {
@@ -209,10 +212,6 @@ export default function InventoryWorkspace({
     }
     return "mixed";
   }, [selectedProducts]);
-  const batchStockOutProductIds = useMemo(
-    () => Array.from(selectedProductIds),
-    [selectedProductIds],
-  );
   const allCurrentPageSelected =
     products.length > 0 && products.every((product) => selectedProductIds.has(product.id));
   const productListHref = useMemo(
@@ -565,6 +564,7 @@ export default function InventoryWorkspace({
   }
 
   async function confirmBatchCategory(categoryId: number) {
+    const completeSelection = captureCompletion();
     setBatchCategorySubmitting(true);
     try {
       const result = await batchUpdateProductCategory(
@@ -572,7 +572,7 @@ export default function InventoryWorkspace({
         categoryId,
       );
       setBatchCategoryModalOpen(false);
-      clearSelection();
+      completeSelection();
       setReloadCounter((value) => value + 1);
       setBatchOperationSuccess({
         title: "批量修改分类成功",
@@ -603,12 +603,13 @@ export default function InventoryWorkspace({
       return;
     }
 
+    const completeSelection = captureCompletion();
     try {
       const result = isActive
         ? await batchActivateProducts(productIds)
         : await batchDeactivateProducts(productIds);
       adjustPageAfterStatusBatch(result.updated_count);
-      clearSelection();
+      completeSelection();
       setReloadCounter((value) => value + 1);
       setBatchOperationSuccess({
         title: isActive ? "批量启用成功" : "批量停用成功",
@@ -935,7 +936,14 @@ export default function InventoryWorkspace({
               removeProducts(products.map((product) => product.id))
             }
             onClearAll={clearSelection}
-            onBatchOutbound={() => setBatchStockOutOpen(true)}
+            onBatchOutbound={() => {
+              const completeSelection = captureCompletion();
+              // Keep this modal's inputs stable when success clears the context.
+              setBatchStockOut({
+                productIds: Array.from(selectedProductIds),
+                onCommitted: () => completeSelection(true),
+              });
+            }}
             onChangeCategory={() => setBatchCategoryModalOpen(true)}
             onExportQuote={() => setBatchQuoteModalOpen(true)}
             onDeactivate={confirmBatchDeactivate}
@@ -1091,15 +1099,14 @@ export default function InventoryWorkspace({
         />
       )}
 
-      {batchStockOutOpen && (
+      {batchStockOut && (
         <BatchStockOutModal
-          open={batchStockOutOpen}
-          productIds={batchStockOutProductIds}
-          onClose={() => setBatchStockOutOpen(false)}
+          open
+          productIds={batchStockOut.productIds}
+          onCommitted={batchStockOut.onCommitted}
+          onClose={() => setBatchStockOut(null)}
           onReturnToInventory={() => {
-            setBatchStockOutOpen(false);
-            clearSelection();
-            setBatchMode(false);
+            setBatchStockOut(null);
             setReloadCounter((value) => value + 1);
           }}
           onViewMovements={() => router.push("/inventory-movements")}

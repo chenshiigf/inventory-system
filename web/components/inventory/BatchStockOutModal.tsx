@@ -26,6 +26,7 @@ import {
 interface BatchStockOutModalProps {
   open: boolean;
   productIds: number[];
+  onCommitted: () => void;
   onClose: () => void;
   onReturnToInventory: () => void;
   onViewMovements: () => void;
@@ -52,6 +53,7 @@ function getErrorMessage(error: unknown): string {
 export default function BatchStockOutModal({
   open,
   productIds,
+  onCommitted,
   onClose,
   onReturnToInventory,
   onViewMovements,
@@ -307,6 +309,7 @@ export default function BatchStockOutModal({
     try {
       await commitBatchStockOut(submittedLines, remark);
       setSuccess(successSummary);
+      onCommitted();
     } catch (error) {
       if (error instanceof ApiResponseError && error.statusCode === 409) {
         setStockConflict(true);

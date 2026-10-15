@@ -166,6 +166,8 @@ function application(overrides = {}) {
   const node = type => find(tree, item => item.type === type);
   const app = {
     api, dialogs, requests, messages, render, node,
+    find: predicate => find(tree, predicate),
+    query: () => new URLSearchParams(search),
     selection: () => selection, ai: () => ai,
     act(callback) { const value = callback(); render(); return value; },
     navigate(next) { page = next; modalProps = null; render(); },
@@ -364,4 +366,113 @@ test("late category/status successes cannot clear a selection changed after navi
     assert.deepEqual(Array.from(app.selection().selectedProductIds), [2]);
     assert.equal(app.selection().batchMode, true);
   }
+});
+
+// Bug 03: exercise the workspace's actual edit/save handlers with its URL state
+// and the root batch-selection provider, without a backend or browser.
+const editRecord = (unit = "pcs") => ({
+  id: 41, product_code: "MOCK-41", is_active: true, category_id: 2, warehouse_id: 3,
+  category_name: "Mock category", warehouse_name: "Mock warehouse", image_path: null,
+  thumbnail_path: null, size: "20x30", unit, price: "1.00", total_carton_count: 20,
+  packagings: [{ id: 410, packing_qty: 24, carton_count: 20, sort_order: 0 }], remark: "Mock remark",
+});
+const editValues = unit => ({
+  categoryPath: [1, 2], warehouseId: 3, imagePath: null, thumbnailPath: null,
+  size: "20x30", unit, price: "1.00", remark: "Mock remark",
+  packagings: [{ id: 410, packingQty: 24, cartonCount: 20 }],
+});
+async function editingApplication(overrides = {}) {
+  const app = application({
+    listProducts: async () => ({ items: [editRecord()], total: 180 }),
+    listWarehouses: async () => [{ id: 3, name: "Mock warehouse" }],
+    listCategories: async () => [{ id: 1, name: "Mock parent", children: [{ id: 2, name: "Mock category", children: [] }] }],
+    ...overrides,
+  });
+  app.act(() => app.node("InventoryToolbar").props.onWarehouseChange(3));
+  app.act(() => app.node("InventoryToolbar").props.onCategoryChange([1, 2]));
+  app.act(() => app.node("InventoryToolbar").props.onSearchChange("MOCK"));
+  app.act(() => app.node("InventoryToolbar").props.onStatusChange("all"));
+  app.act(() => app.node("InventoryToolbar").props.onStockRangeChange(1, 100));
+  app.act(() => app.node("ProductTable").props.onPageChange(1, 50));
+  app.act(() => app.node("ProductTable").props.onPageChange(3, 50));
+  await app.settle();
+  app.act(() => app.node("ProductTable").props.onEdit(app.node("ProductTable").props.products[0]));
+  return app;
+}
+
+for (const [before, after] of [["pcs", "set"], ["set", "pcs"]]) {
+  test(`editing unit ${before} -> ${after} keeps all URL conditions, refreshes the row and preserves batch selection`, async () => {
+    let record = editRecord(before);
+    const app = await editingApplication({
+      listProducts: async () => ({ items: [record], total: 180 }),
+      updateProduct: async (id, payload) => { assert.equal(id, 41); record = { ...record, unit: payload.unit }; return record; },
+    });
+    app.start(); app.select(product(41), product(99));
+    const query = app.query().toString(), snapshots = app.selection().selectedProducts;
+    const listCalls = app.requests.filter(([method]) => method === "listProducts").length;
+    await app.node("ProductEditorModal").props.onSave(editValues(after)); app.render(); await app.settle();
+    assert.equal(app.query().toString(), query);
+    assert.deepEqual(Object.fromEntries(app.query()), {
+      warehouse_id: "3", category_id: "2", status: "all", stock_min: "1", stock_max: "100",
+      search: "MOCK", page: "3", page_size: "50",
+    });
+    const table = app.node("ProductTable").props;
+    assert.equal(table.currentPage, 3); assert.equal(table.pageSize, 50);
+    assert.equal(table.products[0].unit, after);
+    assert.equal(app.requests.filter(([method]) => method === "listProducts").length, listCalls + 1);
+    const latestList = app.requests.filter(([method]) => method === "listProducts").at(-1)[1];
+    assert.deepEqual({ ...latestList }, {
+      page: 3, pageSize: 50, search: "MOCK", categoryId: 2, warehouseId: 3,
+      status: "all", stockMin: 1, stockMax: 100,
+    });
+    const patch = app.requests.find(([method]) => method === "updateProduct")[2];
+    assert.equal(patch.unit, after);
+    assert.equal(Object.hasOwn(patch, "packagings"), false);
+    assert.equal(Object.hasOwn(patch, "carton_count"), false);
+    assert.equal(app.selection().batchMode, true); assert.equal(app.selection().selectedProducts, snapshots);
+    assert.equal(app.node("ProductEditorModal"), undefined);
+  });
+}
+
+test("failed PATCH and cancelled editing keep URL conditions, row data and batch state without reloading", async () => {
+  const app = await editingApplication({ updateProduct: async () => { throw new Error("rejected"); } });
+  app.start(); app.select(product(41));
+  const query = app.query().toString(), listCalls = app.requests.filter(([method]) => method === "listProducts").length;
+  await assert.rejects(app.node("ProductEditorModal").props.onSave(editValues("set")), /rejected/); app.render();
+  assert.ok(app.node("ProductEditorModal"));
+  assert.equal(app.node("ProductTable").props.products[0].unit, "pcs");
+  app.act(() => app.node("ProductEditorModal").props.onCancel());
+  assert.equal(app.query().toString(), query);
+  assert.equal(app.requests.filter(([method]) => method === "listProducts").length, listCalls);
+  assert.equal(app.selection().batchMode, true); assert.equal(app.selection().selectedCount, 1);
+});
+
+test("loading, failed or empty list refresh after editing never resets page or filters", async () => {
+  const app = await editingApplication({ updateProduct: async () => editRecord("set") });
+  const query = app.query().toString(), pending = deferred();
+  app.api.listProducts = () => pending.promise;
+  await app.node("ProductEditorModal").props.onSave(editValues("set")); app.render();
+  assert.equal(app.node("ProductTable").props.loading, true); assert.equal(app.query().toString(), query);
+  pending.reject(new Error("list offline")); await app.settle();
+  assert.equal(app.node("ProductTable").props.products.length, 0); assert.equal(app.query().toString(), query);
+  app.api.listProducts = async () => ({ items: [], total: 180 });
+  const retry = find(app.find(node => node.props?.title === "商品服务暂不可用"), node => node.type === "Button");
+  app.act(() => retry.props.onClick()); await app.settle();
+  assert.equal(app.node("ProductTable").props.products.length, 0); assert.equal(app.query().toString(), query);
+});
+
+test("creation retains its existing search/category/page reset and preserves the remaining list settings", async () => {
+  const app = await editingApplication({ createProduct: async () => editRecord() });
+  app.act(() => app.node("ProductEditorModal").props.onCancel());
+  // The workspace's new-product button is held in PageHeading's action props.
+  const add = find(app.node("PageHeading"), node => node.props?.className === "add-product-button");
+  assert.equal(add.props.disabled, false);
+  app.act(() => add.props.onClick());
+  await app.node("ProductEditorModal").props.onSave(editValues("pcs")); app.render(); await app.settle();
+  assert.deepEqual(Object.fromEntries(app.query()), {
+    warehouse_id: "3", status: "all", stock_min: "1", stock_max: "100", page_size: "50",
+  });
+  assert.equal(app.node("ProductTable").props.currentPage, 1);
+  assert.equal(app.requests.filter(([method]) => method === "createProduct").length, 1);
+  assert.equal(app.requests.some(([method]) => method === "updateProduct"), false);
 });

@@ -743,7 +743,9 @@ export default function InventoryWorkspace({
     setProductEditor(null);
     setFilterCategoriesLoading(true);
     setFilterCategoriesError(null);
-    replaceProductListUrl({ search: "", categoryId: null, page: 1 });
+    if (!productEditor?.product) {
+      replaceProductListUrl({ search: "", categoryId: null, page: 1 });
+    }
     setReloadCounter((value) => value + 1);
     setFilterCategoriesReloadCounter((value) => value + 1);
     messageApi.success(

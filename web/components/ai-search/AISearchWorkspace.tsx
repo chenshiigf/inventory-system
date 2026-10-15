@@ -8,7 +8,7 @@ import { ApiResponseError } from "@/lib/api/client";
 import { getVisualApiBaseUrl } from "@/lib/api/visual-endpoint";
 import { getVisualProduct, saveVisualFeedback, searchVisual } from "@/lib/api/visual-search";
 import { AI_SEARCH_SOURCE, AISearchSourceError, confirmedProductCode, toAISearchProduct, validateProductionDetail, validateProductionResult, type AISearchProduct } from "@/lib/ai-search";
-import { currentSearchInput, type SearchRequest } from "@/lib/ai-search-session";
+import { createSearchRequestId, currentSearchInput, type SearchRequest } from "@/lib/ai-search-session";
 import { sameCrop, validSingleCrop } from "@/lib/image-crop";
 import { AIImageProcessingError, prepareAISearchImage, readAIPhoto } from "@/lib/ai-search-image";
 import type { CropRegion } from "@/lib/api/visual-search";
@@ -115,19 +115,21 @@ export default function AISearchWorkspace() {
 
   async function findProduct() {
     if (!file || drawing || session.activeRequestId !== null || uploadLock.current || searchLock.current || feedbackLock.current || copyLock.current || state === "uploading") return;
-    const input = currentSearchInput(session);
-    if (!input || (input.crop && !validSingleCrop(input.crop, session.width, session.height))) return;
-    const request: SearchRequest = { ...input, requestId: crypto.randomUUID() };
     searchLock.current = true;
     const version = selection.current;
-    const controller = new AbortController();
-    searchController.current = controller;
-    activeRequest.current = request;
-    setState("searching"); setError(null); setCopyError(false); startSearch(request); closeDetail();
-    if (window.matchMedia("(max-width: 800px)").matches) {
-      recommendations.current?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
-    }
+    let request: SearchRequest | null = null;
+    let controller: AbortController | null = null;
     try {
+      const input = currentSearchInput(session);
+      if (!input || (input.crop && !validSingleCrop(input.crop, session.width, session.height))) return;
+      request = { ...input, requestId: createSearchRequestId() };
+      controller = new AbortController();
+      searchController.current = controller;
+      activeRequest.current = request;
+      setState("searching"); setError(null); setCopyError(false); startSearch(request); closeDetail();
+      if (window.matchMedia("(max-width: 800px)").matches) {
+        recommendations.current?.scrollIntoView({ block: "start", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" });
+      }
       const prepared = await prepareAISearchImage(request.file, request.crop, { signal: controller.signal, sourceSize: { width: session.width, height: session.height } });
       // Navigation/photo/crop changes during local preparation must never send a
       // stale paid request. The original File/crop remain the session identity.
@@ -138,10 +140,10 @@ export default function AISearchWorkspace() {
       if (!sameCrop(response.crop, prepared.serverCrop)) throw new AISearchSourceError();
       completeSearch(request, response, prepared.serverCrop); setState("success");
     } catch (problem) {
-      if (version === selection.current && !controller.signal.aborted) { setError(failureText(problem)); setState("error"); }
+      if (version === selection.current && !controller?.signal.aborted) { setError(failureText(problem)); setState("error"); }
     } finally {
       searchLock.current = false;
-      finishSearch(request);
+      if (request) finishSearch(request);
       if (activeRequest.current === request) activeRequest.current = null;
       if (searchController.current === controller) searchController.current = null;
     }

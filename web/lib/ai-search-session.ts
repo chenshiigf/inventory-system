@@ -1,6 +1,13 @@
 import type { CropRegion, VisualResult } from "@/lib/api/visual-search";
 import { sameCrop, validSingleCrop } from "@/lib/image-crop";
 
+let searchRequestSequence = 0;
+
+// Only identifies in-flight work in this page session, never an API query or token.
+export function createSearchRequestId(): string {
+  return `ai-search-${++searchRequestSequence}`;
+}
+
 export interface SearchInput {
   file: File;
   imageVersion: number;

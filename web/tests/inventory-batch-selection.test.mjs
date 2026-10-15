@@ -24,9 +24,9 @@ function find(node, predicate) {
 // In-memory hook/UI harness, following ai-search-http.test.mjs. Runs the actual
 // root providers, selection hook, workspace handlers and stock-out modal. It is
 // not a browser renderer; APIs are mocked and unexpected fetches are forbidden.
-function application(overrides = {}) {
+function application(overrides = {}, initialQuery = "", workspacePath = "components/inventory/InventoryWorkspace.tsx") {
   const modules = new Map(), instances = new Map(), dialogs = [], requests = [], messages = [];
-  let active, seen, effects, tree, selection, ai, page = "inventory", search = "", modalProps = null;
+  let active, seen, effects, tree, selection, ai, page = "inventory", search = initialQuery, modalProps = null;
   const api = {
     listProducts: async () => ({ items: [], total: 0 }),
     listCategories: async () => [], listWarehouses: async () => [],
@@ -73,8 +73,9 @@ function application(overrides = {}) {
     },
   };
   const message = Object.fromEntries(["error", "warning", "success"].map(name => [name, text => messages.push([name, text])]));
-  const ui = Object.fromEntries(["Alert", "Button", "Segmented", "Modal", "Table", "InputNumber", "ConfigProvider"].map(name => [name, name]));
+  const ui = Object.fromEntries(["Alert", "Button", "Segmented", "Modal", "Table", "InputNumber", "ConfigProvider", "Card", "Select", "Tag", "Tooltip", "Empty"].map(name => [name, name]));
   ui.Input = { TextArea: "TextArea" };
+  ui.DatePicker = { RangePicker: "RangePicker" };
   ui.Typography = { Title: "Title", Text: "Text" };
   ui.App = Object.assign("AntApp", { useApp: () => ({ message, modal: { confirm: config => dialogs.push(config) } }) });
   ui.message = { ...message, useMessage: () => [message, null] };
@@ -126,7 +127,7 @@ function application(overrides = {}) {
     return compiledModule.exports;
   }
   const Root = load("app/providers.tsx").default;
-  const Workspace = load("components/inventory/InventoryWorkspace.tsx").default;
+  const Workspace = load(workspacePath).default;
   const StockOut = load("components/inventory/BatchStockOutModal.tsx").default;
   function Probe() {
     selection = load("components/inventory/ProductBatchSelectionProvider.tsx").useProductBatchSelectionContext();
@@ -381,7 +382,7 @@ const editValues = unit => ({
   size: "20x30", unit, price: "1.00", remark: "Mock remark",
   packagings: [{ id: 410, packingQty: 24, cartonCount: 20 }],
 });
-async function editingApplication(overrides = {}) {
+async function editingApplication(overrides = {}, pageSize = 50) {
   const app = application({
     listProducts: async () => ({ items: [editRecord()], total: 180 }),
     listWarehouses: async () => [{ id: 3, name: "Mock warehouse" }],
@@ -393,8 +394,8 @@ async function editingApplication(overrides = {}) {
   app.act(() => app.node("InventoryToolbar").props.onSearchChange("MOCK"));
   app.act(() => app.node("InventoryToolbar").props.onStatusChange("all"));
   app.act(() => app.node("InventoryToolbar").props.onStockRangeChange(1, 100));
-  app.act(() => app.node("ProductTable").props.onPageChange(1, 50));
-  app.act(() => app.node("ProductTable").props.onPageChange(3, 50));
+  app.act(() => app.node("ProductTable").props.onPageChange(1, pageSize));
+  app.act(() => app.node("ProductTable").props.onPageChange(3, pageSize));
   await app.settle();
   app.act(() => app.node("ProductTable").props.onEdit(app.node("ProductTable").props.products[0]));
   return app;
@@ -475,4 +476,46 @@ test("creation retains its existing search/category/page reset and preserves the
   assert.equal(app.node("ProductTable").props.currentPage, 1);
   assert.equal(app.requests.filter(([method]) => method === "createProduct").length, 1);
   assert.equal(app.requests.some(([method]) => method === "updateProduct"), false);
+});
+
+for (const [query, pageSize] of [["", 100], ["page_size=20", 20], ["page_size=50", 50], ["page_size=100", 100]]) {
+  test(`/products${query ? `?${query}` : ""} keeps UI/API page size ${pageSize} through filters, gallery and batch navigation`, async () => {
+    const app = application({}, query);
+    assert.equal(app.node("ProductTable").props.pageSize, pageSize);
+    assert.equal(app.requests.find(([method]) => method === "listProducts")[1].pageSize, pageSize);
+    app.start(); app.select(product(1), product(21));
+    app.act(() => app.node("InventoryToolbar").props.onCategoryChange([1, 2]));
+    app.act(() => app.node("InventoryToolbar").props.onSearchChange("Mock"));
+    app.act(() => app.node("Segmented").props.onChange("gallery"));
+    assert.equal(app.node("ProductGallery").props.pageSize, pageSize);
+    assert.equal(app.query().get("page_size"), pageSize === 100 ? null : String(pageSize));
+    assert.equal(app.query().get("category_id"), "2"); assert.equal(app.query().get("search"), "Mock");
+    assert.ok(app.requests.filter(([method]) => method === "listProducts").every(([, params]) => params.pageSize === pageSize));
+    app.navigate("ai"); app.navigate("inventory"); await app.settle();
+    assert.equal(app.selection().batchMode, true); assert.equal(app.selection().selectedCount, 2);
+    assert.equal(app.node("ProductGallery").props.pageSize, pageSize);
+  });
+}
+
+for (const pageSize of [20, 50, 100]) {
+  test(`editing a product keeps the selected page size ${pageSize}`, async () => {
+    const app = await editingApplication({
+      updateProduct: async () => editRecord("set"),
+      listProducts: async () => ({ items: [editRecord("set")], total: 500 }),
+    }, pageSize);
+    await app.node("ProductEditorModal").props.onSave(editValues("set")); app.render(); await app.settle();
+    assert.equal(app.node("ProductTable").props.pageSize, pageSize);
+    assert.equal(app.node("ProductTable").props.currentPage, 3);
+    assert.equal(app.query().get("page_size"), pageSize === 100 ? null : String(pageSize));
+    assert.equal(app.requests.filter(([method]) => method === "listProducts").at(-1)[1].pageSize, pageSize);
+  });
+}
+
+test("inventory movements retains its own 20-row UI and API default", async () => {
+  const app = application({
+    listInventoryMovements: async () => ({ items: [], total: 0, page: 1, page_size: 20 }),
+  }, "", "components/inventory/InventoryMovementsWorkspace.tsx");
+  await app.settle();
+  assert.equal(app.node("Table").props.pagination.pageSize, 20);
+  assert.equal(app.requests.find(([method]) => method === "listInventoryMovements")[1].pageSize, 20);
 });

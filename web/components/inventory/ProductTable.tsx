@@ -137,6 +137,11 @@ export default function ProductTable({
         return (
           <div className="product-code-cell">
             {productCode}
+            {product.originalProductCode && (
+              <span className="product-original-code" title={`原货号：${product.originalProductCode}`}>
+                {product.originalProductCode}
+              </span>
+            )}
             {!product.isActive && (
               <Tag className="product-status-tag" color="default">
                 已停用

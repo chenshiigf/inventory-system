@@ -714,6 +714,7 @@ export default function InventoryWorkspace({
     }
 
     const editableFields = {
+      original_product_code: values.originalProductCode.trim() || null,
       category_id: categoryId,
       warehouse_id: values.warehouseId,
       image_path: values.imagePath,

@@ -24,7 +24,7 @@ function find(node, predicate) {
 // In-memory hook/UI harness, following ai-search-http.test.mjs. Runs the actual
 // root providers, selection hook, workspace handlers and stock-out modal. It is
 // not a browser renderer; APIs are mocked and unexpected fetches are forbidden.
-function application(overrides = {}, initialQuery = "", workspacePath = "components/inventory/InventoryWorkspace.tsx") {
+function application(overrides = {}, initialQuery = "", workspacePath = "components/inventory/InventoryWorkspace.tsx", workspaceProps = {}) {
   const modules = new Map(), instances = new Map(), dialogs = [], requests = [], messages = [];
   let active, seen, effects, tree, selection, ai, page = "inventory", search = initialQuery, modalProps = null;
   const api = {
@@ -73,7 +73,7 @@ function application(overrides = {}, initialQuery = "", workspacePath = "compone
     },
   };
   const message = Object.fromEntries(["error", "warning", "success"].map(name => [name, text => messages.push([name, text])]));
-  const ui = Object.fromEntries(["Alert", "Button", "Segmented", "Modal", "Table", "InputNumber", "ConfigProvider", "Card", "Select", "Tag", "Tooltip", "Empty"].map(name => [name, name]));
+  const ui = Object.fromEntries(["Alert", "Button", "Segmented", "Modal", "Table", "InputNumber", "ConfigProvider", "Card", "Select", "Tag", "Tooltip", "Empty", "Spin", "Image"].map(name => [name, name]));
   ui.Input = { TextArea: "TextArea" };
   ui.DatePicker = { RangePicker: "RangePicker" };
   ui.Typography = { Title: "Title", Text: "Text" };
@@ -110,6 +110,7 @@ function application(overrides = {}, initialQuery = "", workspacePath = "compone
       if (name === "antd/locale/zh_CN") return {};
       if (name === "@ant-design/icons") return new Proxy({}, { get: (_, key) => String(key) });
       if (name === "next/navigation") return { useRouter: () => router, useSearchParams: () => new URLSearchParams(search) };
+      if (name === "next/link") return { default: "Link" };
       if (["@/lib/api/products", "@/lib/api/categories", "@/lib/api/warehouses", "@/lib/api/inventory-movements"].includes(name)) {
         return new Proxy({}, { get: (_, method) => (...args) => {
           requests.push([method, ...args]);
@@ -155,7 +156,7 @@ function application(overrides = {}, initialQuery = "", workspacePath = "compone
   }
   function render() {
     seen = new Set(); effects = [];
-    tree = resolve(jsx(Root, { children: [jsx(Probe), page === "inventory" ? jsx(Workspace) : "AI / other page",
+    tree = resolve(jsx(Root, { children: [jsx(Probe), page === "inventory" ? jsx(Workspace, workspaceProps) : "AI / other page",
       modalProps ? jsx(StockOut, modalProps) : null] }), "root");
     for (const [key, instance] of instances) {
       if (!seen.has(key)) { instance.hooks.forEach(hook => hook?.cleanup?.()); instances.delete(key); }
@@ -372,12 +373,13 @@ test("late category/status successes cannot clear a selection changed after navi
 // Bug 03: exercise the workspace's actual edit/save handlers with its URL state
 // and the root batch-selection provider, without a backend or browser.
 const editRecord = (unit = "pcs") => ({
-  id: 41, product_code: "MOCK-41", is_active: true, category_id: 2, warehouse_id: 3,
+  id: 41, product_code: "MOCK-41", original_product_code: null, is_active: true, category_id: 2, warehouse_id: 3,
   category_name: "Mock category", warehouse_name: "Mock warehouse", image_path: null,
   thumbnail_path: null, size: "20x30", unit, price: "1.00", total_carton_count: 20,
   packagings: [{ id: 410, packing_qty: 24, carton_count: 20, sort_order: 0 }], remark: "Mock remark",
 });
 const editValues = unit => ({
+  originalProductCode: "",
   categoryPath: [1, 2], warehouseId: 3, imagePath: null, thumbnailPath: null,
   size: "20x30", unit, price: "1.00", remark: "Mock remark",
   packagings: [{ id: 410, packingQty: 24, cartonCount: 20 }],
@@ -518,4 +520,58 @@ test("inventory movements retains its own 20-row UI and API default", async () =
   await app.settle();
   assert.equal(app.node("Table").props.pagination.pageSize, 20);
   assert.equal(app.requests.find(([method]) => method === "listInventoryMovements")[1].pageSize, 20);
+});
+
+for (const input of [" 2677-35 ", "  "]) {
+  test(`list editing sends original code ${JSON.stringify(input)} without changing list or batch state`, async () => {
+    let record = { ...editRecord(), original_product_code: "before" };
+    const app = await editingApplication({
+      listProducts: async () => ({ items: [record], total: 180 }),
+      updateProduct: async (_id, payload) => { record = { ...record, ...payload }; return record; },
+    });
+    assert.equal(app.node("ProductEditorModal").props.product.originalProductCode, "before");
+    app.start(); app.select(product(41), product(99));
+    const query = app.query().toString(), selection = app.selection().selectedProducts;
+    await app.node("ProductEditorModal").props.onSave({ ...editValues("pcs"), originalProductCode: input });
+    app.render(); await app.settle();
+    const payload = app.requests.find(([method]) => method === "updateProduct")[2];
+    assert.equal(payload.original_product_code, input.trim() || null);
+    assert.equal(Object.hasOwn(payload, "packagings"), false);
+    assert.equal(app.node("ProductTable").props.products[0].originalProductCode, input.trim() || null);
+    assert.equal(app.query().toString(), query);
+    assert.equal(app.selection().selectedProducts, selection);
+  });
+
+  test(`detail editing displays and sends original code ${JSON.stringify(input)}`, async () => {
+    let record = { ...editRecord(), original_product_code: "before" };
+    const app = application({
+      getProduct: async () => record,
+      listInventoryMovements: async () => ({ items: [], total: 0 }),
+      updateProduct: async (_id, payload) => { record = { ...record, ...payload }; return record; },
+    }, "", "components/inventory/ProductDetailWorkspace.tsx", { productId: "41" });
+    await app.settle();
+    const display = () => app.find(node => node.props?.className === "product-detail-original-code").props.children[1].props.children;
+    assert.equal(display(), "before");
+    const edit = app.find(node => node.type === "Button" && node.props?.icon?.type === "EditOutlined");
+    app.act(() => edit.props.onClick()); await app.settle();
+    assert.equal(app.node("ProductEditorModal").props.product.originalProductCode, "before");
+    await app.node("ProductEditorModal").props.onSave({ ...editValues("pcs"), originalProductCode: input });
+    app.render(); await app.settle();
+    const payload = app.requests.find(([method]) => method === "updateProduct")[2];
+    assert.equal(payload.original_product_code, input.trim() || null);
+    assert.equal(Object.hasOwn(payload, "packagings"), false);
+    assert.equal(display(), input.trim() || "—");
+  });
+}
+
+test("new product sends original code through the existing creation path", async () => {
+  const app = await editingApplication({ createProduct: async () => editRecord() });
+  app.act(() => app.node("ProductEditorModal").props.onCancel());
+  const add = find(app.node("PageHeading"), node => node.props?.className === "add-product-button");
+  app.act(() => add.props.onClick());
+  await app.node("ProductEditorModal").props.onSave({ ...editValues("pcs"), originalProductCode: " 2677-35 " });
+  const payload = app.requests.find(([method]) => method === "createProduct")[1];
+  assert.equal(payload.original_product_code, "2677-35");
+  assert.equal(Object.hasOwn(payload, "product_code"), false);
+  assert.deepEqual(Array.from(payload.packagings, row => ({ ...row })), [{ packing_qty: 24 }]);
 });

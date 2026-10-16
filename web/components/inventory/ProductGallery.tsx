@@ -148,7 +148,10 @@ export default function ProductGallery({
               </div>
               <div className="product-gallery-content">
                 <div className="product-gallery-meta">
-                  <span className="product-gallery-code" title={product.productCode ?? "—"}>{product.productCode ?? "—"}</span>
+                  <span className="product-gallery-code" title={`${product.productCode ?? "—"}${product.originalProductCode ? `（${product.originalProductCode}）` : ""}`}>
+                    <span className="product-gallery-code-primary">{product.productCode ?? "—"}</span>
+                    {product.originalProductCode && <span className="product-gallery-code-secondary">（{product.originalProductCode}）</span>}
+                  </span>
                   <span className="product-gallery-stock">
                     <strong>{product.totalCartonCount}</strong>
                     <span>箱</span>

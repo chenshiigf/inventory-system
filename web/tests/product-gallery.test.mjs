@@ -18,7 +18,7 @@ const text = node => node === null || node === undefined || typeof node === "boo
   : typeof node !== "object" ? String(node)
   : Array.isArray(node) ? node.map(text).join("") : text(node.props?.children);
 const product = (quantities = [18], unit = "pcs") => ({
-  id: 41, productCode: "01-01-001", isActive: true, size: "SIZE-MUST-NOT-SHOW",
+  id: 41, productCode: "01-01-001", originalProductCode: null, isActive: true, size: "SIZE-MUST-NOT-SHOW",
   price: "987.65", unit, totalCartonCount: 123, imagePath: "/mock/main.jpg", thumbnailPath: "/mock/thumb.jpg",
   packagings: quantities.map((packingQty, i) => ({ id: i + 1, packingQty, sortOrder: i, cartonCount: 5 })),
 });
@@ -95,6 +95,20 @@ test("stock and lazy thumbnail props remain unchanged; inactive cards keep their
   assert.equal(image.props.width, 320); assert.equal(image.props.height, 220);
   assert.equal(card.nodes("product-gallery-actions").length, 0);
   assert.equal(text(card.nodes("product-gallery-packing")[0]), "18 pcs/箱");
+});
+
+test("gallery original codes use secondary parentheses, hide empty values and retain full hover text", () => {
+  for (const originalProductCode of [null, "", "2677-35", "LONG-".repeat(20)]) {
+    const p = { ...product(), originalProductCode };
+    const card = gallery([p]);
+    const expected = p.productCode + (originalProductCode ? `（${originalProductCode}）` : "");
+    assert.equal(text(card.nodes("product-gallery-code")[0]), expected);
+    assert.equal(card.nodes("product-gallery-code")[0].props.title, expected);
+    assert.equal(text(card.nodes("product-gallery-code-primary")[0]), p.productCode);
+    assert.equal(card.nodes("product-gallery-code-secondary").length, originalProductCode ? 1 : 0);
+    assert.equal(text(card.nodes("product-gallery-stock")[0]), "123箱");
+    assert.equal(card.nodes("product-gallery-actions").length, 1);
+  }
 });
 
 test("details, stock buttons, keyboard and batch checkbox retain their original event paths", () => {

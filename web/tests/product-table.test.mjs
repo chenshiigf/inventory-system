@@ -26,9 +26,11 @@ const text = node => node == null || typeof node === "boolean" ? ""
   : Array.isArray(node) ? node.map(text).join("") : text(node.props?.children);
 function render(product) {
   return exports.default({ products: [product], total: 1, loading: false, batchMode: false,
-    selectedIds: new Set(), currentPage: 1, pageSize: 100 }).props.columns;
+    selectedIds: new Set(), currentPage: 1, pageSize: 100,
+    getProductDetailHref: id => `/products/detail?id=${id}`, onBeforeProductDetail() {} }).props.columns;
 }
 const product = quantities => ({ id: 1, unit: "set", totalCartonCount: 37,
+  productCode: "02-01-220", originalProductCode: null, isActive: true,
   packagings: quantities.map((packingQty, i) => ({ id: i + 1, packingQty, sortOrder: i, cartonCount: 10 + i })) });
 
 test("table keeps single, empty and unknown packing quantities unchanged", () => {
@@ -36,6 +38,24 @@ test("table keeps single, empty and unknown packing quantities unchanged", () =>
     const p = product(quantities);
     const column = render(p).find(item => item.key === "packagings");
     assert.equal(text(column.render(undefined, p)), expected);
+  }
+});
+
+test("original code stays below the unchanged product link, hides empty values and offers full hover text", () => {
+  for (const originalProductCode of [null, "", "2677-35", "LONG-".repeat(20)]) {
+    const p = { ...product([18]), originalProductCode };
+    const columns = render(p);
+    const codeColumn = columns.find(item => item.key === "productCode");
+    assert.equal(codeColumn.width, 120);
+    assert.equal(columns.some(item => item.key === "originalProductCode"), false);
+    const cell = codeColumn.render(p.productCode, p);
+    const children = cell.props.children;
+    assert.equal(text(children[0]), p.productCode);
+    if (originalProductCode) {
+      assert.equal(children[1].props.className, "product-original-code");
+      assert.equal(text(children[1]), originalProductCode);
+      assert.equal(children[1].props.title, `原货号：${originalProductCode}`);
+    } else assert.ok(!children[1]);
   }
 });
 

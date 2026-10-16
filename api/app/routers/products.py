@@ -98,6 +98,7 @@ def list_products(
         filters.append(
             or_(
                 Product.product_code.ilike(pattern),
+                Product.original_product_code.ilike(pattern),
                 Product.size.ilike(pattern),
                 Product.remark.ilike(pattern),
             )

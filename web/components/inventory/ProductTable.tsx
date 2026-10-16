@@ -102,7 +102,6 @@ export default function ProductTable({
       <Popover title="包装规格" content={details} trigger="hover">
         <span className="packaging-summary" tabIndex={0}>
           <span className="table-secondary-value">{summary}</span>
-          <span className="packaging-summary-count">{packagings.length}种包装</span>
         </span>
       </Popover>
     );
@@ -151,7 +150,7 @@ export default function ProductTable({
       title: "商品图片",
       dataIndex: "imagePath",
       key: "image",
-      width: 120,
+      width: 164,
       render: (_imagePath, product) => {
         const image = (
           <ProductImage
@@ -159,8 +158,8 @@ export default function ProductTable({
             imagePath={product.imagePath}
             thumbnailPath={product.thumbnailPath}
             alt={`${product.productCode ?? (product.size || "商品")}商品图片`}
-            width={108}
-            height={82}
+            width={140}
+            height={108}
             loading="lazy"
             hoverPreview
             enablePreview={false}
@@ -339,6 +338,7 @@ export default function ProductTable({
       dataSource={products}
       loading={loading}
       tableLayout="fixed"
+      scroll={{ x: batchMode ? 1104 : 1072 }}
       rowSelection={rowSelection}
       pagination={getPaginationConfig(
         currentPage,

@@ -1,4 +1,5 @@
-.ai-search-workspace { display: flex; flex-direction: column; gap: 20px; }
+.ai-search-workspace { display: flex; width: 100%; flex-direction: column; gap: 20px; }
+.ai-search-heading-group .page-heading { min-height: 36px; }
 .ai-search-workspace .page-heading { margin-bottom: 8px; }
 .ai-search-subtitle { margin: 0; color: var(--text-secondary); font-size: 15px; line-height: 1.7; }
 .ai-search-start { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }

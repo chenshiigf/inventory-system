@@ -29,7 +29,7 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", sans-serif;
-  font-size: 14px;
+  font-size: 16px;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -112,15 +112,10 @@ textarea {
 
 .inventory-sidebar .ant-menu-item {
   width: 100%;
-  height: 42px;
   margin: 0 0 5px;
   padding-inline: 13px !important;
   color: #535d6d;
   border-radius: 6px;
-}
-
-.inventory-sidebar .ant-menu-item .ant-menu-item-icon {
-  font-size: 17px;
 }
 
 .inventory-sidebar .ant-menu-item-selected {
@@ -159,6 +154,7 @@ textarea {
 }
 
 .inventory-page,
+.ai-search-workspace,
 .inventory-movements-page,
 .categories-page,
 .warehouse-page,
@@ -205,9 +201,16 @@ textarea {
 
 .inventory-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 9px;
+  gap: 12px;
   margin-bottom: 11px;
+}
+
+.inventory-page .inventory-toolbar > .ant-select,
+.inventory-page .inventory-toolbar > .ant-input-affix-wrapper,
+.inventory-page .inventory-toolbar > .ant-btn {
+  height: 40px;
 }
 
 .inventory-load-error {
@@ -306,7 +309,7 @@ textarea {
 }
 
 .inventory-search.ant-input-affix-wrapper {
-  flex: 1 1 300px;
+  flex: 1 1 220px;
 }
 
 .toolbar-result-count {
@@ -650,7 +653,7 @@ textarea {
 .product-gallery-card {
   display: flex;
   min-width: 0;
-  min-height: 276px;
+  min-height: 292px;
   flex-direction: column;
   overflow: hidden;
   background: #fff;
@@ -746,11 +749,12 @@ textarea {
 .product-gallery-content {
   display: grid;
   min-width: 0;
-  height: 84px;
-  flex: 0 0 84px;
-  grid-template-rows: 24px 18px 24px;
-  row-gap: 2px;
-  padding: 7px 12px;
+  /* Three fixed rows keep actions aligned even with missing or long data. */
+  height: 100px;
+  flex: 0 0 100px;
+  grid-template-rows: 26px 22px 28px;
+  row-gap: 4px;
+  padding: 8px 12px;
 }
 
 .product-gallery-meta {
@@ -767,7 +771,8 @@ textarea {
   overflow: hidden;
   color: #40516d;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 16px;
+  line-height: 22px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -781,8 +786,8 @@ textarea {
   min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: 16px;
+  line-height: 22px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -793,13 +798,13 @@ textarea {
   align-items: baseline;
   gap: 4px;
   color: #536179;
-  font-size: 12px;
+  font-size: 14px;
   white-space: nowrap;
 }
 
 .product-gallery-stock strong {
   color: var(--accent-color);
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -814,7 +819,7 @@ textarea {
 .product-gallery-actions .ant-btn {
   min-width: 42px;
   padding-inline: 4px;
-  font-size: 12px;
+  font-size: 16px;
 }
 
 .product-gallery-pagination {
@@ -833,7 +838,7 @@ textarea {
 }
 
 .product-gallery-skeleton-card {
-  min-height: 276px;
+  min-height: 292px;
   overflow: hidden;
   border: 1px solid #edf0f4;
   border-radius: 8px;
@@ -891,9 +896,10 @@ textarea {
 .product-code-value,
 .product-code-empty {
   display: block;
+  max-width: 100%;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 12px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -929,26 +935,47 @@ textarea {
 }
 
 .inventory-table .ant-table-container table {
-  width: 100% !important;
-  min-width: 100% !important;
+  min-width: 100%;
 }
 
 .inventory-table .ant-table-thead > tr > th {
-  height: 42px;
-  padding: 8px 10px !important;
+  height: 52px;
+  padding: 10px !important;
   color: #626d7d;
   background: #fafbfc;
   border-bottom: 1px solid #e9ecf1;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .inventory-table .ant-table-tbody > tr > td {
-  height: 100px;
-  padding: 6px 10px !important;
+  height: 128px;
+  padding: 8px 10px !important;
   border-bottom: 1px solid #eef0f3;
-  font-size: 13px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.inventory-table .product-code-value,
+.inventory-table .product-code-empty,
+.inventory-table .table-secondary-value,
+.inventory-table .table-price,
+.inventory-table .table-note-value {
+  font-size: 16px;
+}
+
+/* Full text stays reachable while the image and 128px row stay unchanged. */
+.inventory-table .table-secondary-value,
+.inventory-table .table-price,
+.inventory-table .table-note-value {
+  display: block;
+  min-width: 0;
+  max-height: 96px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
 }
 
 .inventory-table .ant-table-tbody > tr:last-child > td {
@@ -1003,6 +1030,17 @@ textarea {
   display: block;
   width: 108px;
   height: 82px;
+}
+
+.inventory-table .product-image-frame {
+  width: 142px;
+  height: 110px;
+}
+
+.inventory-table .product-image-trigger,
+.inventory-table .product-image-frame .ant-image {
+  width: 140px;
+  height: 108px;
 }
 
 .product-image-popover-trigger {
@@ -1612,12 +1650,6 @@ textarea {
   outline-offset: 2px;
 }
 
-.packaging-summary-count {
-  color: #8b93a1;
-  font-size: 11px;
-  white-space: nowrap;
-}
-
 .packaging-popover-content {
   display: flex;
   flex-direction: column;
@@ -1632,7 +1664,7 @@ textarea {
   display: block;
   overflow: hidden;
   color: #697386;
-  font-size: 12px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1681,7 +1713,7 @@ textarea {
 
 .product-row-actions .ant-btn {
   padding-inline: 3px;
-  font-size: 12px;
+  font-size: 16px;
 }
 
 .inventory-table .ant-pagination {
@@ -1693,7 +1725,7 @@ textarea {
 .inventory-table .ant-pagination-total-text {
   margin-inline-end: auto;
   color: #7b8493;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .stock-product-summary {
@@ -1855,7 +1887,7 @@ textarea {
   display: block;
   margin-bottom: 7px;
   color: #4f5b6d;
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
@@ -1886,12 +1918,11 @@ textarea {
 }
 
 .product-editor-info-column .ant-form-item {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 .product-editor-info-column .ant-form-item-label > label {
   color: #4f5b6d;
-  font-size: 13px;
 }
 
 .product-editor-compact-grid .ant-form-item {
@@ -2229,6 +2260,13 @@ textarea {
   border-bottom: 1px solid #eaedf1;
 }
 
+.inventory-movements-page .inventory-movements-filter-row > .ant-input-affix-wrapper,
+.inventory-movements-page .inventory-movements-filter-row > .ant-select,
+.inventory-movements-page .inventory-movements-filter-row > .ant-picker,
+.inventory-movements-page .inventory-movements-filter-row > .ant-btn {
+  height: 40px;
+}
+
 .inventory-movements-search {
   flex: 1 1 230px;
   min-width: 230px;
@@ -2263,22 +2301,49 @@ textarea {
 }
 
 .inventory-movements-page-table .ant-table-thead > tr > th {
-  height: 42px;
-  padding: 8px 10px !important;
+  height: 52px;
+  padding: 10px !important;
   color: #626d7d;
   background: #fafbfc;
   border-bottom: 1px solid #e9ecf1;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 600;
   white-space: nowrap;
 }
 
 .inventory-movements-page-table .ant-table-tbody > tr > td {
-  height: 72px;
+  height: 96px;
   padding: 8px 10px !important;
   border-bottom: 1px solid #eef0f3;
-  font-size: 13px;
+  font-size: 16px;
+  line-height: 24px;
+  overflow-wrap: anywhere;
   vertical-align: middle;
+}
+
+.inventory-movements-page-table .product-code-value,
+.inventory-movements-page-table .product-code-empty,
+.inventory-movements-page-table .inventory-movement-tag {
+  font-size: 16px;
+}
+
+.inventory-movements-page-table .inventory-movement-tag {
+  padding-inline: 4px;
+  line-height: 24px;
+}
+
+.inventory-movements-page-table .inventory-movement-time,
+.inventory-movements-page-table .inventory-movement-delta {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.inventory-movements-page-table .inventory-movement-remark {
+  max-height: 72px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  text-overflow: clip;
 }
 
 .inventory-movements-page-table .ant-table-tbody > tr:hover > td {
@@ -2297,8 +2362,8 @@ textarea {
 
 .inventory-movement-image {
   display: grid;
-  width: 52px;
-  height: 52px;
+  width: 70px;
+  height: 70px;
   place-items: center;
   overflow: hidden;
   background: #f8f9fb;
@@ -2308,8 +2373,8 @@ textarea {
 
 .inventory-movement-image .ant-image {
   display: block;
-  width: 50px;
-  height: 50px;
+  width: 68px;
+  height: 68px;
 }
 
 .inventory-movement-image .ant-image-img {
@@ -2321,8 +2386,8 @@ textarea {
 }
 
 .inventory-movement-image .product-image-empty {
-  width: 50px;
-  height: 50px;
+  width: 68px;
+  height: 68px;
   justify-content: center;
   font-size: 0;
 }

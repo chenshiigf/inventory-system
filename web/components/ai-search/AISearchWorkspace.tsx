@@ -207,7 +207,7 @@ export default function AISearchWorkspace() {
 
   return (
     <div className="ai-search-workspace" data-search-state={state}>
-      <div>
+      <div className="ai-search-heading-group">
         <PageHeading title="AI 找货助手" />
         <p className="ai-search-subtitle">上传商品照片，AI 帮助快速找到对应商品。</p>
       </div>

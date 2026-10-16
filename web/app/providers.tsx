@@ -18,8 +18,15 @@ export default function AppProviders({ children }: AppProvidersProps) {
         token: {
           colorPrimary: "#002FA7",
           borderRadius: 6,
+          fontSize: 16,
+          controlHeight: 36,
+          controlHeightSM: 28,
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
+        },
+        components: {
+          Menu: { itemHeight: 44, iconSize: 18 },
+          Form: { labelFontSize: 15 },
         },
       }}
     >

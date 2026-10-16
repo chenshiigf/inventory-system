@@ -158,6 +158,7 @@ class ProductCreate(BaseModel):
 
     category_id: CategoryId | None = None
     warehouse_id: WarehouseId | None = None
+    original_product_code: str | None = Field(default=None, max_length=100)
     image_path: str | None = Field(default=None, max_length=500)
     thumbnail_path: str | None = Field(default=None, max_length=500)
     size: ProductSize = ""
@@ -165,6 +166,11 @@ class ProductCreate(BaseModel):
     unit: ProductUnit | None = None
     price: ProductPrice | None = None
     remark: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("original_product_code", mode="before")
+    @classmethod
+    def normalize_original_product_code(cls, value: object) -> object:
+        return value.strip() or None if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def validate_unique_packagings(self) -> "ProductCreate":
@@ -194,6 +200,7 @@ class ProductUpdate(BaseModel):
 
     category_id: CategoryId | None = None
     warehouse_id: WarehouseId | None = None
+    original_product_code: str | None = Field(default=None, max_length=100)
     image_path: str | None = Field(default=None, max_length=500)
     thumbnail_path: str | None = Field(default=None, max_length=500)
     size: ProductSize | None = None
@@ -204,12 +211,18 @@ class ProductUpdate(BaseModel):
     price: ProductPrice | None = None
     remark: str | None = Field(default=None, max_length=2000)
 
+    @field_validator("original_product_code", mode="before")
+    @classmethod
+    def normalize_original_product_code(cls, value: object) -> object:
+        return value.strip() or None if isinstance(value, str) else value
+
     @model_validator(mode="after")
     def validate_patch(self) -> "ProductUpdate":
         if not self.model_fields_set:
             raise ValueError("At least one product field must be provided")
 
         nullable_fields = {
+            "original_product_code",
             "category_id",
             "warehouse_id",
             "image_path",
@@ -252,6 +265,7 @@ class ProductRead(BaseModel):
     category_id: int | None
     warehouse_id: int | None
     product_code: str | None
+    original_product_code: str | None
     is_active: bool
     image_path: str | None
     thumbnail_path: str | None

@@ -8,6 +8,7 @@ export interface AISearchProduct {
   productId: number;
   productKey: string;
   productCode: string;
+  originalProductCode?: string | null;
   productName: string;
   image: string | null;
   size: string;
@@ -41,6 +42,7 @@ function validateProduct(value: unknown): asserts value is VisualProduct {
     || typeof value.is_active !== "boolean" || typeof value.source_present !== "boolean"
     || typeof value.synced_at !== "string" || !Number.isFinite(Date.parse(value.synced_at))
     || (value.product_name !== undefined && !nullableText(value.product_name))
+    || (value.original_product_code !== undefined && !nullableText(value.original_product_code))
     || !Array.isArray(value.packagings)) throw new AISearchSourceError();
   if (value.image_path !== null && value.image_path !== `/api/visual-search/catalog/products/${value.id}/image?source=${AI_SEARCH_SOURCE}`) throw new AISearchSourceError();
   if (value.image_path !== null && (typeof value.image_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(value.image_sha256))) throw new AISearchSourceError();
@@ -92,6 +94,7 @@ export function toAISearchProduct(product: VisualProduct): AISearchProduct {
     productId: product.id,
     productKey: product.product_key!,
     productCode: product.product_code?.trim() || "货号未填写",
+    originalProductCode: product.original_product_code?.trim() || null,
     productName: product.product_name?.trim() || product.product_code?.trim() || "商品资料",
     image: product.image_path ? `${getVisualApiBaseUrl()}${product.image_path}` : null,
     size: product.size || "尺寸未填写",

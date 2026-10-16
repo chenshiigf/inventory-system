@@ -308,6 +308,7 @@ export default function ProductDetailWorkspace({
     }
 
     const updatePayload: ProductUpdatePayload = {
+      original_product_code: values.originalProductCode.trim() || null,
       category_id: categoryId,
       warehouse_id: values.warehouseId,
       image_path: values.imagePath,
@@ -487,6 +488,10 @@ export default function ProductDetailWorkspace({
                 <div className="product-detail-code-block">
                   <span className="product-detail-eyebrow">商品编号</span>
                   <strong>{displayValue(product.productCode)}</strong>
+                  <div className="product-detail-original-code">
+                    <span>原货号</span>
+                    <span>{displayValue(product.originalProductCode)}</span>
+                  </div>
                 </div>
                 <div className="product-detail-stock-block">
                   <span className="product-detail-eyebrow">当前库存</span>

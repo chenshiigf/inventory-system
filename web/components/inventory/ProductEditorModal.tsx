@@ -121,6 +121,7 @@ export default function ProductEditorModal({
     try {
       await onSave({
         ...values,
+        originalProductCode: values.originalProductCode.trim(),
         size: values.size.trim(),
         remark: values.remark.trim(),
       });
@@ -182,6 +183,7 @@ export default function ProductEditorModal({
           initialValues={
             product
               ? {
+                  originalProductCode: product.originalProductCode ?? "",
                   categoryPath,
                   warehouseId: product.warehouseId ?? undefined,
                   imagePath: product.imagePath,
@@ -197,6 +199,7 @@ export default function ProductEditorModal({
                   remark: product.remark,
                 }
               : {
+                  originalProductCode: "",
                   categoryPath: [],
                   warehouseId: defaultWarehouseId,
                   imagePath: null,
@@ -296,6 +299,9 @@ export default function ProductEditorModal({
                   />
                 </Form.Item>
               </div>
+              <Form.Item name="originalProductCode" label="原货号">
+                <Input allowClear maxLength={100} placeholder="选填，可修改或清空" />
+              </Form.Item>
               <Form.Item
                 name="categoryPath"
                 label="商品分类"

@@ -4,6 +4,7 @@ import { getVisualApiBaseUrl } from "@/lib/api/visual-endpoint";
 
 export type VisualSource = "development" | "production-catalog";
 export type VisualProduct = Pick<ProductApiRecord, "id" | "product_code" | "image_path" | "thumbnail_path" | "category_id" | "warehouse_id" | "category_name" | "warehouse_name" | "size" | "unit" | "is_active"> & {
+  original_product_code?: ProductApiRecord["original_product_code"];
   source_id?: string;
   product_key?: string;
   source_present?: boolean;

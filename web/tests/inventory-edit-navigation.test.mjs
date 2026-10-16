@@ -20,7 +20,30 @@ function load(relative) {
 }
 const { packagingUpdateFields } = load("lib/inventory-products.ts");
 const { selectedNavigationKey } = load("lib/navigation.ts");
+const { DEFAULT_PRODUCT_LIST_STATE, parseProductListState, buildProductListHref } = load("lib/product-list-state.ts");
 const original = [{ id: 41, packingQty: 24, cartonCount: 121, sortOrder: 0 }, { id: 42, packingQty: 144, cartonCount: 0, sortOrder: 1 }];
+
+test("product list defaults to 100 and preserves explicit 20/50/100 through URL round trips", () => {
+  assert.equal(DEFAULT_PRODUCT_LIST_STATE.pageSize, 100);
+  assert.equal(parseProductListState().pageSize, 100);
+  assert.equal(buildProductListHref(DEFAULT_PRODUCT_LIST_STATE), "/products");
+  for (const pageSize of [20, 50, 100]) {
+    const state = parseProductListState(new URLSearchParams({ page_size: String(pageSize) }));
+    assert.equal(state.pageSize, pageSize);
+    assert.equal(parseProductListState({ page_size: String(pageSize) }).pageSize, pageSize);
+    const href = buildProductListHref(state);
+    assert.equal(href, pageSize === 100 ? "/products" : `/products?page_size=${pageSize}`);
+    assert.equal(parseProductListState(new URL(href, "http://mock.local").searchParams).pageSize, pageSize);
+  }
+});
+
+test("missing or invalid product page sizes use 100 without changing other list conditions", () => {
+  for (const pageSize of [undefined, "", "0", "-1", "30", "abc", "100.5"]) {
+    const state = parseProductListState({ page_size: pageSize, category_id: "2", search: "Mock", page: "3" });
+    assert.equal(state.pageSize, 100);
+    assert.equal(state.categoryId, 2); assert.equal(state.search, "Mock"); assert.equal(state.page, 3);
+  }
+});
 
 test("actual installed Ant Design form submission drops unregistered ID and preserves registered ID", () => {
   const editor = readFileSync(path.join(root, "components/inventory/ProductEditorModal.tsx"), "utf8");

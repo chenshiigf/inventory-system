@@ -64,6 +64,7 @@ export default function AISearchWorkspace() {
   const busy = state === "uploading" || state === "searching" || session.activeRequestId !== null || confirmingId !== null || copying;
   const candidates = result?.candidates.map((c) => ({ product: toAISearchProduct(c.product), score: c.similarity })) ?? [];
   const primary = candidates[0];
+  const confirmedProduct = candidates.find((c) => c.product.productId === confirmedId)?.product;
   const copyCode = confirmedProductCode(result, confirmedId);
 
   useEffect(() => () => {
@@ -207,7 +208,7 @@ export default function AISearchWorkspace() {
 
   return (
     <div className="ai-search-workspace" data-search-state={state}>
-      <div>
+      <div className="ai-search-heading-group">
         <PageHeading title="AI 找货助手" />
         <p className="ai-search-subtitle">上传商品照片，AI 帮助快速找到对应商品。</p>
       </div>
@@ -244,7 +245,7 @@ export default function AISearchWorkspace() {
             <p className="ai-search-query-note">找到后，请核对商品照片和货号。</p>
           </div></Card> : primary ? <>
             <SearchResultCard product={primary.product} confirmed={confirmedId === primary.product.productId} confirming={confirmingId === primary.product.productId} disabled={busy} onConfirm={() => confirmProduct(primary.product.productId)} onRestart={chooseAnotherPhoto} onDetails={() => showDetails(primary.product)} />
-            {confirmedId !== null && <Alert type="success" showIcon title={`已确认商品：${candidates.find((c) => c.product.productId === confirmedId)?.product.productCode ?? confirmedId}`} description={<div className="ai-search-copy-code"><Button icon={<CopyOutlined aria-hidden />} type="primary" loading={copying} disabled={!copyCode || busy || drawing} onClick={copyProductCode}>复制货号</Button><span>{copyCode ? "复制后可自行到库存系统搜索并出库。" : "该商品未提供货号，无法复制。"}</span>{copyError && copyCode && <Input aria-label="手动复制货号" readOnly value={copyCode} onFocus={(event: FocusEvent<HTMLInputElement>) => event.currentTarget.select()} />}</div>} />}
+            {confirmedId !== null && <Alert type="success" showIcon title={`已确认商品：${confirmedProduct?.productCode ?? confirmedId}`} description={<div className="ai-search-copy-code">{confirmedProduct?.originalProductCode && <span className="ai-search-confirmed-original-code">原货号：{confirmedProduct.originalProductCode}</span>}<Button icon={<CopyOutlined aria-hidden />} type="primary" loading={copying} disabled={!copyCode || busy || drawing} onClick={copyProductCode}>复制货号</Button><span>{copyCode ? "复制后可自行到库存系统搜索并出库。" : "该商品未提供货号，无法复制。"}</span>{copyError && copyCode && <Input aria-label="手动复制货号" readOnly value={copyCode} onFocus={(event: FocusEvent<HTMLInputElement>) => event.currentTarget.select()} />}</div>} />}
             {candidates.length > 1 && <SimilarProducts key={result!.query_id} products={candidates.slice(1)} disabled={busy} onDetails={showDetails} />}
           </> : state === "success" ? <Card title="匹配结果"><div className="ai-search-no-match">
             <Empty description="没有找到匹配商品" />

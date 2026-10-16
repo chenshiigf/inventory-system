@@ -71,6 +71,7 @@ export interface ProductApiRecord {
   category_name?: string | null;
   warehouse_name?: string | null;
   product_code: string | null;
+  original_product_code: string | null;
   is_active: boolean;
   image_path: string | null;
   thumbnail_path: string | null;
@@ -101,6 +102,7 @@ export interface ProductQuoteExportPayload {
 }
 
 export interface ProductCreatePayload {
+  original_product_code: string | null;
   category_id: number;
   warehouse_id: number;
   image_path: string | null;
@@ -127,6 +129,7 @@ export interface InventoryPackaging {
 export interface InventoryProduct {
   id: number;
   productCode: string | null;
+  originalProductCode: string | null;
   isActive: boolean;
   categoryId: number | null;
   warehouseId: number | null;
@@ -214,6 +217,7 @@ export interface ProductPackagingFormValue {
 }
 
 export interface ProductEditorFormValues {
+  originalProductCode: string;
   imagePath: string | null;
   thumbnailPath: string | null;
   categoryPath: number[];

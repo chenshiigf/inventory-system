@@ -18,6 +18,7 @@ export function toInventoryProduct(product: ProductApiRecord): InventoryProduct 
   return {
     id: product.id,
     productCode: product.product_code,
+    originalProductCode: product.original_product_code,
     isActive: product.is_active,
     categoryId: product.category_id,
     warehouseId: product.warehouse_id,

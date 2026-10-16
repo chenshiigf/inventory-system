@@ -285,9 +285,12 @@ def test_batch_deleted_id_rolls_back_an_earlier_valid_item(context):
         assert db.scalar(select(InventoryMovement.id)) is None
 
 
-def migration_revisions():
+def migration_revisions(through=None):
     config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    return list(reversed(list(ScriptDirectory.from_config(config).walk_revisions())))
+    revisions = list(reversed(list(ScriptDirectory.from_config(config).walk_revisions())))
+    if through is not None:
+        revisions = revisions[:next(i for i, row in enumerate(revisions) if row.revision == through) + 1]
+    return revisions
 
 
 def seed_legacy_rows(connection):
@@ -314,15 +317,16 @@ def test_migration_preserves_existing_rows_links_constraints_and_prevents_reuse(
         with engine.begin() as connection:
             context = MigrationContext.configure(connection)
             revisions = migration_revisions()
+            identity_index = next(i for i, row in enumerate(revisions) if row.revision == "b2c3d4e5f6a7")
             with Operations.context(context):
-                for revision in revisions[:-1]:
+                for revision in revisions[:identity_index]:
                     revision.module.upgrade()
-                assert revisions[-1].revision == "b2c3d4e5f6a7"
                 if populated:
                     seed_legacy_rows(connection)
                 rows_before = connection.execute(text("SELECT * FROM product_packagings")).all()
                 movements_before = connection.execute(text("SELECT * FROM inventory_movements")).all()
-                revisions[-1].module.upgrade()
+                for revision in revisions[identity_index:]:
+                    revision.module.upgrade()
             assert connection.execute(text("SELECT * FROM product_packagings")).all() == rows_before
             assert connection.execute(text("SELECT * FROM inventory_movements")).all() == movements_before
             ddl = connection.scalar(text("SELECT sql FROM sqlite_master WHERE name = 'product_packagings'"))
@@ -344,7 +348,7 @@ def test_migration_preserves_existing_rows_links_constraints_and_prevents_reuse(
 
 def test_failed_migration_rolls_back_rebuild_and_history_links(monkeypatch):
     engine = create_engine("sqlite://")
-    revisions = migration_revisions()
+    revisions = migration_revisions("b2c3d4e5f6a7")
     try:
         with engine.begin() as connection:
             with Operations.context(MigrationContext.configure(connection)):

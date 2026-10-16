@@ -25,7 +25,8 @@ export default function SearchResultCard({ product, confirmed, confirming, disab
         <div className="ai-search-product-info">
           <h2>{product.productName}</h2>
           <dl className="ai-search-product-fields">
-            <div><dt>货号</dt><dd className="ai-search-product-code">{product.productCode}</dd></div>
+            <div><dt>自家货号</dt><dd className="ai-search-product-code">{product.productCode}</dd></div>
+            {product.originalProductCode && <div><dt>原货号</dt><dd>{product.originalProductCode}</dd></div>}
             <div><dt>尺寸</dt><dd>{product.size}</dd></div>
             <div><dt>包装规格</dt><dd>{formatAISearchPackaging(product)}</dd></div>
             <div><dt>所属仓库</dt><dd>{product.warehouse}</dd></div>

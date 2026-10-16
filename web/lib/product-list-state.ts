@@ -23,7 +23,7 @@ export const DEFAULT_PRODUCT_LIST_STATE: ProductListState = {
   stockMax: null,
   search: "",
   page: 1,
-  pageSize: 20,
+  pageSize: 100,
 };
 
 type ProductListSearchParams = Record<string, string | string[] | undefined>;
@@ -69,9 +69,10 @@ function parseNonNegativeInteger(value: string | undefined): number | null {
 function parseAllowedInteger(
   value: string | undefined,
   allowed: readonly number[],
+  fallback: number,
 ): number {
   const parsed = parsePositiveInteger(value);
-  return parsed !== null && allowed.includes(parsed) ? parsed : allowed[0];
+  return parsed !== null && allowed.includes(parsed) ? parsed : fallback;
 }
 
 export function parseProductListState(
@@ -119,6 +120,7 @@ export function parseProductListState(
     pageSize: parseAllowedInteger(
       getSearchParam(source ?? {}, "page_size"),
       [20, 50, 100],
+      DEFAULT_PRODUCT_LIST_STATE.pageSize,
     ),
   };
 }
@@ -149,7 +151,7 @@ export function buildProductListQuery(state: ProductListState): string {
   if (state.page !== 1) {
     query.set("page", String(state.page));
   }
-  if (state.pageSize !== 20) {
+  if (state.pageSize !== DEFAULT_PRODUCT_LIST_STATE.pageSize) {
     query.set("page_size", String(state.pageSize));
   }
   return query.toString();

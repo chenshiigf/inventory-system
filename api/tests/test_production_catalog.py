@@ -150,6 +150,22 @@ def test_dry_run_does_not_create_directory_or_download(fixture):
     assert all(not r.url.path.startswith("/uploads") for r in backend.requests)
 
 
+@pytest.mark.parametrize("extra, expected", [
+    ({}, None),
+    ({"original_product_code": None}, None),
+    ({"original_product_code": "2677-35"}, "2677-35"),
+    ({"original_product_code": "X" * 100}, "X" * 100),
+])
+def test_original_code_enters_mirror_and_old_api_is_compatible(fixture, extra, expected):
+    backend, root = fixture
+    backend.products[0].update(extra)
+    report = run(backend, root)
+    assert report["ai_calls"] == 0
+    row = mirror(root).get(SOURCE, 1)
+    assert row["original_product_code"] == expected
+    assert row["product_code"] == "MOCK-1"
+
+
 def test_sample_limit_and_full_pagination(fixture):
     backend, root = fixture
     backend.products = [product(i) for i in range(1, 102)]

@@ -26,6 +26,16 @@ function getProductLabel(product: InventoryProduct): string {
   return product.productCode ?? (product.size.trim() || "商品详情");
 }
 
+function getPackingSummary(product: InventoryProduct): string {
+  if (!product.packagings.some((packaging) => packaging.packingQty !== null)) {
+    return "—";
+  }
+  const quantities = [...product.packagings]
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map((packaging) => packaging.packingQty ?? "—");
+  return `${quantities.join(" / ")} ${product.unit ?? "—"}/箱`;
+}
+
 function stopCardInteraction(event: SyntheticEvent) {
   event.stopPropagation();
 }
@@ -81,6 +91,7 @@ export default function ProductGallery({
       <div className="product-gallery-grid" aria-label="商品画廊">
         {products.map((product) => {
           const label = getProductLabel(product);
+          const packingSummary = getPackingSummary(product);
           const selected = selectedIds.has(product.id);
           return (
             <article
@@ -137,12 +148,16 @@ export default function ProductGallery({
               </div>
               <div className="product-gallery-content">
                 <div className="product-gallery-meta">
-                  <span className="product-gallery-code">{product.productCode ?? "—"}</span>
+                  <span className="product-gallery-code" title={`${product.productCode ?? "—"}${product.originalProductCode ? `（${product.originalProductCode}）` : ""}`}>
+                    <span className="product-gallery-code-primary">{product.productCode ?? "—"}</span>
+                    {product.originalProductCode && <span className="product-gallery-code-secondary">（{product.originalProductCode}）</span>}
+                  </span>
                   <span className="product-gallery-stock">
                     <strong>{product.totalCartonCount}</strong>
                     <span>箱</span>
                   </span>
                 </div>
+                <div className="product-gallery-packing" title={packingSummary}>{packingSummary}</div>
                 {product.isActive && (
                   <div className="product-gallery-actions">
                     <Button

@@ -4,6 +4,7 @@ from decimal import Decimal
 import hashlib
 import json
 import socket
+import sqlite3
 import importlib.util
 from pathlib import Path
 import sys
@@ -23,7 +24,7 @@ from app.services.visual_search.factory import production_service
 from app.services.visual_search.images import VisualError
 from app.services.visual_search.production_catalog import sync_catalog
 from app.services.visual_search.runtime_control import RuntimeSwitch
-from app.services.visual_search.sources import PRODUCTION_ID
+from app.services.visual_search.sources import DevelopmentSource, ProductionSource, PRODUCTION_ID
 from .test_production_catalog import Backend, photo
 from .test_visual_search import MockProvider, image, migrate
 
@@ -95,7 +96,9 @@ def test_namespace_shared_vectors_and_idempotent_index(production):
 
 
 def test_search_details_image_and_feedback_never_read_colliding_development_id(production):
-    _, service, provider, _, root, config = production
+    backend, service, provider, sync, root, config = production
+    backend.products[0]["original_product_code"] = "2677-35"
+    sync()
     build(service)
     # The development ID 1 deliberately refers to a different blue product.
     engine = create_engine(f"sqlite:///{(root / 'mock-business.db').as_posix()}")
@@ -124,11 +127,13 @@ def test_search_details_image_and_feedback_never_read_colliding_development_id(p
         assert [c["product"]["id"] for c in body["candidates"]] == [1, 2, 3]
         product = body["candidates"][0]["product"]
         assert product["product_code"] == "MOCK-1" and product["product_key"] == PRODUCTION_ID + ":1"
+        assert product["original_product_code"] == "2677-35"
         assert product["packagings"][0]["packing_qty"] == 24
         assert "price" not in product and "carton_count" not in product["packagings"][0]
         assert client.get(product["image_path"]).content == service.source.raw(service.source.get(None, 1))
         detail = client.get("/api/visual-search/catalog/products/1" + prefix).json()
         assert detail["product"]["product_key"] == product["product_key"]
+        assert detail["product"]["original_product_code"] == "2677-35"
         query = body["query_id"]
         assert client.get(f"/api/visual-search/queries/{query}/image" + prefix).status_code == 200
         feedback = {"query_id": query, "selected_product_id": 2}
@@ -145,6 +150,64 @@ def test_search_details_image_and_feedback_never_read_colliding_development_id(p
         assert client.get("/api/visual-search/index/status?source=unknown").status_code == 422
     assert (root / "mock-business.db").read_bytes() == before
     engine.dispose()
+
+
+def test_original_code_metadata_updates_preserve_vectors_and_ranking(production):
+    backend, service, provider, sync, _, _ = production
+    # Simulate legacy JSON documents in this temporary SQLite mirror.
+    rows = service.source.mirror.products()
+    with sqlite3.connect(service.source.mirror.path) as db:
+        for row in rows:
+            row.pop("original_product_code")
+            db.execute("UPDATE mirror_products SET document=? WHERE id=?",
+                       (json.dumps(row), row["id"]))
+    assert service.source.get(None, 1).detail["original_product_code"] is None
+    build(service)
+    baseline = service.search(ForbiddenBusinessDB(), "admin", image("red"))
+    assert all(c["product"]["original_product_code"] is None for c in baseline["candidates"])
+    before_rows = service.store.rows()
+    before_file = service.store.path.read_bytes()
+    before_context = service.source.context()
+    before_calls = provider.calls
+    before_key = service.config.index_key
+    backend.products[0]["original_product_code"] = "SHARED-2677"
+    backend.products[1]["original_product_code"] = "SHARED-2677"
+    sync()
+    # Reopen the source as a later API process would, retaining the same index key.
+    service.source = ProductionSource(service.source.mirror.root)
+    context = service.source.context()
+    assert context["catalog_fingerprint"] != before_context["catalog_fingerprint"]
+    assert context["index_namespace"] == before_context["index_namespace"]
+    assert replace(service.config, source_identity=service.source.identity_key).index_key == before_key
+    assert service.store.path.read_bytes() == before_file
+    plan = service.plan(ForbiddenBusinessDB())
+    assert not plan["pending"] and len(plan["unchanged"]) == 3
+    assert build(service)["processed"] == 0
+    assert provider.calls == before_calls
+    assert service.store.rows() == before_rows
+    result = service.search(ForbiddenBusinessDB(), "admin", image("red"))
+    assert [(c["product"]["id"], c["similarity"]) for c in result["candidates"]] == [
+        (c["product"]["id"], c["similarity"]) for c in baseline["candidates"]]
+    assert [c["product"]["original_product_code"] for c in result["candidates"]] == [
+        "SHARED-2677", "SHARED-2677", None]
+    assert service.store.rows() == before_rows
+
+
+@pytest.mark.parametrize("original_code", [None, "2677-35"])
+def test_development_source_exposes_original_code(original_code, tmp_path):
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    try:
+        with Session(engine) as db:
+            product = Product(product_code="DEV-1", original_product_code=original_code,
+                              size="10cm", unit="pcs", is_active=True)
+            db.add(product)
+            db.commit()
+            source = DevelopmentSource(tmp_path)
+            assert source.get(db, product.id).detail["original_product_code"] == original_code
+            assert source.products(db)[0].detail["original_product_code"] == original_code
+    finally:
+        engine.dispose()
 
 
 def test_failed_shared_content_attempted_once_then_resume(production):

@@ -170,15 +170,15 @@ export default function InventoryMovementsWorkspace() {
       {
         title: "商品图片",
         key: "product-image",
-        width: 76,
+        width: 92,
         render: (_value: unknown, movement: InventoryMovementApiRecord) => (
           <div className="inventory-movement-image">
             <ProductImage
               imagePath={movement.image_path}
               thumbnailPath={movement.thumbnail_path}
               alt={`${movement.product_code ?? "商品"}图片`}
-              width={52}
-              height={52}
+              width={68}
+              height={68}
             />
           </div>
         ),
@@ -375,7 +375,7 @@ export default function InventoryMovementsWorkspace() {
           loading={loading}
           size="middle"
           tableLayout="fixed"
-          scroll={{ x: 1132 }}
+          scroll={{ x: 1148 }}
           locale={{
             emptyText: (
               <Empty

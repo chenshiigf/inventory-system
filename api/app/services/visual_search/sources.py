@@ -74,7 +74,8 @@ class ProductionSource:
         warehouses = {w["id"]: w["name"] for w in metadata["warehouses"]}
         reference = f"/api/visual-search/catalog/products/{row['id']}/image?source={self.name}"
         detail = {k: row[k] for k in ("id", "product_code", "category_id", "warehouse_id", "size", "unit", "packagings", "is_active", "source_present", "synced_at", "product_key", "source_id")}
-        detail.update(category_name=categories.get(row["category_id"]), warehouse_name=warehouses.get(row["warehouse_id"]),
+        detail.update(original_product_code=row.get("original_product_code"),
+                      category_name=categories.get(row["category_id"]), warehouse_name=warehouses.get(row["warehouse_id"]),
                       image_path=reference if row["image_status"] == "ready" else None, thumbnail_path=None,
                       image_sha256=row["image"]["sha256"] if row["image"] else None,
                       source_updated_at=row["source_updated_at"])

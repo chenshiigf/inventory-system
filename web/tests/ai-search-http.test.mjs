@@ -21,13 +21,14 @@ const response = () => ({
 
 // Execute the production component's actual button handler with small UI/hook
 // mocks. Browser APIs reflect a public HTTP origin; every fetch is in-process.
-function workspace({ crypto = {}, failInitialization = false, crop = null } = {}) {
+function workspace({ crypto = {}, failInitialization = false, crop = null, initialResult = null, confirmedId = null, clipboard } = {}) {
   const requests = [], states = [], refs = [], modules = new Map();
   let stateIndex = 0, refIndex = 0, contextValue, resolveSearch;
   let initializationFailures = failInitialization ? 1 : 0;
   const jsx = (type, props) => ({ type, props: props ?? {} });
   const context = vm.createContext({
     crypto, isSecureContext: false, File, FormData, Response, DOMException, AbortSignal,
+    navigator: { clipboard },
     AbortController: class {
       constructor() {
         if (initializationFailures-- > 0) throw new Error("Request initialization failed");
@@ -38,6 +39,7 @@ function workspace({ crypto = {}, failInitialization = false, crop = null } = {}
     process: { env: { NODE_ENV: "production" } },
     fetch: async (url, init) => {
       requests.push({ url, init });
+      if (url.includes("/feedback?")) return Response.json({ saved: true, query_id: JSON.parse(init.body).query_id });
       return new Promise(resolve => { resolveSearch = () => resolve(Response.json(response())); });
     },
   });
@@ -83,10 +85,17 @@ function workspace({ crypto = {}, failInitialization = false, crop = null } = {}
   });
   if (crop) session = sessionTools.searchSessionReducer(session, { type: "crop", crop });
   const dispatch = action => { session = sessionTools.searchSessionReducer(session, action); };
+  if (initialResult) {
+    const request = { ...sessionTools.currentSearchInput(session), requestId: "fixture" };
+    dispatch({ type: "start", request });
+    dispatch({ type: "complete", request, result: initialResult });
+    if (confirmedId !== null) dispatch({ type: "confirm", input: request, queryId: initialResult.query_id, productId: confirmedId });
+  }
   const Component = load("components/ai-search/AISearchWorkspace.tsx").default;
   function render() {
     stateIndex = refIndex = 0;
-    contextValue = { session, replacePhoto() {}, setCrop() {}, confirmSelection() {},
+    contextValue = { session, replacePhoto() {}, setCrop() {},
+      confirmSelection: (input, queryId, productId) => dispatch({ type: "confirm", input, queryId, productId }),
       startSearch: request => dispatch({ type: "start", request }),
       completeSearch: (request, result, submittedCrop) => dispatch({ type: "complete", request, result, submittedCrop }),
       finishSearch: request => dispatch({ type: "finish", request }),
@@ -99,7 +108,7 @@ function workspace({ crypto = {}, failInitialization = false, crop = null } = {}
     return predicate(node) ? node : find(node.props?.children, predicate);
   }
   const button = () => find(render(), node => node.type === "Button" && ["开始找商品", "识别框选商品"].includes(node.props.children));
-  return { context, requests, sessionTools, render, button, states, getSession: () => session,
+  return { context, requests, sessionTools, render, button, states, find, getSession: () => session,
     release: () => resolveSearch(), error: () => find(render(), node => node.type === "Alert" && node.props.type === "error") };
 }
 
@@ -144,4 +153,32 @@ test("request IDs are local and unique without access to Web Crypto", () => {
   const app = workspace({ crypto: new Proxy({}, { get() { throw new Error("Web Crypto must not be used"); } }) });
   const ids = Array.from({ length: 1000 }, () => app.sessionTools.createSearchRequestId());
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test("confirmation displays original code but feedback and clipboard keep the own product identity", async () => {
+  const candidate = id => ({ product: { id, product_key: `aliyun-inventory-production:${id}`,
+    source_id: "aliyun-inventory-production", product_code: `OWN-${id}`, original_product_code: "SHARED-2677",
+    image_path: null, category_name: null, warehouse_name: "Mock", size: "10cm", unit: "pcs",
+    is_active: true, source_present: true, synced_at: "2026-10-12T00:00:00Z", packagings: [] }, similarity: 1 - id / 10 });
+  const initialResult = { ...response(), candidates: [candidate(1), candidate(2)] };
+  const copied = [];
+  const app = workspace({ initialResult, clipboard: { writeText: async value => { copied.push(value); } } });
+  const card = app.find(app.render(), node => node.type === "./SearchResultCard");
+  await card.props.onConfirm();
+  assert.deepEqual(JSON.parse(app.requests[0].init.body), { query_id: initialResult.query_id, selected_product_id: 1, no_match: false });
+  assert.equal(app.getSession().confirmedId, 1);
+  const alert = app.find(app.render(), node => node.type === "Alert" && node.props.type === "success");
+  assert.equal(alert.props.title, "已确认商品：OWN-1");
+  const original = app.find(alert.props.description, node => node.props.className === "ai-search-confirmed-original-code");
+  assert.equal(original.props.children.join(""), "原货号：SHARED-2677");
+  await app.find(alert.props.description, node => node.type === "Button").props.onClick();
+  assert.deepEqual(copied, ["OWN-1"]);
+  const legacy = structuredClone(initialResult);
+  delete legacy.candidates[0].product.original_product_code;
+  const legacyApp = workspace({ initialResult: legacy, confirmedId: 1 });
+  const legacyAlert = legacyApp.find(legacyApp.render(), node => node.type === "Alert" && node.props.type === "success");
+  assert.ok(!legacyApp.find(legacyAlert.props.description, node => node.props.className === "ai-search-confirmed-original-code"));
+  await legacyApp.find(legacyAlert.props.description, node => node.type === "Button").props.onClick();
+  const fallbackAlert = legacyApp.find(legacyApp.render(), node => node.type === "Alert" && node.props.type === "success");
+  assert.equal(legacyApp.find(fallbackAlert.props.description, node => node.type === "Input").props.value, "OWN-1");
 });

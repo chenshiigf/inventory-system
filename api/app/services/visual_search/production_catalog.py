@@ -102,6 +102,7 @@ def product_projection(raw):
         packagings.append({"id": pack_id, "packing_qty": optional_id(packaging.get("packing_qty")), "sort_order": order})
     return {
         "id": pid, "product_code": text(raw.get("product_code"), 64, True),
+        "original_product_code": text(raw.get("original_product_code"), 100, True),
         "is_active": raw["is_active"], "category_id": optional_id(raw.get("category_id")),
         "warehouse_id": optional_id(raw.get("warehouse_id")),
         "size": text(raw.get("size", ""), 200), "unit": text(raw.get("unit"), 20, True),

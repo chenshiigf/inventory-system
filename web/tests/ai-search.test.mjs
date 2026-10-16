@@ -53,6 +53,36 @@ test("production adapter preserves identity, missing names and multiple packagin
   assert.equal("carton_count" in view, false);
 });
 
+test("original code is optional metadata and old result/detail payloads remain valid", () => {
+  for (const original of [undefined, null, "", "   ", " 2677-35 ", "X".repeat(100)]) {
+    const p = { ...product(), ...(original === undefined ? {} : { original_product_code: original }) };
+    const r = { ...result(), candidates: [{ product: p, similarity: .7 }] };
+    adapter.validateProductionResult(r);
+    adapter.validateProductionDetail({ ...source, product: p }, p.id, r);
+    const view = adapter.toAISearchProduct(p);
+    assert.equal(view.originalProductCode, original?.trim() || null);
+    assert.equal(view.productCode, p.product_code);
+    assert.equal(view.productKey, p.product_key);
+  }
+  const r = result();
+  r.candidates[0].product.original_product_code = 123;
+  assert.throws(() => adapter.validateProductionResult(r), adapter.AISearchSourceError);
+});
+
+test("duplicate original codes keep distinct candidate IDs, order, scores and own copy codes", () => {
+  const r = result();
+  r.candidates[0].product.original_product_code = "SHARED-2677";
+  r.candidates.push({ product: { ...product(), id: 319, product_key: `${source.source_id}:319`,
+    image_path: null, product_code: "OWN-319", original_product_code: "SHARED-2677" }, similarity: .6 });
+  adapter.validateProductionResult(r);
+  const views = r.candidates.map(c => adapter.toAISearchProduct(c.product));
+  assert.deepEqual(views.map(p => p.productId), [318, 319]);
+  assert.deepEqual(views.map(p => p.originalProductCode), ["SHARED-2677", "SHARED-2677"]);
+  assert.deepEqual(r.candidates.map(c => c.similarity), [.7, .6]);
+  assert.equal(adapter.confirmedProductCode(r, 318), "test-code");
+  assert.equal(adapter.confirmedProductCode(r, 319), "OWN-319");
+});
+
 test("cropped request retains the original File and adds only the selected crop", async () => {
   const original = globalThis.fetch;
   const file = new File(["original-image-bytes"], "scene.png", { type: "image/png" });

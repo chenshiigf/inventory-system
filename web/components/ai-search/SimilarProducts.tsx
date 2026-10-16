@@ -21,7 +21,7 @@ export default function SimilarProducts({ products, disabled, onDetails }: Simil
         children: <div className="ai-search-similar-list">{products.map(({ product }) => (
           <article key={product.productKey} className="ai-search-similar-product">
             <ProductImage imagePath={null} imageUrl={product.image} alt={product.productName} width={72} height={72} />
-            <div><h3>{product.productName}</h3><p>货号：{product.productCode}</p></div>
+            <div><h3>{product.productName}</h3><p>自家货号：{product.productCode}</p>{product.originalProductCode && <p>原货号：{product.originalProductCode}</p>}</div>
             <Button disabled={disabled} onClick={() => onDetails(product)}>商品资料</Button>
           </article>
         ))}</div>,

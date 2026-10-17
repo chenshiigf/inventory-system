@@ -79,6 +79,8 @@ def create_fixture(directory: Path, *, conflict: bool = False) -> Path:
 
 def _validate(path: Path) -> tuple[Path, dict]:
     path = _temporary_path(path)
+    if (path.parent / "offline-backup-rehearsal.json").exists():
+        raise RehearsalError("真实备份副本不得使用合成数据入口")
     marker_path = path.parent / MARKER
     _temporary_path(marker_path)
     if not path.is_file() or not marker_path.is_file():
@@ -97,6 +99,8 @@ def _connect(path: Path, marker: dict, *, write=False):
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA foreign_keys=ON")
     try:
+        if db.execute("SELECT 1 FROM sqlite_master WHERE name='offline_numbering_run'").fetchone():
+            raise RehearsalError("真实备份副本不得伪造合成身份")
         rows = db.execute("SELECT token,executed FROM numbering_rehearsal_guard").fetchall()
         if len(rows) != 1 or rows[0]["token"] != marker["token"]:
             raise RehearsalError("合成数据库内部身份不匹配")

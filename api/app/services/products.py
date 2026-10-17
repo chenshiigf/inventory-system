@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import timezone
+
 from sqlalchemy.orm import Session
 
 from app.models import Category, Product, ProductPackaging, Warehouse
-from app.product_codes import allocate_product_code
+from app import product_codes
 from app.schemas import ProductCreate
 
 
@@ -21,8 +23,10 @@ def create_product_record(db: Session, payload: ProductCreate) -> Product:
 
     _validate_category(db, payload.category_id)
     _validate_warehouse(db, payload.warehouse_id)
+    created_at = product_codes.product_creation_time()
     product = Product(
         **payload.model_dump(exclude={"packagings"}),
+        created_at=created_at.astimezone(timezone.utc).replace(tzinfo=None),
         packagings=[
             ProductPackaging(
                 packing_qty=packaging.packing_qty,
@@ -32,11 +36,10 @@ def create_product_record(db: Session, payload: ProductCreate) -> Product:
             for sort_order, packaging in enumerate(payload.packagings)
         ],
     )
-    if payload.category_id is not None:
-        try:
-            product.product_code = allocate_product_code(db, payload.category_id)
-        except ValueError as error:
-            raise ProductCreationError(str(error), status_code=409) from error
+    try:
+        product.product_code = product_codes.allocate_product_code(db, created_at=created_at)
+    except ValueError as error:
+        raise ProductCreationError(str(error), status_code=409) from error
     db.add(product)
     db.flush()
     return product

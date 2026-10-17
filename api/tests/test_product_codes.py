@@ -1,6 +1,7 @@
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,12 +10,13 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base, get_db
 from app.main import app
-from app.models import Category, Product, ProductPackaging, Warehouse
+from app.models import Category, Product, ProductCodeMonth, ProductPackaging, Warehouse
 from app.product_codes import backfill_product_codes, format_code_component
 
 
 @pytest.fixture
-def product_code_api(tmp_path) -> Generator[tuple[TestClient, sessionmaker], None, None]:
+def product_code_api(tmp_path, monkeypatch) -> Generator[tuple[TestClient, sessionmaker], None, None]:
+    monkeypatch.setattr("app.product_codes.product_creation_time", lambda: datetime(2026, 10, 17, tzinfo=timezone.utc))
     database_path = tmp_path / "product-codes-api.db"
     engine = create_engine(
         f"sqlite:///{database_path.as_posix()}",
@@ -146,10 +148,10 @@ def test_product_codes_are_sequential_and_immutable_on_category_or_warehouse_cha
     other_child = create_product(client, kitchen_bowl["id"])
     other_parent = create_product(client, christmas_plate["id"])
 
-    assert first["product_code"] == "01-01-001"
-    assert second["product_code"] == "01-01-002"
-    assert other_child["product_code"] == "01-02-001"
-    assert other_parent["product_code"] == "02-01-001"
+    assert first["product_code"] == "261001"
+    assert second["product_code"] == "261002"
+    assert other_child["product_code"] == "261003"
+    assert other_parent["product_code"] == "261004"
 
     with session_factory.begin() as db:
         warehouse = Warehouse(name="编号验收仓", sort_order=9)
@@ -164,7 +166,7 @@ def test_product_codes_are_sequential_and_immutable_on_category_or_warehouse_cha
     assert changed.status_code == 200
     assert changed.json()["category_id"] == kitchen_bowl["id"]
     assert changed.json()["warehouse_id"] == warehouse_id
-    assert changed.json()["product_code"] == "01-01-001"
+    assert changed.json()["product_code"] == "261001"
 
     attempted_edit = client.patch(
         f"/api/products/{first['id']}",
@@ -178,10 +180,10 @@ def test_product_codes_are_sequential_and_immutable_on_category_or_warehouse_cha
     )
     assert attempted_create.status_code == 422
 
-    search = client.get("/api/products", params={"search": "01-01-001"})
+    search = client.get("/api/products", params={"search": "261001"})
     assert search.status_code == 200
     assert [item["product_code"] for item in search.json()["items"]] == [
-        "01-01-001"
+        "261001"
     ]
 
 
@@ -204,12 +206,12 @@ def test_concurrent_products_receive_unique_sequences(
     assert all(response.status_code == 201 for response in responses)
     codes = sorted(response.json()["product_code"] for response in responses)
     assert codes == [
-        "01-01-001",
-        "01-01-002",
-        "01-01-003",
-        "01-01-004",
-        "01-01-005",
-        "01-01-006",
+        "261001",
+        "261002",
+        "261003",
+        "261004",
+        "261005",
+        "261006",
     ]
 
 
@@ -221,12 +223,10 @@ def test_product_sequence_expands_after_999(
     child = create_category(client, "小类", parent["id"])
 
     with session_factory.begin() as db:
-        category = db.get(Category, child["id"])
-        assert category is not None
-        category.next_product_sequence = 1000
+        db.add(ProductCodeMonth(period_ym="202610", next_sequence=1000))
 
     product = create_product(client, child["id"])
-    assert product["product_code"] == "01-01-1000"
+    assert product["product_code"] == "26101000"
 
 
 def test_backfill_assigns_missing_codes_by_sort_order_and_is_idempotent(
@@ -235,6 +235,7 @@ def test_backfill_assigns_missing_codes_by_sort_order_and_is_idempotent(
     engine = create_engine(f"sqlite:///{(tmp_path / 'backfill-order.db').as_posix()}")
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine)
+    ProductCodeMonth.__table__.drop(engine)  # Exercise the old, pre-V2 schema only.
 
     with TestingSessionLocal.begin() as db:
         root_later = Category(name="后排序一级", sort_order=5)
@@ -325,6 +326,7 @@ def test_backfill_preserves_existing_codes_and_does_not_recycle_sequences(
     engine = create_engine(f"sqlite:///{(tmp_path / 'backfill-preserve.db').as_posix()}")
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     Base.metadata.create_all(bind=engine)
+    ProductCodeMonth.__table__.drop(engine)  # Exercise the old, pre-V2 schema only.
 
     with TestingSessionLocal.begin() as db:
         root = Category(name="历史分类", code="06", sort_order=0)

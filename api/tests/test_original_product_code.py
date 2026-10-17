@@ -135,7 +135,7 @@ def test_original_code_migration_preserves_old_rows_indexes_and_links():
     try:
         with engine.begin() as connection:
             migration_context = MigrationContext.configure(connection)
-            revisions = migration_revisions()
+            revisions = migration_revisions("c8d9e0f1a2b3")
             assert revisions[-1].revision == "c8d9e0f1a2b3"
             assert revisions[-1].down_revision == "b2c3d4e5f6a7"
             with Operations.context(migration_context):
@@ -156,6 +156,8 @@ def test_original_code_migration_preserves_old_rows_indexes_and_links():
                 revisions[-1].module.downgrade()
                 assert connection.execute(text("SELECT * FROM products")).mappings().all() == before
                 revisions[-1].module.upgrade()
+                for revision in migration_revisions()[len(revisions):]:
+                    revision.module.upgrade()
             assert connection.execute(text("SELECT * FROM product_packagings")).all() == packagings
             assert connection.execute(text("SELECT * FROM inventory_movements")).all() == movements
             assert connection.execute(text("SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='products' ORDER BY name")).all() == indexes

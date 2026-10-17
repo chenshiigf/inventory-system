@@ -7,6 +7,19 @@ on:
     branches: [master]
   workflow_dispatch:
     inputs:
+      deploy:
+        description: 'Explicitly authorize real deployment (false runs CI only)'
+        type: boolean
+        default: false
+      deployment_mode:
+        description: 'First numbering release must stage and keep maintenance held'
+        type: choice
+        options: [standard, numbering-hold]
+        default: standard
+      operation_id:
+        description: 'Reviewed numbering maintenance operation ID (hold mode only)'
+        type: string
+        default: ''
       migrate:
         description: 'Apply reviewed database migrations after making a full backup'
         type: boolean
@@ -37,7 +50,11 @@ jobs:
         run: python -m pip install -r api/requirements.lock.txt 'pytest>=8,<9' 'httpx>=0.27,<1'
       - name: Run backend and deployment tests
         working-directory: api
-        run: python -m pytest -q
+        env:
+          INVENTORY_DATA_DIR: ${{ runner.temp }}/inventory-ci-data
+          DATABASE_URL: sqlite:///${{ runner.temp }}/inventory-ci-data/inventory.db
+          DASHSCOPE_API_KEY: ''
+        run: python -m pytest tests -q -p no:cacheprovider --basetemp "${RUNNER_TEMP}/inventory-pytest"
       - name: Prepare API source and prebuilt dependency wheels
         run: |
           set -euo pipefail
@@ -96,7 +113,7 @@ jobs:
     needs: [backend, frontend]
     if: >-
       github.ref == 'refs/heads/master' &&
-      (github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'workflow_dispatch' && inputs.deploy == true) ||
        (github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -142,12 +159,23 @@ jobs:
       - name: Upload and deploy
         env:
           MIGRATE: ${{ inputs.migrate && 'true' || 'false' }}
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode || 'standard' }}
+          OPERATION_ID: ${{ inputs.operation_id }}
         run: |
           set -euo pipefail
           SSH_ARGS=(-i "$HOME/.ssh/inventory_key" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          HOLD_ARGS=""
+          if [[ "$DEPLOYMENT_MODE" == numbering-hold ]]; then
+            [[ "$OPERATION_ID" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{7,95}$ ]]
+            HOLD_ARGS="--numbering-hold $OPERATION_ID"
+          else
+            [[ "$DEPLOYMENT_MODE" == standard && -z "$OPERATION_ID" ]]
+          fi
+          CAPABILITIES=$(ssh "${SSH_ARGS[@]}" -p "$DEPLOY_SSH_PORT" "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" "sudo -n /usr/local/sbin/inventory-deploy-actions --capabilities")
+          python -c 'import json,sys; assert json.loads(sys.argv[1])["numbering_maintenance_protocol"] == 1' "$CAPABILITIES"
           scp "${SSH_ARGS[@]}" -P "$DEPLOY_SSH_PORT" "$RELEASE_ID.tar.gz" "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST:/var/tmp/inventory-actions/$RELEASE_ID.tar.gz"
           ssh "${SSH_ARGS[@]}" -p "$DEPLOY_SSH_PORT" "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
-            "sudo -n /usr/local/sbin/inventory-deploy-actions $RELEASE_ID $RELEASE_DIGEST $MIGRATE"
+            "sudo -n /usr/local/sbin/inventory-deploy-actions $RELEASE_ID $RELEASE_DIGEST $MIGRATE $HOLD_ARGS"
       - name: Remove SSH key
         if: always()
         run: rm -f "$HOME/.ssh/inventory_key"

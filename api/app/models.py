@@ -79,6 +79,16 @@ class Warehouse(Base):
     )
 
 
+class ProductionNumberingCutover(Base):
+    __tablename__ = 'production_numbering_cutovers'
+    __table_args__ = (CheckConstraint('id=1'), CheckConstraint("state='committed'"))
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    operation_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    state: Mapped[str] = mapped_column(Text, nullable=False)
+    document: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class ProductCodeMonth(Base):
     __tablename__ = "product_code_months"
     __table_args__ = (

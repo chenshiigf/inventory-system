@@ -22,6 +22,7 @@ INCOMING = Path('/var/tmp/inventory-actions')
 BACKUPS = Path('/var/backups/inventory-system/actions')
 ENV_FILE = Path('/etc/inventory-system.env')
 DATA_DIR = Path('/var/lib/inventory-system')
+NUMBERING_LIBRARY = Path('/usr/local/lib/inventory-numbering')
 SERVICE = 'inventory-system-api.service'
 HEALTH_URL = 'http://127.0.0.1:8102/api/dashboard/summary'
 TIMERS = ('inventory-db-backup.timer', 'inventory-full-backup.timer')
@@ -108,15 +109,79 @@ def health() -> None:
     raise RuntimeError(f'API health check failed at {HEALTH_URL}: {last_error}')
 
 
-def deploy(release: str, digest: str, migrate: bool) -> None:
+def numbering_state(database: Path) -> bool:
+    """Data scheme, not Alembic revision, decides rollback compatibility."""
+    with sqlite3.connect(database.as_uri() + '?mode=ro', uri=True) as db:
+        if not db.execute("SELECT count(*) FROM sqlite_master WHERE name='production_numbering_cutovers'").fetchone()[0]:
+            return False
+        rows = db.execute('SELECT id,state FROM production_numbering_cutovers').fetchall()
+        if rows and rows != [(1, 'committed')]:
+            raise RuntimeError('Invalid numbering completion registry')
+        return bool(rows)
+
+
+def numbering_capable(payload: Path) -> bool:
+    try:
+        return json.loads((payload / 'api/app/numbering-v2.json').read_text()) == {
+            'scheme': 'product-numbering-v2', 'maintenance_protocol': 1}
+    except (OSError, ValueError):
+        return False
+
+
+def enter_numbering_hold(payload: Path, database: Path, operation_id: str, commit: str) -> None:
+    # The caller already owns /run/inventory-actions.lock. Stdlib-only helpers;
+    # no application startup, AI state, model client or production secrets.
+    # Never import root code from the service-user-writable release staging tree.
+    for path in (NUMBERING_LIBRARY, *NUMBERING_LIBRARY.parents, *NUMBERING_LIBRARY.rglob('*')):
+        info = path.lstat()
+        if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+            raise RuntimeError('Install reviewed root-owned numbering helpers separately before deployment')
+    if not (NUMBERING_LIBRARY / 'app/services/product_code_cutover.py').is_file():
+        raise RuntimeError('Root-owned numbering helpers are not installed')
+    dropins = command('systemctl', 'show', SERVICE, '--property=DropInPaths', '--value', capture=True).split()
+    guard = Path('/usr/local/sbin/inventory-numbering-service-guard')
+    expected = Path('/etc/systemd/system/inventory-system-api.service.d/numbering-guard.conf')
+    for path in (guard, expected):
+        info = path.lstat()
+        if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
+            raise RuntimeError('Root-owned persistent service guard must be installed first')
+    if str(expected) not in dropins or 'ExecStartPre=/usr/local/sbin/inventory-numbering-service-guard' not in expected.read_text():
+        raise RuntimeError('Persistent API guard is not loaded; do not enter the release window')
+    sys.path.insert(0, str(NUMBERING_LIBRARY))
+    try:
+        from app.services.numbering_environment import ProductionEnvironment
+        from app.services.product_code_cutover import enter
+        enter(ProductionEnvironment(database), operation_id, commit)
+    finally:
+        sys.path.pop(0)
+
+
+def maintenance_held() -> bool:
+    directory = DATA_DIR / 'numbering-maintenance'
+    if not os.path.lexists(directory):
+        return False
+    try:
+        if directory.is_symlink() or (directory / 'state.json').is_symlink():
+            return True
+        state = json.loads((directory / 'state.json').read_text())
+        return state.get('format') != 'numbering-maintenance-v1' or state.get('state') != 'released'
+    except (OSError, ValueError):
+        return True
+
+
+def deploy(release: str, digest: str, migrate: bool, operation_id: str | None = None) -> None:
     import fcntl
     if os.geteuid() != 0:
         raise RuntimeError('Run through the installed sudo command')
     if not re.fullmatch(r'[0-9]+-[0-9]+-[0-9a-f]{40}', release) or not re.fullmatch(r'[0-9a-f]{64}', digest):
         raise RuntimeError('Invalid release ID or digest')
+    if operation_id is not None and not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{7,95}', operation_id):
+        raise RuntimeError('Invalid numbering operation ID')
     lock = open('/run/inventory-actions.lock', 'a')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     env = environment()
+    if maintenance_held():
+        raise RuntimeError('Numbering maintenance remains held; inspect and recover that operation, never redeploy automatically')
     api = PROJECT / 'api'
     old_python = api / '.venv/bin/python'
     if not old_python.is_file() or not STATIC.is_dir() or not active(SERVICE):
@@ -141,6 +206,12 @@ def deploy(release: str, digest: str, migrate: bool) -> None:
     if metadata['commit'] != release.split('-', 2)[2]:
         raise RuntimeError('Release commit does not match ID')
     payload = work / 'payload'
+    cutover_committed = numbering_state(db)
+    capable = numbering_capable(payload)
+    if cutover_committed and not capable:
+        raise RuntimeError('Numbering already committed: incompatible old code is forbidden')
+    if operation_id and (not capable or cutover_committed):
+        raise RuntimeError('Numbering hold requires reviewed compatible code and an uncommitted database')
     venv = work / 'venv'
     # Dependencies are installed as the service user, from prebuilt wheels only.
     command('chown', '-R', 'inventory:inventory', str(work))
@@ -166,6 +237,8 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
 """
     revision = json.loads(as_inventory(env, str(venv / 'bin/python'), '-c', check, str(payload / 'api/alembic.ini'), str(payload / 'api/alembic'), db.as_uri(), capture=True))
     needs_migration = revision['current'] != revision['head']
+    if not cutover_committed and (capable or revision['head'] == 'e3f4a5b6c7d8') and not operation_id:
+        raise RuntimeError('First numbering release requires numbering-hold mode; schema migration cannot open writes')
     if needs_migration and not migrate:
         raise RuntimeError('Database migration required; use Run workflow with migrate=true')
     rollback = BACKUPS / release
@@ -198,6 +271,8 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
             raise RuntimeError('Backup job still running; deploy later')
         command('systemctl', 'stop', SERVICE)
         stopped = True
+        if operation_id:
+            enter_numbering_hold(payload, db, operation_id, metadata['commit'])
         (rollback / 'full').mkdir()
         command('chown', 'inventory:inventory', str(rollback), str(rollback / 'full'))
         as_inventory(env, str(old_python), str(api / 'scripts/backup_inventory.py'), '--destination', str(rollback / 'full'))
@@ -224,6 +299,13 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
             as_inventory(env, str(venv / 'bin/python'), '-m', 'alembic', 'upgrade', 'head')
         STATIC.rename(old_static)
         staged_static.rename(STATIC)
+        if operation_id:
+            (PROJECT / '.actions-numbering-staged.json').write_text(json.dumps({
+                **metadata, 'release': release, 'operation_id': operation_id,
+                'state': 'schema_staged_maintenance_held', 'backup': str(rollback / 'full')}, indent=2) + '\n')
+            print('Schema and code staged; API and timers remain stopped. Historical numbering has NOT run.')
+            succeeded = True
+            return
         command('systemctl', 'start', SERVICE)
         health()
         (PROJECT / '.actions-deployed.json').write_text(json.dumps({**metadata, 'release': release}, indent=2) + '\n')
@@ -232,7 +314,7 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
     except BaseException:
         if changed:
             command('systemctl', 'stop', SERVICE)
-            if migration_started:
+            if migration_started or operation_id or cutover_committed:
                 print('Migration attempted: API remains stopped. Inspect logs and restore from ' + str(rollback / 'full') + ' if needed.', file=sys.stderr)
             else:
                 for item in API_ITEMS:
@@ -252,21 +334,24 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
                 command('systemctl', 'start', SERVICE)
                 health()
                 print('Previous code, virtualenv and frontend restored.', file=sys.stderr)
-        elif stopped:
+        elif stopped and not operation_id:
             command('systemctl', 'start', SERVICE)
         raise
     finally:
         # A failed migration needs inspection before backups resume.
-        if not migration_started or succeeded:
+        if not operation_id and (not migration_started or succeeded):
             for timer in timers:
                 command('systemctl', 'start', timer)
 
 
 if __name__ == '__main__':
     try:
-        if len(sys.argv) != 4 or sys.argv[3] not in ('true', 'false'):
-            raise RuntimeError('Usage: deploy-actions.py RELEASE_ID SHA256 true|false')
-        deploy(sys.argv[1], sys.argv[2], sys.argv[3] == 'true')
+        if sys.argv[1:] == ['--capabilities']:
+            print(json.dumps({'numbering_maintenance_protocol': 1}))
+        else:
+            if len(sys.argv) not in (4, 6) or sys.argv[3] not in ('true', 'false') or (len(sys.argv) == 6 and sys.argv[4] != '--numbering-hold'):
+                raise RuntimeError('Usage: deploy-actions.py RELEASE_ID SHA256 true|false [--numbering-hold OPERATION_ID]')
+            deploy(sys.argv[1], sys.argv[2], sys.argv[3] == 'true', sys.argv[5] if len(sys.argv) == 6 else None)
     except Exception as error:
         print('Deployment failed: ' + str(error), file=sys.stderr)
         sys.exit(1)

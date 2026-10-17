@@ -231,3 +231,119 @@ def test_missing_production_database_never_creates_one(server):
         m.deploy(release, digest, False)
     assert not (m.DATA_DIR / 'inventory.db').exists()
     assert ('systemctl', 'stop', m.SERVICE) not in calls
+
+
+def numbering_payload(server):
+    m, release, _, calls, state = server
+    content = entries(m, release.split('-', 2)[2])
+    content['api/app/numbering-v2.json'] = json.dumps({'scheme': 'product-numbering-v2', 'maintenance_protocol': 1})
+    digest = archive(m.INCOMING / (release + '.tar.gz'), content)
+    return m, release, digest, calls, state
+
+
+def test_first_numbering_release_cannot_use_standard_deploy(server):
+    m, release, digest, calls, _ = numbering_payload(server)
+    with pytest.raises(RuntimeError, match='numbering-hold'):
+        m.deploy(release, digest, False)
+    assert ('systemctl', 'stop', m.SERVICE) not in calls
+
+
+def test_hold_stages_schema_and_keeps_api_timers_stopped(server, monkeypatch):
+    m, release, digest, calls, state = numbering_payload(server)
+    held = []
+    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: held.append(args))
+    state['head'] = 'new'
+    m.deploy(release, digest, True, 'synthetic-cutover')
+    assert len(held) == 1
+    assert ('systemctl', 'start', m.SERVICE) not in calls
+    assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
+    assert not (m.PROJECT / '.actions-deployed.json').exists()
+    assert json.loads((m.PROJECT / '.actions-numbering-staged.json').read_text())['state'] == 'schema_staged_maintenance_held'
+
+
+def test_hold_backup_failure_does_not_restart_business(server, monkeypatch):
+    m, release, digest, calls, state = numbering_payload(server)
+    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: None)
+    state['failure'] = 'backup'
+    with pytest.raises(subprocess.CalledProcessError):
+        m.deploy(release, digest, False, 'synthetic-cutover')
+    assert ('systemctl', 'start', m.SERVICE) not in calls
+    assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
+
+
+def commit_numbering_registry(module):
+    with sqlite3.connect(module.DATA_DIR / 'inventory.db') as db:
+        db.executescript("CREATE TABLE production_numbering_cutovers(id INTEGER PRIMARY KEY,state TEXT); INSERT INTO production_numbering_cutovers VALUES(1,'committed');")
+
+
+def test_committed_numbering_rejects_old_payload(server):
+    m, release, digest, calls, _ = server
+    commit_numbering_registry(m)
+    with pytest.raises(RuntimeError, match='incompatible old code'):
+        m.deploy(release, digest, False)
+    assert ('systemctl', 'stop', m.SERVICE) not in calls
+
+
+def test_committed_numbering_failure_never_restores_previous_code(server):
+    m, release, digest, calls, state = numbering_payload(server)
+    commit_numbering_registry(m)
+    state['failure'] = 'health'
+    with pytest.raises(RuntimeError, match='injected health'):
+        m.deploy(release, digest, False)
+    assert (m.PROJECT / 'api/app/version.py').read_text() == 'new'
+    assert not (m.PROJECT / 'api/app/old.txt').exists()
+    # Exactly one start was attempted for health; no rollback restart.
+    assert calls.count(('systemctl', 'start', m.SERVICE)) == 1
+
+
+def test_existing_maintenance_refuses_automatic_deploy(server):
+    m, release, digest, calls, _ = server
+    directory = m.DATA_DIR / 'numbering-maintenance'
+    directory.mkdir()
+    (directory / 'state.json').write_text('{broken')
+    with pytest.raises(RuntimeError, match='maintenance remains held'):
+        m.deploy(release, digest, False)
+    assert ('systemctl', 'stop', m.SERVICE) not in calls
+
+
+def test_capability_and_dispatch_gate_are_explicit(installer, tmp_path):
+    assert not installer.numbering_capable(tmp_path)
+    marker = tmp_path / 'api/app/numbering-v2.json'
+    marker.parent.mkdir(parents=True)
+    marker.write_text(json.dumps({'scheme': 'product-numbering-v2', 'maintenance_protocol': 1}))
+    assert installer.numbering_capable(tmp_path)
+    workflow = (Path(__file__).resolve().parents[2] / '.github/workflows/deploy.yml').read_text(encoding='utf8')
+    assert "github.event_name == 'workflow_dispatch' && inputs.deploy == true" in workflow
+    assert "vars.DEPLOY_ENABLED == 'true'" in workflow
+    assert '--capabilities' in workflow and '--numbering-hold' in workflow
+    assert 'python -m pytest tests' in workflow
+
+
+def test_persistent_service_guard_refuses_old_code_during_maintenance_and_after_commit(tmp_path):
+    source = Path(__file__).resolve().parents[2] / 'deploy/numbering-service-guard.py'
+    spec = importlib.util.spec_from_file_location('numbering_guard_test', source)
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    data = tmp_path / 'data'
+    data.mkdir()
+    with sqlite3.connect(data / 'inventory.db') as db:
+        db.execute('CREATE TABLE business(value TEXT)')
+    capability = tmp_path / 'app/numbering-v2.json'
+    guard.verify(data, capability)
+    (data / 'numbering-maintenance').mkdir()
+    with pytest.raises(OSError):
+        guard.verify(data, capability)
+    capability.parent.mkdir()
+    capability.write_text(json.dumps({'scheme': 'product-numbering-v2', 'maintenance_protocol': 1}))
+    (data / 'numbering-maintenance/state.json').write_text(json.dumps({'format': 'numbering-maintenance-v1', 'state': 'held'}))
+    with pytest.raises(RuntimeError, match='maintenance remains held'):
+        guard.verify(data, capability)
+    (data / 'numbering-maintenance/state.json').write_text(json.dumps({'format': 'numbering-maintenance-v1', 'state': 'released'}))
+    guard.verify(data, capability)
+    (data / 'numbering-maintenance/state.json').unlink()
+    (data / 'numbering-maintenance').rmdir()
+    with sqlite3.connect(data / 'inventory.db') as db:
+        db.executescript("CREATE TABLE production_numbering_cutovers(id INTEGER,state TEXT); INSERT INTO production_numbering_cutovers VALUES(1,'committed');")
+    capability.write_text('{}')
+    with pytest.raises(RuntimeError, match='incompatible old code'):
+        guard.verify(data, capability)

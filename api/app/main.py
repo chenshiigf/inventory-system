@@ -27,6 +27,7 @@ from app.services.visual_search.admission import VisualSearchAdmission
 from app.services.visual_search.upload_limit import VisualUploadLimit
 from app.services.visual_search.runtime_control import DailyBudgetLedger, RuntimeSwitch
 from app.services.visual_search.images import VisualError
+from app.numbering_maintenance import MaintenanceAdmission
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,7 @@ def create_app(
         configuration_available=not visual_config_error,
     )
     application.add_middleware(VisualUploadLimit)
+    application.add_middleware(MaintenanceAdmission, data_root=data_root)
 
     application.include_router(products_router)
     application.include_router(dashboard_router)

@@ -27,7 +27,7 @@ def test_upgrade_only_adds_counters_preserves_rows_and_guards_downgrade(tmp_path
         command.upgrade(config, "head")
         with engine.connect() as db:
             assert compare_metadata(MigrationContext.configure(db), Base.metadata) == []
-            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "d1e2f3a4b5c6"
+            assert db.scalar(text("SELECT version_num FROM alembic_version")) == "e3f4a5b6c7d8"
             assert db.scalar(text("SELECT count(*) FROM product_code_months")) == 0
             for table, rows in before.items():
                 assert db.execute(text(f"SELECT * FROM {table}")).all() == rows

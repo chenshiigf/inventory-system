@@ -9,6 +9,14 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "sqlite":
+        # sqlite3's legacy transaction mode can autocommit DDL unless a real
+        # database transaction has started. Keep the counter table and
+        # Alembic revision update atomic across an interrupted release.
+        driver = bind.connection.driver_connection
+        if not driver.in_transaction:
+            bind.exec_driver_sql("BEGIN IMMEDIATE")
     op.create_table(
         "product_code_months",
         sa.Column("period_ym", sa.String(6), primary_key=True),

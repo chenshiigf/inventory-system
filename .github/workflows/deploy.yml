@@ -94,6 +94,9 @@ jobs:
         run: |
           pnpm exec tsc --noEmit
           pnpm lint
+      - name: Run frontend behavior tests
+        working-directory: web
+        run: node --test tests/*.test.mjs
       - name: Build same-origin static frontend
         working-directory: web
         env:

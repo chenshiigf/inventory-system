@@ -317,6 +317,7 @@ def test_capability_and_dispatch_gate_are_explicit(installer, tmp_path):
     assert "vars.DEPLOY_ENABLED == 'true'" in workflow
     assert '--capabilities' in workflow and '--numbering-hold' in workflow
     assert 'python -m pytest tests' in workflow
+    assert 'node --test tests/*.test.mjs' in workflow
 
 
 def test_persistent_service_guard_refuses_old_code_during_maintenance_and_after_commit(tmp_path):

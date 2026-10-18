@@ -7,7 +7,9 @@ import os
 from pathlib import Path
 import sqlite3
 import subprocess
+import sys
 import tarfile
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 import pytest
@@ -110,9 +112,17 @@ def test_rejects_links_and_wrong_digest(installer, tmp_path):
 
 
 @pytest.fixture
-def server(installer, tmp_path, monkeypatch):
+def server(installer, tmp_path, monkeypatch, request):
     if os.name != 'posix':
-        pytest.skip('Deployment integration tests require a Unix file lock')
+        if request.node.name not in {
+            'test_hold_release_install_failure_keeps_business_services_stopped',
+            'test_hold_alembic_upgrade_failure_keeps_business_services_stopped',
+        }:
+            pytest.skip('Deployment integration tests require a Unix file lock')
+        # These two fault-injection tests exercise deployer state transitions,
+        # not OS lock semantics. Linux CI tests the actual flock behavior.
+        monkeypatch.setitem(sys.modules, 'fcntl', SimpleNamespace(LOCK_EX=2, LOCK_NB=4, flock=lambda *args: None))
+        monkeypatch.setattr(os, 'chown', lambda *args: None, raising=False)
     m = installer
     for name, relative in [('PROJECT', 'project'), ('STATIC', 'www/out'), ('INCOMING', 'incoming'), ('BACKUPS', 'backups'), ('DATA_DIR', 'data')]:
         monkeypatch.setattr(m, name, tmp_path / relative)
@@ -134,15 +144,21 @@ def server(installer, tmp_path, monkeypatch):
             path.write_text('old file')
     (api / '.venv/bin').mkdir(parents=True)
     (api / '.venv/bin/python').write_text('old interpreter')
+    (m.PROJECT / '.actions-deployed.json').write_text(json.dumps({'commit': 'c' * 40, 'release': 'old-release'}))
     commit = 'a' * 40
     release = '100-1-' + commit
     digest = archive(m.INCOMING / (release + '.tar.gz'), entries(m, commit))
     calls = []
     state = {'head': 'old', 'failure': None, 'health_calls': 0}
     monkeypatch.setattr(m, 'environment', lambda: {})
-    monkeypatch.setattr(m.os, 'geteuid', lambda: 0)
+    monkeypatch.setattr(m.os, 'geteuid', lambda: 0, raising=False)
     monkeypatch.setattr(m.shutil, 'which', lambda tool: '/usr/bin/' + tool)
-    monkeypatch.setattr(m, 'active', lambda unit: unit == m.SERVICE or unit in m.TIMERS)
+    monkeypatch.setattr(m, 'active', lambda unit: unit in {m.SERVICE, 'nginx.service', *m.TIMERS})
+    monkeypatch.setattr(m, 'numbering_abort_installed', lambda: True)
+    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: None)
+    # Bundle assembly is covered with the synthetic abort context tests. The
+    # deployer contract tests only need to exercise staging boundaries.
+    monkeypatch.setattr(m, 'write_numbering_abort_bundle', lambda *args, **kwargs: None)
     # Replace the lock path with a temporary file; production calls remain mocked.
     original_open = open
     monkeypatch.setattr(m, 'open', lambda path, *args: original_open(tmp_path / 'lock' if path == '/run/inventory-actions.lock' else path, *args), raising=False)
@@ -154,10 +170,22 @@ def server(installer, tmp_path, monkeypatch):
         calls.append(args)
         if '-c' in args:
             return json.dumps({'current': 'old', 'head': state['head']})
+        if '-m' in args and args[args.index('-m') + 1] == 'venv':
+            fake_venv = Path(args[-1])
+            (fake_venv / 'bin').mkdir(parents=True, exist_ok=True)
+            (fake_venv / 'bin/python').write_text('synthetic interpreter')
         if 'backup_inventory.py' in ' '.join(args):
             if state['failure'] == 'backup':
                 raise subprocess.CalledProcessError(1, args)
-            (Path(args[-1]) / 'verified-full').mkdir()
+            backup_root = Path(args[-1])
+            if state.get('numbering_hold'):
+                backup_set = backup_root / '2026-10-18_120000'
+                backup_set.mkdir()
+                (backup_set / 'manifest.json').write_text('{}')
+                (backup_set / 'inventory.db').write_bytes(b'synthetic database backup')
+                (backup_set / 'uploads.tar.gz').write_bytes(b'synthetic uploads backup')
+            else:
+                (backup_root / 'verified-full').mkdir()
         if 'upgrade' in args and state['failure'] == 'migration':
             raise subprocess.CalledProcessError(1, args)
     monkeypatch.setattr(m, 'as_inventory', service_user)
@@ -238,6 +266,7 @@ def numbering_payload(server):
     content = entries(m, release.split('-', 2)[2])
     content['api/app/numbering-v2.json'] = json.dumps({'scheme': 'product-numbering-v2', 'maintenance_protocol': 1})
     digest = archive(m.INCOMING / (release + '.tar.gz'), content)
+    state['numbering_hold'] = True
     return m, release, digest, calls, state
 
 
@@ -259,6 +288,9 @@ def test_hold_stages_schema_and_keeps_api_timers_stopped(server, monkeypatch):
     assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
     assert not (m.PROJECT / '.actions-deployed.json').exists()
     assert json.loads((m.PROJECT / '.actions-numbering-staged.json').read_text())['state'] == 'schema_staged_maintenance_held'
+    baseline = json.loads((m.BACKUPS / release / 'numbering-abort-baseline.json').read_text())
+    assert baseline['format'] == 'numbering-abort-baseline-v1'
+    assert baseline['previous_commit'] == 'c' * 40
 
 
 def test_hold_backup_failure_does_not_restart_business(server, monkeypatch):
@@ -267,6 +299,60 @@ def test_hold_backup_failure_does_not_restart_business(server, monkeypatch):
     state['failure'] = 'backup'
     with pytest.raises(subprocess.CalledProcessError):
         m.deploy(release, digest, False, 'synthetic-cutover')
+    assert ('systemctl', 'start', m.SERVICE) not in calls
+    assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
+
+
+def test_hold_release_install_failure_keeps_business_services_stopped(server, monkeypatch):
+    m, release, digest, calls, _ = numbering_payload(server)
+    entered = []
+    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: entered.append(args))
+    original_copytree = m.shutil.copytree
+    release_app = m.PROJECT / '.actions-releases' / release / 'payload/api/app'
+
+    def fail_release_app_copy(source, destination, *args, **kwargs):
+        if Path(source) == release_app:
+            raise OSError('injected release package installation failure')
+        return original_copytree(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(m.shutil, 'copytree', fail_release_app_copy)
+    with pytest.raises(OSError, match='release package installation'):
+        m.deploy(release, digest, True, 'synthetic-cutover')
+
+    rollback = m.BACKUPS / release
+    assert len(entered) == 1
+    assert not (m.PROJECT / 'api/app').exists()
+    assert (rollback / 'api/app/old.txt').read_text() == 'old code'
+    assert (rollback / 'old-venv/bin/python').read_text() == 'old interpreter'
+    assert not (m.PROJECT / '.actions-numbering-staged.json').exists()
+    assert ('systemctl', 'start', m.SERVICE) not in calls
+    assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
+
+
+def test_hold_alembic_upgrade_failure_keeps_business_services_stopped(server, monkeypatch):
+    m, release, digest, calls, state = numbering_payload(server)
+    state.update(head='new', failure='migration')
+    entered = []
+    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: entered.append(args))
+    if os.name != 'posix':
+        original_symlink_to = Path.symlink_to
+
+        def simulated_venv_link(path, target, target_is_directory=False):
+            if path == m.PROJECT / 'api/.venv':
+                m.shutil.copytree(target, path)
+            else:
+                original_symlink_to(path, target, target_is_directory=target_is_directory)
+
+        monkeypatch.setattr(Path, 'symlink_to', simulated_venv_link)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        m.deploy(release, digest, True, 'synthetic-cutover')
+
+    rollback = m.BACKUPS / release
+    assert len(entered) == 1
+    assert (rollback / 'api/app/old.txt').read_text() == 'old code'
+    assert (rollback / 'old-venv/bin/python').read_text() == 'old interpreter'
+    assert json.loads((m.PROJECT / '.actions-deployed.json').read_text())['commit'] == 'c' * 40
     assert ('systemctl', 'start', m.SERVICE) not in calls
     assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
 
@@ -348,3 +434,87 @@ def test_persistent_service_guard_refuses_old_code_during_maintenance_and_after_
     capability.write_text('{}')
     with pytest.raises(RuntimeError, match='incompatible old code'):
         guard.verify(data, capability)
+
+
+def _abort_guard_fixture(tmp_path):
+    source = Path(__file__).resolve().parents[2] / 'deploy/numbering-service-guard.py'
+    spec = importlib.util.spec_from_file_location('numbering_abort_guard_test', source)
+    guard = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(guard)
+    data = tmp_path / 'data'
+    maintenance = data / 'numbering-maintenance'
+    project = tmp_path / 'project'
+    capability = tmp_path / 'api/app/numbering-v2.json'
+    data.mkdir()
+    maintenance.mkdir(parents=True)
+    project.mkdir()
+    capability.parent.mkdir(parents=True)
+    database = data / 'inventory.db'
+    with sqlite3.connect(database) as db:
+        db.execute('CREATE TABLE products(id INTEGER PRIMARY KEY)')
+    old_commit = 'a' * 40
+    project.joinpath('.actions-deployed.json').write_text(json.dumps({'commit': old_commit}))
+    return guard, data, maintenance, database, project, capability, old_commit
+
+
+def test_service_guard_allows_only_operation_bound_private_abort_probe(tmp_path):
+    guard, data, maintenance, database, project, capability, old_commit = _abort_guard_fixture(tmp_path)
+    operation_id = 'abort-probe-001'
+    release_sha = 'b' * 40
+    now = 1_000_000
+    state = {
+        'format': 'numbering-maintenance-v1', 'state': 'held',
+        'operation_id': operation_id, 'release_sha': release_sha,
+        'database_identity': guard._database_identity(database),
+        'abort_probe': {
+            'format': 'numbering-abort-probe-v1', 'state': 'authorized',
+            'operation_id': operation_id, 'release_sha': release_sha,
+            'database_identity': guard._database_identity(database),
+            'previous_commit': old_commit, 'plan_sha256': 'c' * 64,
+            'expires_at_ns': now + 1,
+        },
+    }
+    (maintenance / 'state.json').write_text(json.dumps(state))
+    guard.verify(data, capability, project, proxy_active=lambda: False,
+                 service_loopback=lambda: True, now_ns=now)
+    with pytest.raises(RuntimeError, match='Nginx must remain stopped'):
+        guard.verify(data, capability, project, proxy_active=lambda: True,
+                     service_loopback=lambda: True, now_ns=now)
+    with pytest.raises(RuntimeError, match='loopback'):
+        guard.verify(data, capability, project, proxy_active=lambda: False,
+                     service_loopback=lambda: False, now_ns=now)
+    state['abort_probe']['expires_at_ns'] = now
+    (maintenance / 'state.json').write_text(json.dumps(state))
+    with pytest.raises(RuntimeError, match='expired'):
+        guard.verify(data, capability, project, proxy_active=lambda: False,
+                     service_loopback=lambda: True, now_ns=now)
+
+
+def test_service_guard_allows_verified_precommit_abort_release_only_for_old_commit(tmp_path):
+    guard, data, maintenance, database, project, capability, old_commit = _abort_guard_fixture(tmp_path)
+    checks = {'cutover_not_committed': True, 'database_restored': True,
+              'old_code_restored': True, 'api_readonly_probe': True,
+              'inventory_readonly_checks': True}
+    state = {
+        'format': 'numbering-maintenance-v1', 'state': 'released',
+        'release_reason': 'precommit_abort', 'operation_id': 'abort-release-001',
+        'release_sha': 'b' * 40, 'database_identity': guard._database_identity(database),
+        'abort_receipt': {
+            'format': 'numbering-abort-receipt-v1', 'state': 'complete',
+            'operation_id': 'abort-release-001', 'release_sha': 'b' * 40,
+            'database_identity': guard._database_identity(database),
+            'plan_sha256': 'c' * 64, 'backup_manifest_sha256': 'd' * 64,
+            'previous_commit': old_commit, 'checks': checks,
+        },
+    }
+    (maintenance / 'state.json').write_text(json.dumps(state))
+    guard.verify(data, capability, project)
+    project.joinpath('.actions-deployed.json').write_text(json.dumps({'commit': 'e' * 40}))
+    with pytest.raises(RuntimeError, match='Restored source'):
+        guard.verify(data, capability, project)
+    project.joinpath('.actions-deployed.json').write_text(json.dumps({'commit': old_commit}))
+    with sqlite3.connect(database) as db:
+        db.execute('CREATE TABLE production_numbering_cutovers(id INTEGER PRIMARY KEY, state TEXT)')
+        db.execute("INSERT INTO production_numbering_cutovers VALUES(1,'committed')")
+    with pytest.raises(RuntimeError, match='cutover registry is committed'):
+        guard.verify(data, capability, project)

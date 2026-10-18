@@ -24,7 +24,9 @@
    - `app/services/numbering_environment.py`
    - `app/services/product_code_cutover.py`
    - `app/services/product_code_offline.py`、`app/services/product_code_rehearsal.py`（只复用纯计算函数，离线路径权限不变）
+   - `deploy/numbering_abort.py`
    - `scripts/cutover_product_codes.py`
+   另将 `deploy/numbering-abort-cli.py` 安装为 `/usr/local/sbin/inventory-numbering-abort`（root 所有、755）。
    入口脚本按自身位置加载上面的独立模块；以 root 使用 Python 3.12 运行。部署器也只从该 root 所有的目录导入，不从 inventory 可写的 release 目录执行 root Python 代码。部署器、模块和迁移必须来自同一审定 commit，安装后校验 SHA256。
 4. root 管理 `/etc/inventory-numbering.json`（建议 600，禁止组/其他用户写入）。必须先核实全部业务、备份、AI 和其他写任务，不能假定不存在额外任务。示意结构：
 
@@ -49,6 +51,7 @@
 
 - `workflow_dispatch` 新增 `deploy=false`，仅跑 CI 为默认。人工必须显式选 `deploy=true` 才可能进入部署 job。push 仍受 `DEPLOY_ENABLED` 控制，线上变量本轮未改变。
 - `deployment_mode=numbering-hold` 必须提供合法 `operation_id`。workflow 先检查已安装部署器 `--capabilities`，旧脚本不兼容时停止。
+- numbering hold 前必须确认已安装的 abort CLI、root library module 和 service guard；CI capability check 必须返回 `numbering_abort_protocol=1`。
 - 首次部署带编号能力的新代码必须用 hold 模式。顺序为：准备依赖轮子 → 停备份 timer、等备份服务结束 → 停 API → 持久维护并排空/冻结 → 使用原有脚本生成完整业务备份 → 替换代码和虚拟环境 → 正常 Alembic upgrade → 替换已在 CI 构建的静态产物 → 写 `schema_staged_maintenance_held` 阶段回执。
 - hold 成功后 API 和 timer 继续停止；不执行换号，不写 `.actions-deployed.json` 成功标记，不运行健康检查并开放业务。任意 hold 失败也不自动启动 API/timer。
 - 应用创建与结构升级、历史换号、AI 协调、人工验收、解除维护是不同步骤。后续不得把 hold 回执误认为完成上线。
@@ -116,3 +119,41 @@ CLI action：
 - 7 个新入口/核心模块/部署脚本通过 Python 3.12 语法检查。
 - WSL 只读枚举返回 `E_ACCESSDENIED`，没有取得可用 Ubuntu 测试环境；没有安装或更改系统依赖。
 - 现有 README、docs 和压缩包共 9 个文件逐一 SHA256 核对一致，Phase 2A 预演实现未改动。真实备份、Phase 2B 副本、正式业务数据库、AI 索引和费用账本未用于本阶段测试。
+
+## 8. Phase 4B-2A：编号换号前的发布中止恢复
+
+本节只描述受控方案，不授权生产操作。服务端需先由管理员单独安装并校验与批准 commit 匹配的 root-owned `numbering_abort.py` 和 `/usr/local/sbin/inventory-numbering-abort`；部署器 capability 必须同时报告 maintenance 与 abort recovery protocol。GitHub release 不会更新服务器现有的部署器、guard 或 root helper。
+
+部署器在进入 numbering hold 前，把 operation ID、release、目标数据库身份与结构摘要、旧 API/虚拟环境/静态产物摘要和旧版本记录写入该 release 的 `numbering-abort-baseline.json`。完整业务备份完成后才生成 `numbering-abort.json`。两份记录均由 root 管理并与发布目录绑定。
+
+如果冻结或完整备份在生成恢复包前失败，业务服务保持停止或维护门禁保持关闭。修复导致失败的条件后，管理员可先查看中止状态；只有基线、旧产物和数据库仍与发布前相符时，才能显式准备恢复包：
+
+```sh
+sudo /usr/local/sbin/inventory-numbering-abort status \
+  --database /var/lib/inventory-system/inventory.db \
+  --operation-id '<operation-id>' --release '<run-attempt-commit>'
+
+sudo /usr/local/sbin/inventory-numbering-abort prepare \
+  --database /var/lib/inventory-system/inventory.db \
+  --operation-id '<operation-id>' --release '<run-attempt-commit>' \
+  --confirm-prepare-precommit-abort
+```
+
+`prepare` 会停止 API 和已知备份 timer，确认任务排空，再完成同一 operation 的冻结（仅当原冻结未完成），并为该冻结集合创建或核验完整业务备份及 `uploads`。它不替换应用代码、不升级数据库、不执行商品换号，也不解除维护。数据库身份、revision 或 schema 摘要变化，旧版本文件不匹配，已有换号登记、SQLite sidecar、备份缺失/冲突或排空不完整都会停止并保持维护。热 rollback journal、WAL/SHM 不手动删除；当前工具对此 fail closed，需按单独的 SQLite 恢复审查处理。
+
+恢复包就绪后，必须重新查看只读计划，再把该计划的摘要作为独立确认：
+
+```sh
+sudo /usr/local/sbin/inventory-numbering-abort plan \
+  --database /var/lib/inventory-system/inventory.db \
+  --operation-id '<operation-id>' --release '<run-attempt-commit>'
+
+sudo /usr/local/sbin/inventory-numbering-abort execute \
+  --database /var/lib/inventory-system/inventory.db \
+  --operation-id '<operation-id>' --release '<run-attempt-commit>' \
+  --confirm-precommit-abort --expected-plan-sha256 '<plan-sha256>'
+```
+
+执行会从本次维护窗口的完整备份恢复数据库和 uploads，再恢复已摘要绑定的旧 API、虚拟环境及静态产物。只在数据库、旧代码、AI 数据目录只读指纹和业务 API 只读检查通过后写入中止验收记录并解除维护；随后先恢复旧 API 和原有 timer，在 Nginx 重新开放前完成最后的只读健康检查。流程中断可使用同一 operation/release/计划摘要执行 `status` 并从登记阶段续做，不重新生成确认摘要或重复覆盖已完成步骤。
+
+`production_numbering_cutovers` 一旦存在已提交记录，prepare/plan/execute 普通中止路径都会拒绝操作；不能回退旧编号生成代码或删除维护标记。提交后恢复必须另行审批成套恢复或前向修复。没有发布前基线、恢复包损坏、数据库 sidecar 或旧产物不匹配时也不会自动解锁，需停留在维护状态等待人工处置。

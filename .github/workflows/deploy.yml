@@ -175,7 +175,7 @@ jobs:
             [[ "$DEPLOYMENT_MODE" == standard && -z "$OPERATION_ID" ]]
           fi
           CAPABILITIES=$(ssh "${SSH_ARGS[@]}" -p "$DEPLOY_SSH_PORT" "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" "sudo -n /usr/local/sbin/inventory-deploy-actions --capabilities")
-          python -c 'import json,sys; assert json.loads(sys.argv[1])["numbering_maintenance_protocol"] == 1' "$CAPABILITIES"
+          python -c 'import json,sys; c=json.loads(sys.argv[1]); assert c["numbering_maintenance_protocol"] == 1; assert c["numbering_abort_protocol"] == 1' "$CAPABILITIES"
           scp "${SSH_ARGS[@]}" -P "$DEPLOY_SSH_PORT" "$RELEASE_ID.tar.gz" "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST:/var/tmp/inventory-actions/$RELEASE_ID.tar.gz"
           ssh "${SSH_ARGS[@]}" -p "$DEPLOY_SSH_PORT" "$DEPLOY_SSH_USER@$DEPLOY_SSH_HOST" \
             "sudo -n /usr/local/sbin/inventory-deploy-actions $RELEASE_ID $RELEASE_DIGEST $MIGRATE $HOLD_ARGS"

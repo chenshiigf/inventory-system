@@ -138,6 +138,13 @@ def enter_numbering_hold(payload: Path, database: Path, operation_id: str, commi
             raise RuntimeError('Install reviewed root-owned numbering helpers separately before deployment')
     if not (NUMBERING_LIBRARY / 'app/services/product_code_cutover.py').is_file():
         raise RuntimeError('Root-owned numbering helpers are not installed')
+    abort_cli = Path('/usr/local/sbin/inventory-numbering-abort')
+    abort_module = NUMBERING_LIBRARY / 'numbering_abort.py'
+    for path in (abort_cli, abort_module):
+        info = path.lstat()
+        if (path.is_symlink() or not path.is_file() or info.st_uid != 0 or
+                info.st_mode & 0o022 or (path == abort_cli and not info.st_mode & 0o111)):
+            raise RuntimeError('Reviewed root-owned pre-commit abort recovery must be installed before numbering hold')
     dropins = command('systemctl', 'show', SERVICE, '--property=DropInPaths', '--value', capture=True).split()
     guard = Path('/usr/local/sbin/inventory-numbering-service-guard')
     expected = Path('/etc/systemd/system/inventory-system-api.service.d/numbering-guard.conf')
@@ -152,6 +159,97 @@ def enter_numbering_hold(payload: Path, database: Path, operation_id: str, commi
         from app.services.numbering_environment import ProductionEnvironment
         from app.services.product_code_cutover import enter
         enter(ProductionEnvironment(database), operation_id, commit)
+    finally:
+        sys.path.pop(0)
+
+
+def numbering_abort_installed() -> bool:
+    try:
+        cli = Path('/usr/local/sbin/inventory-numbering-abort')
+        module = NUMBERING_LIBRARY / 'numbering_abort.py'
+        for path in (cli, module):
+            info = path.lstat()
+            if (path.is_symlink() or not path.is_file() or info.st_uid != 0 or
+                    info.st_mode & 0o022 or (path == cli and not info.st_mode & 0o111)):
+                return False
+        return True
+    except OSError:
+        return False
+
+
+def _abort_helpers():
+    library = NUMBERING_LIBRARY if (NUMBERING_LIBRARY / 'numbering_abort.py').is_file() else Path(__file__).resolve().parent
+    sys.path.insert(0, str(library))
+    try:
+        import numbering_abort
+        return numbering_abort
+    except Exception:
+        sys.path.pop(0)
+        raise
+
+
+def write_numbering_abort_baseline(rollback: Path, release: str, operation_id: str,
+                                   release_sha: str, database: Path, revision: str,
+                                   previous: dict, previous_sha256: str,
+                                   old_api_sha256: str, old_venv_sha256: str,
+                                   old_static_sha256: str, timers: list[str],
+                                   proxy_was_active: bool) -> dict:
+    helpers = _abort_helpers()
+    try:
+        sys.path.insert(0, str(NUMBERING_LIBRARY))
+        try:
+            from app.numbering_maintenance import atomic_json, database_identity
+            from app.services.numbering_environment import file_binding
+            previous_path = rollback / 'previous-deployed.json'
+            if file_binding(previous_path)['sha256'] != previous_sha256:
+                raise RuntimeError('Previous release marker copy changed during baseline capture')
+            baseline = {
+                'format': helpers.ABORT_BASELINE,
+                'state': 'captured',
+                'operation_id': operation_id,
+                'release': release,
+                'release_sha': release_sha,
+                'database_identity_before_deploy': database_identity(database),
+                'database_revision_before_deploy': revision,
+                'database_schema_sha256': helpers.database_schema_digest(database),
+                'previous_metadata': str(previous_path),
+                'previous_metadata_sha256': previous_sha256,
+                'previous_commit': previous['commit'],
+                'old_api': str(rollback / 'api'),
+                'old_api_tree_sha256': old_api_sha256,
+                'old_venv': str(rollback / 'old-venv'),
+                'old_venv_tree_sha256': old_venv_sha256,
+                'old_static': str(rollback / 'old-static'),
+                'old_static_tree_sha256': old_static_sha256,
+                'timers_were_active': timers,
+                'proxy_was_active': proxy_was_active,
+                'captured_at_ns': time.time_ns(),
+            }
+            target = rollback / 'numbering-abort-baseline.json'
+            if target.exists() or target.is_symlink():
+                raise RuntimeError('Pre-commit abort baseline already exists')
+            atomic_json(target, baseline, group=database.stat().st_gid)
+            return baseline
+        finally:
+            sys.path.pop(0)
+    finally:
+        sys.path.pop(0)
+
+
+def write_numbering_abort_bundle(rollback: Path, release: str, operation_id: str,
+                                 release_sha: str, database: Path, baseline: dict,
+                                 backup_directory: Path, *, ensure_venv_copy: bool = False) -> None:
+    helpers = _abort_helpers()
+    try:
+        sys.path.insert(0, str(NUMBERING_LIBRARY))
+        try:
+            helpers.write_abort_bundle(
+                helpers.ProductionAbortContext(database), rollback, release,
+                operation_id, release_sha, baseline, backup_directory,
+                ensure_venv_copy=ensure_venv_copy,
+            )
+        finally:
+            sys.path.pop(0)
     finally:
         sys.path.pop(0)
 
@@ -197,6 +295,35 @@ def deploy(release: str, digest: str, migrate: bool, operation_id: str | None = 
     for item in API_ITEMS:
         if not (api / item).exists():
             raise RuntimeError('Existing API layout differs from the deployment baseline')
+    abort_baseline = None
+    if operation_id:
+        if not numbering_abort_installed():
+            raise RuntimeError('Pre-commit abort recovery is not installed; numbering hold was not started')
+        helper = _abort_helpers()
+        try:
+            marker = PROJECT / '.actions-deployed.json'
+            if marker.is_symlink() or not marker.is_file():
+                raise RuntimeError('Previous deployment marker is required for numbering abort recovery')
+            previous = json.loads(marker.read_text(encoding='utf8'))
+            if not re.fullmatch(r'[0-9a-f]{40}', previous.get('commit', '')):
+                raise RuntimeError('Previous deployment marker has no valid commit')
+            if (api / '.venv').is_symlink() or not (api / '.venv').is_dir():
+                raise RuntimeError('Previous virtual environment is not an independent directory')
+            if STATIC.is_symlink() or not STATIC.is_dir():
+                raise RuntimeError('Previous static output is not an independent directory')
+            from app.services.numbering_environment import file_binding
+            abort_baseline = {
+                'previous': previous,
+                'previous_sha256': file_binding(marker)['sha256'],
+                'old_api_sha256': helper.api_items_digest(api),
+                'old_venv_sha256': helper.tree_digest(api / '.venv'),
+                'old_static_sha256': helper.tree_digest(STATIC),
+                'proxy_was_active': active('nginx.service'),
+            }
+            if not abort_baseline['proxy_was_active']:
+                raise RuntimeError('Nginx must be active before numbering hold to bind its recovery state')
+        finally:
+            sys.path.pop(0)
     work = PROJECT / '.actions-releases' / release
     if work.exists():
         raise RuntimeError('Release already attempted; rerun Actions for a new attempt ID')
@@ -244,6 +371,9 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
     rollback = BACKUPS / release
     rollback.mkdir(parents=True, mode=0o750)
     (rollback / 'api').mkdir()
+    if operation_id:
+        command('chown', 'root:inventory', str(rollback))
+        rollback.chmod(0o750)
     for item in API_ITEMS:
         source = api / item
         target = rollback / 'api' / item
@@ -251,13 +381,27 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
             shutil.copytree(source, target, symlinks=True)
         else:
             shutil.copy2(source, target)
+    if operation_id:
+        shutil.copy2(PROJECT / '.actions-deployed.json', rollback / 'previous-deployed.json')
+        shutil.copytree(STATIC, rollback / 'old-static', symlinks=True)
+        if helper.api_items_digest(rollback / 'api') != abort_baseline['old_api_sha256']:
+            raise RuntimeError('Previous API recovery copy failed verification')
+        if helper.tree_digest(rollback / 'old-static') != abort_baseline['old_static_sha256']:
+            raise RuntimeError('Previous static recovery copy failed verification')
     staged_static = STATIC.parent / ('.out-' + release)
     old_static = STATIC.parent / ('.old-out-' + release)
-    old_venv = work / 'old-venv'
+    old_venv = rollback / 'old-venv' if operation_id else work / 'old-venv'
     shutil.copytree(payload / 'out', staged_static)
     for path in (staged_static, *staged_static.rglob('*')):
         path.chmod(0o755 if path.is_dir() else 0o644)
     timers = [timer for timer in TIMERS if active(timer)]
+    if operation_id:
+        abort_baseline = write_numbering_abort_baseline(
+            rollback, release, operation_id, metadata['commit'], db, revision['current'],
+            abort_baseline['previous'], abort_baseline['previous_sha256'],
+            abort_baseline['old_api_sha256'], abort_baseline['old_venv_sha256'],
+            abort_baseline['old_static_sha256'], timers, abort_baseline['proxy_was_active'],
+        )
     stopped = changed = migration_started = succeeded = False
     try:
         for timer in timers:
@@ -274,13 +418,23 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
         if operation_id:
             enter_numbering_hold(payload, db, operation_id, metadata['commit'])
         (rollback / 'full').mkdir()
-        command('chown', 'inventory:inventory', str(rollback), str(rollback / 'full'))
+        command('chown', 'inventory:inventory', str(rollback / 'full'))
         as_inventory(env, str(old_python), str(api / 'scripts/backup_inventory.py'), '--destination', str(rollback / 'full'))
         # Recheck the revision after stopping business writes.
         with sqlite3.connect(db.as_uri() + '?mode=ro', uri=True) as connection:
             current = [r[0] for r in connection.execute('SELECT version_num FROM alembic_version')]
         if current != [revision['current']]:
             raise RuntimeError('Database revision changed during staging')
+        if operation_id:
+            backup_manifests = list((rollback / 'full').glob('*/manifest.json'))
+            if len(backup_manifests) != 1:
+                raise RuntimeError('Expected exactly one timestamped full backup set')
+            write_numbering_abort_bundle(
+                rollback, release, operation_id, metadata['commit'], db, abort_baseline,
+                backup_manifests[0].parent,
+            )
+            (api / '.venv').rename(old_venv)
+            command('chown', '-R', 'root:inventory', str(old_venv))
         changed = True
         for item in API_ITEMS:
             remove(api / item)
@@ -290,8 +444,11 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
             else:
                 shutil.copy2(source, api / item)
         command('chown', '-R', 'inventory:inventory', *(str(api / item) for item in API_ITEMS))
-        (api / '.venv').rename(old_venv)
-        (api / '.venv').symlink_to(venv, target_is_directory=True)
+        if operation_id:
+            (api / '.venv').symlink_to(venv, target_is_directory=True)
+        else:
+            (api / '.venv').rename(old_venv)
+            (api / '.venv').symlink_to(venv, target_is_directory=True)
         if needs_migration:
             migration_started = True
             # Alembic resolves relative script_location against this cwd.
@@ -347,7 +504,8 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
 if __name__ == '__main__':
     try:
         if sys.argv[1:] == ['--capabilities']:
-            print(json.dumps({'numbering_maintenance_protocol': 1}))
+            print(json.dumps({'numbering_maintenance_protocol': 1,
+                              'numbering_abort_protocol': int(numbering_abort_installed())}))
         else:
             if len(sys.argv) not in (4, 6) or sys.argv[3] not in ('true', 'false') or (len(sys.argv) == 6 and sys.argv[4] != '--numbering-hold'):
                 raise RuntimeError('Usage: deploy-actions.py RELEASE_ID SHA256 true|false [--numbering-hold OPERATION_ID]')

@@ -67,11 +67,35 @@ def _verify_abort_probe(state, database, project, *, proxy_active, service_loopb
     return True
 
 
-def _verify_abort_release(state, database, project):
+def _verify_abort_resume(state, database, project, *, proxy_active, service_loopback, now_ns):
+    resume = state.get('abort_resume')
+    if (not isinstance(resume, dict) or
+            resume.get('format') != 'numbering-abort-resume-v1' or
+            resume.get('state') != 'authorized'):
+        raise RuntimeError('Numbering maintenance remains held; normal API startup is forbidden')
+    if (resume.get('operation_id') != state.get('operation_id') or
+            resume.get('release_sha') != state.get('release_sha') or
+            resume.get('database_identity') != _database_identity(database) or
+            not re.fullmatch(r'[0-9a-f]{40}', resume.get('previous_commit', '')) or
+            not re.fullmatch(r'[0-9a-f]{64}', resume.get('plan_sha256', '')) or
+            type(resume.get('expires_at_ns')) is not int or resume['expires_at_ns'] <= now_ns):
+        raise RuntimeError('Abort resume authorization expired or does not match this operation')
+    if _deployment_commit(project) != resume['previous_commit']:
+        raise RuntimeError('Abort resume does not match the restored old release')
+    if proxy_active():
+        raise RuntimeError('Nginx must remain stopped while the old API is resumed privately')
+    if not service_loopback():
+        raise RuntimeError('Abort resume API must bind only to loopback 127.0.0.1:8102')
+    return True
+
+
+def _verify_abort_release(state, database, data, project):
     receipt = state.get('abort_receipt')
     checks = {'cutover_not_committed': True, 'database_restored': True,
               'old_code_restored': True, 'api_readonly_probe': True,
-              'inventory_readonly_checks': True}
+              'inventory_readonly_checks': True, 'normal_api_health': True,
+              'ai_unchanged': True, 'timers_restored': True,
+              'proxy_stopped_until_release': True}
     if (state.get('release_reason') != 'precommit_abort' or not isinstance(receipt, dict) or
             receipt.get('format') != 'numbering-abort-receipt-v1' or receipt.get('state') != 'complete' or
             receipt.get('operation_id') != state.get('operation_id') or
@@ -84,6 +108,22 @@ def _verify_abort_release(state, database, project):
         raise RuntimeError('Aborted numbering release receipt is incomplete or mismatched')
     if _deployment_commit(project) != receipt.get('previous_commit'):
         raise RuntimeError('Restored source does not match the approved previous release')
+    validation_path = data / 'numbering-maintenance' / 'abort-validation.json'
+    if validation_path.is_symlink() or not validation_path.is_file():
+        raise RuntimeError('Aborted numbering release has no durable pre-release validation')
+    try:
+        validation = json.loads(validation_path.read_text())
+    except (OSError, ValueError) as error:
+        raise RuntimeError('Aborted numbering release validation is unreadable') from error
+    if (validation.get('format') != 'numbering-abort-validation-v1' or
+            validation.get('state') != 'ready_to_release' or
+            validation.get('operation_id') != receipt.get('operation_id') or
+            validation.get('release_sha') != receipt.get('release_sha') or
+            validation.get('database_identity') != receipt.get('database_identity') or
+            validation.get('plan_sha256') != receipt.get('plan_sha256') or
+            validation.get('previous_commit') != receipt.get('previous_commit') or
+            validation.get('checks') != checks):
+        raise RuntimeError('Aborted numbering release validation is incomplete or mismatched')
     return True
 
 
@@ -112,8 +152,15 @@ def verify(data=DATA, capability=CAPABILITY, project=PROJECT, *, proxy_active=No
                                               proxy_active=proxy_check,
                                               service_loopback=loopback_check,
                                               now_ns=time.time_ns() if now_ns is None else now_ns)
+        elif state.get('state') == 'abort_resuming':
+            proxy_check = proxy_active or _systemd_proxy_active
+            loopback_check = service_loopback or _systemd_service_is_loopback
+            abort_probe = _verify_abort_resume(state, database, project,
+                                               proxy_active=proxy_check,
+                                               service_loopback=loopback_check,
+                                               now_ns=time.time_ns() if now_ns is None else now_ns)
         elif state.get('state') == 'released' and state.get('release_reason') == 'precommit_abort':
-            _verify_abort_release(state, database, project)
+            _verify_abort_release(state, database, data, project)
             abort_release = True
         elif state.get('state') != 'released':
             raise RuntimeError('Numbering maintenance remains held; normal API startup is forbidden')
@@ -128,9 +175,30 @@ def verify(data=DATA, capability=CAPABILITY, project=PROJECT, *, proxy_active=No
             raise RuntimeError('Maintenance or committed numbering forbids starting incompatible old code')
 
 
+def verify_proxy(data=DATA, capability=CAPABILITY, project=PROJECT):
+    """Keep Nginx down until a complete, operation-bound release is durable."""
+    directory = data / 'numbering-maintenance'
+    if os.path.lexists(directory):
+        state_file = directory / 'state.json'
+        if directory.is_symlink() or state_file.is_symlink() or not state_file.is_file():
+            raise RuntimeError('Maintenance marker is missing or aliased; Nginx startup is forbidden')
+        try:
+            state = json.loads(state_file.read_text())
+        except (OSError, ValueError) as error:
+            raise RuntimeError('Maintenance marker is unreadable; Nginx startup is forbidden') from error
+        if state.get('format') != 'numbering-maintenance-v1' or state.get('state') in {'held', 'abort_resuming'}:
+            raise RuntimeError('Numbering maintenance remains held; Nginx startup is forbidden')
+    verify(data, capability, project)
+
+
 if __name__ == '__main__':
     try:
-        verify()
+        if sys.argv[1:] == ['--proxy']:
+            verify_proxy()
+        elif not sys.argv[1:]:
+            verify()
+        else:
+            raise RuntimeError('Usage: numbering-service-guard [--proxy]')
     except Exception as error:
-        print('API start refused: ' + str(error), file=sys.stderr)
+        print('Service start refused: ' + str(error), file=sys.stderr)
         sys.exit(1)

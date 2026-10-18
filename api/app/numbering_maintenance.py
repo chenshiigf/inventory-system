@@ -124,7 +124,7 @@ class Maintenance:
         try:
             state = json.loads(checked_path(self.path, existing=True).read_text(encoding='utf8'))
             if (state.get('format') != 'numbering-maintenance-v1' or
-                    state.get('state') not in ('held', 'released') or
+                    state.get('state') not in ('held', 'abort_resuming', 'released') or
                     not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{7,95}', state.get('operation_id', '')) or
                     not re.fullmatch(r'[0-9a-f]{40}', state.get('release_sha', '')) or
                     not isinstance(state.get('database_identity'), dict)):
@@ -135,7 +135,10 @@ class Maintenance:
 
     def held(self):
         state = self.read()
-        return state is not None and state['state'] == 'held'
+        # Abort resumption is still a maintenance state. The old API may be
+        # started privately for health checks, but its write admission remains
+        # closed until the complete receipt is atomically published as released.
+        return state is not None and state['state'] in {'held', 'abort_resuming'}
 
     def require(self, operation_id, database):
         state = self.read()
@@ -143,6 +146,42 @@ class Maintenance:
                 state['database_identity'] != database_identity(database)):
             raise MaintenanceError('维护状态、操作 ID 或数据库身份不匹配')
         return state
+
+    def require_abort(self, operation_id, database):
+        state = self.read()
+        if (not state or state['state'] not in {'held', 'abort_resuming'} or
+                state['operation_id'] != operation_id or
+                state['database_identity'] != database_identity(database)):
+            raise MaintenanceError('中止恢复维护状态、操作 ID 或数据库身份不匹配')
+        return state
+
+    def begin_abort_resume(self, operation_id, database, *, release_sha,
+                           plan_sha256, previous_commit, expires_at_ns):
+        """Persist a private old-API startup window without opening writes."""
+        state = self.require_abort(operation_id, database)
+        if (state.get('release_sha') != release_sha or
+                not re.fullmatch(r'[0-9a-f]{64}', str(plan_sha256)) or
+                not re.fullmatch(r'[0-9a-f]{40}', str(previous_commit)) or
+                type(expires_at_ns) is not int or expires_at_ns <= time.time_ns()):
+            raise MaintenanceError('中止恢复 API 启动授权无效')
+        marker = {
+            'format': 'numbering-abort-resume-v1',
+            'state': 'authorized',
+            'operation_id': operation_id,
+            'release_sha': release_sha,
+            'database_identity': state['database_identity'],
+            'plan_sha256': plan_sha256,
+            'previous_commit': previous_commit,
+            'expires_at_ns': expires_at_ns,
+        }
+        existing = state.get('abort_resume')
+        if existing is not None and any(existing.get(key) != marker[key] for key in marker
+                                        if key != 'expires_at_ns'):
+            raise MaintenanceError('已有中止恢复 API 授权与本次操作不匹配')
+        updated = {**state, 'state': 'abort_resuming', 'abort_resume': marker,
+                   'abort_resume_started_at_ns': time.time_ns()}
+        atomic_json(self.path, updated, group=Path(database).stat().st_gid)
+        return updated
 
     def enter(self, operation_id, release_sha, database, frozen_sha256, *, frozen_counters=None):
         if not re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9_-]{7,95}', operation_id):
@@ -184,7 +223,9 @@ class Maintenance:
 
     def abort_release(self, operation_id, database, receipt):
         """Release only a verified pre-commit deployment abort, never a cutover."""
-        state = self.require(operation_id, database)
+        state = self.require_abort(operation_id, database)
+        if state.get('state') != 'abort_resuming':
+            raise MaintenanceError('必须先完成 operation-bound API 恢复验收，才能解除中止维护')
         path = checked_path(database, existing=True)
         connection = None
         try:
@@ -211,6 +252,10 @@ class Maintenance:
                 'old_code_restored': True,
                 'api_readonly_probe': True,
                 'inventory_readonly_checks': True,
+                'normal_api_health': True,
+                'ai_unchanged': True,
+                'timers_restored': True,
+                'proxy_stopped_until_release': True,
             },
         }
         if any(receipt.get(key) != value for key, value in expected.items()):
@@ -225,7 +270,7 @@ class Maintenance:
         except (OSError, ValueError) as error:
             raise MaintenanceError('缺少中止恢复只读验收登记；不能解除维护') from error
         if (validation.get('format') != 'numbering-abort-validation-v1' or
-                validation.get('state') != 'probe_passed' or
+                validation.get('state') != 'ready_to_release' or
                 validation.get('operation_id') != operation_id or
                 validation.get('release_sha') != state['release_sha'] or
                 validation.get('database_identity') != state['database_identity'] or
@@ -233,20 +278,18 @@ class Maintenance:
                 validation.get('previous_commit') != receipt['previous_commit'] or
                 validation.get('checks') != expected['checks']):
             raise MaintenanceError('中止只读验收登记与解除请求不匹配')
+        marker = state.get('abort_resume')
+        if (not isinstance(marker, dict) or marker.get('format') != 'numbering-abort-resume-v1' or
+                marker.get('state') != 'authorized' or marker.get('operation_id') != operation_id or
+                marker.get('release_sha') != state['release_sha'] or
+                marker.get('database_identity') != state['database_identity'] or
+                marker.get('plan_sha256') != receipt['plan_sha256'] or
+                marker.get('previous_commit') != receipt['previous_commit'] or
+                type(marker.get('expires_at_ns')) is not int or marker['expires_at_ns'] <= time.time_ns()):
+            raise MaintenanceError('中止恢复 API 授权与最终验收登记不匹配')
         atomic_json(self.path, {**state, 'state': 'released', 'release_reason': 'precommit_abort',
                                'abort_receipt': receipt, 'released_at_ns': time.time_ns()},
                     group=Path(database).stat().st_gid)
-
-    def rehold_after_abort_failure(self, operation_id, database, reason):
-        """Close admission again if post-restore startup fails before proxy resume."""
-        state = self.read()
-        if (not state or state.get('state') != 'released' or
-                state.get('release_reason') != 'precommit_abort' or
-                state.get('operation_id') != operation_id or
-                state.get('database_identity') != database_identity(database)):
-            raise MaintenanceError('不能将非本次中止释放状态重新冻结')
-        atomic_json(self.path, {**state, 'state': 'held', 'abort_resume_failure': str(reason)[:500],
-                               'reheld_at_ns': time.time_ns()}, group=Path(database).stat().st_gid)
 
     def release(self, operation_id, database, receipt, completion_sha256):
         """Caller holds the exclusive gate and has verified committed DB state."""

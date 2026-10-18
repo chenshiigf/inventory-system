@@ -11,7 +11,7 @@ import sqlite3
 import pytest
 
 from app.inventory_backup import create_backup, restore_backup
-from app.numbering_maintenance import Maintenance, MaintenanceError, file_gate
+from app.numbering_maintenance import Maintenance, MaintenanceAdmission, MaintenanceError, file_gate
 from app.services import product_code_cutover as cutover
 from app.services.numbering_environment import file_binding
 from tests.test_product_code_offline import database, synthetic_backup
@@ -90,6 +90,8 @@ class SyntheticAbortContext:
         self.service_running = True
 
     def stop_timers(self):
+        if self.failure in {"timer_stop", "timer_active", "timer_query"}:
+            raise abort.AbortError(f"synthetic timer stop verification failure: {self.failure}")
         self.timer_running = False
 
     def start_timers(self, timers):
@@ -439,6 +441,185 @@ def test_interrupted_abort_resumes_from_the_same_verified_backup_after_an_hour(t
     assert context.restore_calls == 1
 
 
+def test_interruption_after_database_install_resumes_only_from_exact_backup_pair(tmp_path, monkeypatch):
+    context, _release_dir, _ = _fixture(tmp_path)
+    plan = _plan(context)
+    original_rebind = abort._rebind_after_restore
+
+    def interrupt_before_rebind(*_args, **_kwargs):
+        raise KeyboardInterrupt("synthetic interruption after atomic database/uploads install")
+
+    monkeypatch.setattr(abort, "_rebind_after_restore", interrupt_before_rebind)
+    with pytest.raises(KeyboardInterrupt):
+        _execute(context, plan)
+    assert abort.status(context, OPERATION, RELEASE)["phase"] == "database_restore_started"
+    assert Maintenance(context.data_root).held()
+
+    monkeypatch.setattr(abort, "_rebind_after_restore", original_rebind)
+    result = _execute(context, plan)
+    assert result["state"] == "complete"
+    assert context.restore_calls == 1
+
+
+@pytest.mark.parametrize("change", ["content", "replace"])
+def test_authorized_resume_rejects_changed_or_replaced_database_before_restore(tmp_path, monkeypatch, change):
+    context, _release_dir, _ = _fixture(tmp_path)
+    plan = _plan(context)
+    original_check = abort._verify_not_committed
+
+    def interrupt_after_authorization(_context):
+        raise KeyboardInterrupt("synthetic interruption after authorized checkpoint")
+
+    monkeypatch.setattr(abort, "_verify_not_committed", interrupt_after_authorization)
+    with pytest.raises(KeyboardInterrupt):
+        _execute(context, plan)
+    monkeypatch.setattr(abort, "_verify_not_committed", original_check)
+    assert abort.status(context, OPERATION, RELEASE)["phase"] == "authorized"
+
+    if change == "content":
+        with closing(sqlite3.connect(context.database)) as db:
+            product_id = db.execute("SELECT min(id) FROM products").fetchone()[0]
+            db.execute("UPDATE products SET remark='changed after authorization' WHERE id=?", (product_id,))
+            db.commit()
+        expected = "源数据库、结构、图片或冻结业务状态发生变化"
+    else:
+        replacement = context.database.with_name("replacement.db")
+        replacement.write_bytes(context.database.read_bytes())
+        os.replace(replacement, context.database)
+        expected = "维护状态与当前数据库文件身份不匹配"
+
+    with pytest.raises((abort.AbortError, MaintenanceError), match=expected):
+        _execute(context, plan)
+    assert context.restore_calls == 0
+    assert Maintenance(context.data_root).held()
+
+
+def test_resume_stops_at_proxy_active_release_gap_and_keeps_writes_blocked(tmp_path, monkeypatch):
+    context, _release_dir, _ = _fixture(tmp_path)
+    plan = _plan(context)
+    original_release = Maintenance.abort_release
+
+    def interrupt_before_release(self, *_args, **_kwargs):
+        assert self.held()
+        raise KeyboardInterrupt("synthetic interruption at final pre-release boundary")
+
+    monkeypatch.setattr(Maintenance, "abort_release", interrupt_before_release)
+    with pytest.raises(KeyboardInterrupt):
+        _execute(context, plan)
+    state = Maintenance(context.data_root).read()
+    assert state["state"] == "abort_resuming"
+    # The fixture begins with Nginx active; it must stay stopped until release.
+    assert not context.proxy_running and context.service_running and context.timer_running
+    # Simulate an unexpected proxy activation after restart. The application
+    # admission layer still rejects the write, while the systemd proxy guard
+    # test separately proves a normal Nginx start is refused in this state.
+    context.proxy_running = True
+    assert Maintenance(context.data_root).held()
+
+    reached = {"write": False}
+
+    async def downstream(_scope, _receive, _send):
+        reached["write"] = True
+
+    middleware = MaintenanceAdmission(downstream, context.data_root)
+    sent = []
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+    async def send(message):
+        sent.append(message)
+    scope = {
+        "type": "http", "path": "/api/products", "method": "POST",
+        "headers": [], "query_string": b"", "server": ("127.0.0.1", 8102),
+        "client": ("127.0.0.1", 12345), "scheme": "http", "http_version": "1.1",
+        "asgi": {"version": "3.0"},
+    }
+    request = middleware(scope, receive, send)
+    try:
+        request.send(None)
+    except StopIteration:
+        pass
+    else:
+        pytest.fail("maintenance response unexpectedly yielded to an event loop")
+    response_start = next(message for message in sent if message["type"] == "http.response.start")
+    assert response_start["status"] == 503
+    assert not reached["write"]
+
+    monkeypatch.setattr(Maintenance, "abort_release", original_release)
+    result = _execute(context, plan)
+    assert result["state"] == "complete"
+    assert Maintenance(context.data_root).held() is False
+    assert context.proxy_running
+
+
+def test_released_resume_repairs_report_after_proxy_activation_and_restart(tmp_path, monkeypatch):
+    context, _release_dir, _ = _fixture(tmp_path)
+    plan = _plan(context)
+    original_update = abort._update_progress
+
+    def interrupt_after_release(_context, _paths, progress, *, phase, **changes):
+        if phase == "complete":
+            assert Maintenance(context.data_root).read()["state"] == "released"
+            assert context.proxy_running
+            raise KeyboardInterrupt("synthetic crash after proxy activation before final recovery registration")
+        return original_update(_context, _paths, progress, phase=phase, **changes)
+
+    monkeypatch.setattr(abort, "_update_progress", interrupt_after_release)
+    with pytest.raises(KeyboardInterrupt):
+        _execute(context, plan)
+    assert Maintenance(context.data_root).read()["state"] == "released"
+    assert context.proxy_running
+
+    # A durable release permits normal business writes before a missing report
+    # is repaired. Resume must not mistake those post-release writes for a
+    # damaged pre-release restore or repeat any database replacement.
+    with closing(sqlite3.connect(context.database)) as db:
+        db.execute("UPDATE products SET remark='post-release business write' WHERE id=1")
+        db.commit()
+    context.service_running = False
+    context.timer_running = False
+    context.proxy_running = False
+    monkeypatch.setattr(abort, "_update_progress", original_update)
+    result = _execute(context, plan)
+    assert result["state"] == "complete"
+    assert context.restore_calls == 1
+    assert context.proxy_running and context.service_running and context.timer_running
+
+
+@pytest.mark.parametrize("failure", ["stop_command", "still_active", "query_failure"])
+def test_stop_timers_requires_successful_stop_and_confirmed_inactive_state(tmp_path, monkeypatch, failure):
+    context = abort.ProductionAbortContext.__new__(abort.ProductionAbortContext)
+    context.timers = ("inventory-db-backup.timer",)
+    calls = []
+
+    def systemctl(*args, check=True):
+        calls.append(args)
+        if args[0] == "stop" and failure == "stop_command":
+            raise abort.AbortError("synthetic stop command failure")
+        if args[0] == "show" and failure == "query_failure":
+            return type("Result", (), {"returncode": 1, "stdout": ""})()
+        active = "active" if failure == "still_active" else "inactive"
+        return type("Result", (), {"returncode": 0,
+                                    "stdout": f"LoadState=loaded\nActiveState={active}\n"})()
+
+    monkeypatch.setattr(context, "_systemctl", systemctl)
+    with pytest.raises(abort.AbortError, match="timer"):
+        context.stop_timers()
+    assert calls[0][0] == "stop"
+
+
+@pytest.mark.parametrize("failure", ["timer_stop", "timer_active", "timer_query"])
+def test_timer_stop_failure_never_completes_abort_or_releases_maintenance(tmp_path, failure):
+    context, _release_dir, _ = _fixture(tmp_path)
+    plan = _plan(context)
+    context.failure = failure
+    with pytest.raises(abort.AbortError, match="timer stop verification failure"):
+        _execute(context, plan)
+    assert context.restore_calls == 0
+    assert Maintenance(context.data_root).held()
+    assert Maintenance(context.data_root).read()["state"] in {"held", "abort_resuming"}
+    assert abort.status(context, OPERATION, RELEASE)["state"] == "failed_maintenance_held"
+
+
 def test_readonly_probe_cleanup_removes_only_operation_scoped_temporary_data(tmp_path, monkeypatch):
     context = abort.ProductionAbortContext.__new__(abort.ProductionAbortContext)
     runtime_root = tmp_path / "runtime"
@@ -472,11 +653,11 @@ def test_probe_failure_does_not_release_maintenance_or_open_proxy(tmp_path, fail
     # recovery plan stops Nginx. Probe-time failures happen after Nginx stops.
     assert context.proxy_running is (failure == "unsafe_api_startup")
     assert not context.service_running
-    expected_state = "held_abort_not_started" if failure == "unsafe_api_startup" else "in_progress"
+    expected_state = "held_abort_not_started" if failure == "unsafe_api_startup" else "failed_maintenance_held"
     assert abort.status(context, OPERATION, RELEASE)["state"] == expected_state
 
 
-def test_normal_old_service_failure_after_release_reholds_before_proxy_opens(tmp_path):
+def test_normal_old_service_failure_during_abort_resume_keeps_proxy_closed(tmp_path):
     context, _release_dir, _ = _fixture(tmp_path)
     plan = _plan(context)
     context.failure = "normal_health"

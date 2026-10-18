@@ -17,7 +17,7 @@
 以下只列安装约定，本轮未执行。
 
 1. 经审核的部署器安装至 `/usr/local/sbin/inventory-deploy-actions`。GitHub release 不会自动更新服务器已安装的部署脚本。
-2. `deploy/numbering-service-guard.py` 安装至 `/usr/local/sbin/inventory-numbering-service-guard`（root 所有、755）；`deploy/numbering-guard.conf` 安装至 `/etc/systemd/system/inventory-system-api.service.d/numbering-guard.conf`（root 所有、644），重新加载 systemd 并验证 DropInPaths / ExecStartPre。该 guard 在维护仍保持或标记损坏时拒绝普通服务启动（包括重启机器后），防止 lifespan 初始化 AI 状态。维护已解除或正式切换已有登记时，还要求应用具有 `numbering-v2.json` 能力标记；不兼容旧代码不能启动。
+2. `deploy/numbering-service-guard.py` 安装至 `/usr/local/sbin/inventory-numbering-service-guard`（root 所有、755）；`deploy/numbering-guard.conf` 与 `deploy/numbering-nginx-guard.conf` 分别安装至 API 与 Nginx 的 systemd drop-in 目录（root 所有、644），重新加载 systemd 并核验两个 unit 的 DropInPaths / ExecStartPre。API guard 在维护仍保持或标记损坏时拒绝普通服务启动（包括重启机器后），防止 lifespan 初始化 AI 状态；中止恢复入口先停止现有 Nginx，Nginx guard 再拒绝其在 `held/abort_resuming` 状态下重启。维护已解除或正式切换已有登记时，API guard 还要求应用具有 `numbering-v2.json` 能力标记；不兼容旧代码不能启动。
 3. 将以下审定版本的标准库模块独立安装至 `/usr/local/lib/inventory-numbering`，目录 root 所有、755，文件 root 所有、644，不可被 inventory 用户改写：
    - `app/__init__.py`、`app/services/__init__.py`（空包文件）
    - `app/numbering_maintenance.py`
@@ -154,6 +154,6 @@ sudo /usr/local/sbin/inventory-numbering-abort execute \
   --confirm-precommit-abort --expected-plan-sha256 '<plan-sha256>'
 ```
 
-执行会从本次维护窗口的完整备份恢复数据库和 uploads，再恢复已摘要绑定的旧 API、虚拟环境及静态产物。只在数据库、旧代码、AI 数据目录只读指纹和业务 API 只读检查通过后写入中止验收记录并解除维护；随后先恢复旧 API 和原有 timer，在 Nginx 重新开放前完成最后的只读健康检查。流程中断可使用同一 operation/release/计划摘要执行 `status` 并从登记阶段续做，不重新生成确认摘要或重复覆盖已完成步骤。
+执行会从本次维护窗口的完整备份恢复数据库和 uploads，再恢复已摘要绑定的旧 API、虚拟环境及静态产物。API 只读探测期间 Nginx 必须停止。探测通过后进入持久的 `abort_resuming` 状态；该状态在服务重启后仍阻断所有普通 API 写请求，独立 Nginx `ExecStartPre` guard 也拒绝代理启动。旧 API 仅在 operation/release/数据库身份/计划摘要绑定的短时授权下于 loopback 启动，先完成健康检查和 AI 本地指纹复核，再恢复原有 timer，并确认代理仍停止。完整检查摘要先持久化，随后才通过一次原子状态更新解除维护；之后才恢复原有 Nginx。若在此之前进程中断，代理保持关闭、普通写请求继续被维护状态拒绝；重新执行时先停止代理、API 和 timer，再按保存阶段重新核验数据库及完整备份。若释放已原子提交但进度报告尚未完成，CLI 验证完整 receipt 后可幂等地恢复 API、timer 和代理并补齐报告，不重复恢复数据库或代码。
 
 `production_numbering_cutovers` 一旦存在已提交记录，prepare/plan/execute 普通中止路径都会拒绝操作；不能回退旧编号生成代码或删除维护标记。提交后恢复必须另行审批成套恢复或前向修复。没有发布前基线、恢复包损坏、数据库 sidecar 或旧产物不匹配时也不会自动解锁，需停留在维护状态等待人工处置。

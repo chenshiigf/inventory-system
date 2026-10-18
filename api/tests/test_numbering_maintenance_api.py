@@ -1,4 +1,5 @@
 from contextlib import closing
+import json
 import sqlite3
 
 from fastapi.testclient import TestClient
@@ -9,7 +10,7 @@ import re
 
 from app.database import Base, get_db
 from app.main import create_app
-from app.numbering_maintenance import Maintenance, file_gate
+from app.numbering_maintenance import Maintenance, MaintenanceAdmission, file_gate
 
 
 @pytest.fixture
@@ -41,6 +42,56 @@ def test_writes_work_before_maintenance_and_are_blocked_after_restart(maintenanc
         assert client.get('/api/products').status_code == 200
     with closing(sqlite3.connect(path)) as db:
         assert db.execute('SELECT count(*) FROM categories').fetchone()[0] == 1
+
+
+def test_abort_resume_state_keeps_api_writes_blocked_after_restart(maintenance_api):
+    _app, maintenance, path = maintenance_api
+    maintenance.enter('synthetic-maintenance', 'a' * 40, path, 'synthetic')
+    state = maintenance.read()
+    state.update({
+        'state': 'abort_resuming',
+        'abort_resume': {
+            'format': 'numbering-abort-resume-v1',
+            'state': 'authorized',
+            'operation_id': 'synthetic-maintenance',
+            'release_sha': 'a' * 40,
+            'database_identity': state['database_identity'],
+            'plan_sha256': 'b' * 64,
+            'previous_commit': 'c' * 40,
+            'expires_at_ns': 9_999_999_999_999_999_999,
+        },
+    })
+    maintenance.path.write_text(json.dumps(state), encoding='utf8')
+    assert maintenance.held()
+
+    # Simulate middleware reloaded by a new process after interruption.
+    reached = {'write': False}
+    async def downstream(_scope, _receive, _send):
+        reached['write'] = True
+    middleware = MaintenanceAdmission(downstream, maintenance.root)
+    sent = []
+    async def receive():
+        return {'type': 'http.request', 'body': b'', 'more_body': False}
+    async def send(message):
+        sent.append(message)
+    scope = {
+        'type': 'http', 'path': '/api/categories', 'method': 'POST',
+        'headers': [], 'query_string': b'', 'server': ('127.0.0.1', 8102),
+        'client': ('127.0.0.1', 12345), 'scheme': 'http', 'http_version': '1.1',
+        'asgi': {'version': '3.0'},
+    }
+    request = middleware(scope, receive, send)
+    try:
+        request.send(None)
+    except StopIteration:
+        pass
+    else:
+        pytest.fail('maintenance response unexpectedly yielded to an event loop')
+    response_start = next(message for message in sent if message['type'] == 'http.response.start')
+    assert response_start['status'] == 503
+    assert not reached['write']
+    with closing(sqlite3.connect(path)) as db:
+        assert db.execute('SELECT count(*) FROM categories').fetchone()[0] == 0
 
 
 @pytest.mark.parametrize('method,path', [

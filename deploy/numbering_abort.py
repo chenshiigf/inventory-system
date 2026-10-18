@@ -266,8 +266,8 @@ def _read_json(path, label):
     return value
 
 
-def _database_facts(context, *, expect_frozen=None):
-    database = checked_path(context.database, existing=True)
+def _database_facts_path(database):
+    database = checked_path(database, existing=True)
     sidecars = {}
     for suffix in ("-wal", "-shm", "-journal"):
         path = Path(str(database) + suffix)
@@ -294,6 +294,7 @@ def _database_facts(context, *, expect_frozen=None):
             "database_identity": database_identity(database),
             "database_binding": file_binding(database),
             "revision": revision_rows[0],
+            "schema_sha256": database_schema_digest(database),
             "business_sha256": business_sha,
             "counters": counters,
             "cutover_registry": "absent" if cutover.CONTROL not in names else "empty",
@@ -302,10 +303,58 @@ def _database_facts(context, *, expect_frozen=None):
             "sidecars": sidecars,
             "product_count": db.execute("SELECT count(*) FROM products").fetchone()[0],
         }
-    if expect_frozen is not None and (business_sha != expect_frozen["business_sha256"] or
-                                      counters != expect_frozen["counters"]):
+    return facts
+
+
+def _database_facts(context, *, expect_frozen=None):
+    facts = _database_facts_path(context.database)
+    if expect_frozen is not None and (facts["business_sha256"] != expect_frozen["business_sha256"] or
+                                      facts["counters"] != expect_frozen["counters"]):
         raise AbortError("商品或库存数据不再匹配维护冻结摘要")
     return facts
+
+
+def _uploads_content_digest_directory(directory):
+    from app.inventory_backup import _walk_uploads
+
+    entries = []
+    for path, archive_name, is_directory in _walk_uploads(Path(directory)):
+        relative = "/".join(archive_name.split("/")[1:])
+        if is_directory:
+            entries.append([relative, "directory"])
+        else:
+            binding = file_binding(path)
+            entries.append([relative, "file", binding["size"], binding["sha256"]])
+    return _digest(sorted(entries, key=lambda item: (item[0], item[1])))
+
+
+def _uploads_content_digest_archive(archive_path):
+    import tarfile
+    from app.inventory_backup import _validate_archive_members
+
+    entries = []
+    try:
+        with tarfile.open(archive_path, "r:gz") as archive:
+            for member, parts, is_directory in _validate_archive_members(archive.getmembers()):
+                relative = "/".join(parts[1:])
+                if is_directory:
+                    entries.append([relative, "directory"])
+                    continue
+                stream = archive.extractfile(member)
+                if stream is None:
+                    raise AbortError("完整备份图片归档无法读取文件")
+                digest = hashlib.sha256()
+                size = 0
+                with stream:
+                    while chunk := stream.read(1024 * 1024):
+                        digest.update(chunk)
+                        size += len(chunk)
+                if size != member.size:
+                    raise AbortError("完整备份图片归档文件长度不匹配")
+                entries.append([relative, "file", size, digest.hexdigest()])
+    except (OSError, EOFError, tarfile.TarError) as error:
+        raise AbortError("完整备份图片归档无法安全核验") from error
+    return _digest(sorted(entries, key=lambda item: (item[0], item[1])))
 
 
 def _bundle_paths(context, release):
@@ -449,6 +498,7 @@ def _build_plan(context, operation_id, release):
         "business_sha256": state["frozen_business_sha256"],
         "counters": state.get("frozen_counters", {}),
     })
+    db["uploads_content_sha256"] = _uploads_content_digest_directory(context.data_root / "uploads")
     previous = _old_metadata(context, bundle)
     artifact = _artifact_facts(context, bundle)
     backup = cutover.verify_backup(
@@ -802,11 +852,110 @@ def _save_or_resume_plan(context, operation_id, release, expected_plan_sha256):
         }
         _write_progress(context, paths, progress)
         return paths, bundle, progress, report
+    plan = progress.get("plan")
     if (progress.get("operation_id") != operation_id or progress.get("release") != release or
-            progress.get("plan_sha256") != expected_plan_sha256 or
-            _digest({k: v for k, v in progress["plan"].items() if k not in {"plan_sha256", "state", "dry_run"}}) != expected_plan_sha256):
+            progress.get("plan_sha256") != expected_plan_sha256 or not isinstance(plan, dict) or
+            _digest({k: v for k, v in plan.items() if k not in {"plan_sha256", "state", "dry_run"}}) != expected_plan_sha256):
         raise AbortError("中止恢复登记与确认摘要不匹配")
-    return paths, bundle, progress, progress["plan"]
+    return paths, bundle, progress, plan
+
+
+def _source_database_matches_plan(context, progress):
+    planned = progress.get("plan", {}).get("database", {})
+    required = ("database_identity", "database_binding", "revision", "schema_sha256",
+                "business_sha256", "counters", "cutover_registry", "integrity_check",
+                "foreign_key_check", "product_count", "uploads_content_sha256")
+    if any(key not in planned for key in required):
+        raise AbortError("已保存计划缺少数据库/图片源状态摘要；拒绝续做")
+    actual = _database_facts(context)
+    actual["uploads_content_sha256"] = _uploads_content_digest_directory(context.data_root / "uploads")
+    if any(actual.get(key) != planned.get(key) for key in required):
+        raise AbortError("授权后的源数据库、结构、图片或冻结业务状态发生变化；拒绝覆盖")
+    return actual
+
+
+def _restored_database_matches(context, paths, progress, bundle, state, *, require_saved_identity):
+    frozen = {
+        "business_sha256": state["frozen_business_sha256"],
+        "counters": state.get("frozen_counters", {}),
+    }
+    actual = _database_facts(context, expect_frozen=frozen)
+    backup_path = paths["backup"] / "inventory.db"
+    backup_facts = _database_facts_path(backup_path)
+    target_binding = actual["database_binding"]
+    backup_binding = backup_facts["database_binding"]
+    comparisons = ("revision", "schema_sha256", "business_sha256", "counters",
+                   "cutover_registry", "integrity_check", "foreign_key_check", "product_count")
+    if (target_binding["sha256"] != bundle.get("backup_database_sha256") or
+            target_binding["size"] != backup_binding["size"] or
+            backup_binding["sha256"] != bundle.get("backup_database_sha256") or
+            any(actual.get(key) != backup_facts.get(key) for key in comparisons)):
+        raise AbortError("当前数据库不是完整备份对应的已验证恢复状态")
+    actual_uploads = _uploads_content_digest_directory(context.data_root / "uploads")
+    backup_uploads = _uploads_content_digest_archive(paths["backup"] / "uploads.tar.gz")
+    if actual_uploads != backup_uploads:
+        raise AbortError("当前图片目录不是完整备份对应的已验证恢复状态")
+    saved_identity = progress.get("restored_database_identity")
+    if require_saved_identity and (not saved_identity or actual["database_identity"] != saved_identity):
+        raise AbortError("恢复后的数据库文件身份发生变化；拒绝续做")
+    return actual
+
+
+def _validate_resume_database_state(context, paths, progress, bundle, state):
+    phase = progress.get("phase")
+    if phase == "authorized":
+        if (state.get("database_identity") != progress.get("database_identity_before_restore") or
+                state.get("database_identity") != database_identity(context.database)):
+            raise AbortError("授权阶段数据库身份已变化；拒绝开始破坏性恢复")
+        return "source", _source_database_matches_plan(context, progress)
+    if phase == "database_restore_started":
+        # The backup restore helper atomically installs database and uploads.
+        # Before mutation, the exact approved source snapshot is safe to retry;
+        # after install, only the byte-for-byte backup pair is safe to advance.
+        source_identity = progress.get("database_identity_before_restore")
+        current_identity = database_identity(context.database)
+        if state.get("database_identity") != source_identity and state.get("database_identity") != current_identity:
+            raise AbortError("恢复中断阶段维护登记绑定了未知数据库身份；拒绝续做")
+        try:
+            source = _source_database_matches_plan(context, progress)
+            if state.get("database_identity") != source_identity:
+                raise AbortError("恢复前数据库状态与维护登记身份不匹配")
+            return "source", source
+        except (AbortError, MaintenanceError, OSError, sqlite3.Error):
+            try:
+                restored = _restored_database_matches(
+                    context, paths, progress, bundle, state, require_saved_identity=False
+                )
+                return "restored", restored
+            except (AbortError, MaintenanceError, OSError, sqlite3.Error) as error:
+                raise AbortError(
+                    "database_restore_started 階段狀態既不是授權源快照，也不是完整驗證備份；保持維護並人工檢查"
+                ) from error
+    if phase in {"database_restored", "code_restore_started", "artifacts_restored",
+                 "probe_started", "probe_passed", "resume_starting", "ready_to_release"}:
+        if state.get("database_identity") != database_identity(context.database):
+            raise AbortError("恢复后数据库身份与维护登记不匹配；拒绝续做")
+        return "restored", _restored_database_matches(
+            context, paths, progress, bundle, state, require_saved_identity=True
+        )
+    raise AbortError("中止恢復階段無法識別；保持維護並人工檢查")
+
+
+def _read_abort_resume_state(context, operation_id, bundle, progress):
+    state = Maintenance(context.data_root).read()
+    phase = progress.get("phase")
+    if (not state or state.get("state") not in {"held", "abort_resuming"} or
+            state.get("operation_id") != operation_id or
+            state.get("release_sha") != bundle.get("release_sha")):
+        raise AbortError("中止恢复维护状态、operation 或 release 不匹配")
+    current_identity = database_identity(context.database)
+    if phase == "database_restore_started":
+        source_identity = progress.get("database_identity_before_restore")
+        if state.get("database_identity") != source_identity and state.get("database_identity") != current_identity:
+            raise AbortError("恢复中断阶段维护状态绑定未知数据库；拒绝续做")
+    elif state.get("database_identity") != current_identity:
+        raise AbortError("维护状态与当前数据库文件身份不匹配")
+    return state
 
 
 def _update_progress(context, paths, progress, *, phase, **changes):
@@ -822,44 +971,85 @@ def _finish_released_resume(context, paths, bundle, progress):
             receipt and receipt.get("plan_sha256") == progress.get("plan_sha256") and
             state.get("database_identity") == database_identity(context.database)):
         raise AbortError("释放状态与已批准中止登记不匹配")
-    try:
+    checks = {
+        "cutover_not_committed": True,
+        "database_restored": True,
+        "old_code_restored": True,
+        "api_readonly_probe": True,
+        "inventory_readonly_checks": True,
+        "normal_api_health": True,
+        "ai_unchanged": True,
+        "timers_restored": True,
+        "proxy_stopped_until_release": True,
+    }
+    validation_path = Maintenance(context.data_root).directory / "abort-validation.json"
+    validation = _read_json(validation_path, "解除维护前最终恢复登记")
+    if (receipt.get("format") != ABORT_RECEIPT or receipt.get("state") != "complete" or
+            receipt.get("operation_id") != bundle.get("operation_id") or
+            receipt.get("release_sha") != bundle.get("release_sha") or
+            receipt.get("database_identity") != state.get("database_identity") or
+            receipt.get("previous_commit") != bundle.get("previous_commit") or
+            receipt.get("backup_manifest_sha256") != bundle.get("backup_manifest_sha256") or
+            receipt.get("checks") != checks or
+            validation.get("format") != "numbering-abort-validation-v1" or
+            validation.get("state") != "ready_to_release" or
+            validation.get("operation_id") != receipt.get("operation_id") or
+            validation.get("release_sha") != receipt.get("release_sha") or
+            validation.get("database_identity") != receipt.get("database_identity") or
+            validation.get("plan_sha256") != receipt.get("plan_sha256") or
+            validation.get("previous_commit") != receipt.get("previous_commit") or
+            validation.get("checks") != checks or
+            not isinstance(progress.get("plan"), dict) or
+            progress.get("phase") not in {"ready_to_release", "released"} or
+            receipt.get("plan_sha256") != progress.get("plan_sha256")):
+        raise AbortError("释放状态缺少完整的最终恢复登记；拒绝推断恢复已完成")
+    _verify_not_committed(context)
+    _old_metadata(context, bundle)
+    # Once the atomic release receipt is durable, regular old-version writes
+    # may already have occurred. Recheck integrity/identity, but do not compare
+    # against the pre-release frozen business digest or rewrite restored data.
+    db_facts = _database_facts(context)
+    if db_facts["database_identity"] != receipt["database_identity"]:
+        raise AbortError("最终恢复后的数据库身份变化；拒绝完成报告")
+    if hasattr(context, "api_active") and not context.api_active():
         if hasattr(context, "api_startup_safe"):
             context.api_startup_safe()
-        before_ai = context.ai_fingerprint() if hasattr(context, "ai_fingerprint") else None
-        if not context.api_active():
-            context.start_api()
-        context.health_readonly()
-        frozen = progress.get("plan", {}).get("maintenance", {})
-        if frozen:
-            _database_facts(context, expect_frozen={
-                "business_sha256": frozen["frozen_business_sha256"],
-                "counters": frozen.get("frozen_counters", {}),
-            })
-        if before_ai is not None and context.ai_fingerprint() != before_ai:
-            raise AbortError("旧服务启动改变了 AI 本地文件；保持维护，不开放 Nginx")
-        context.start_timers(bundle.get("timers_were_active", []))
-        if bundle.get("proxy_was_active"):
+        context.start_api()
+    context.health_readonly()
+    context.start_timers(bundle.get("timers_were_active", []))
+    if bundle.get("proxy_was_active"):
+        if not context.proxy_active():
             context.start_proxy()
-        if bundle.get("proxy_was_active") and not context.proxy_active():
-            raise AbortError("Nginx 恢复后未处于 active")
-        return _update_progress(context, paths, progress, phase="complete", state="complete",
-                                completed_at_ns=time.time_ns())
-    except BaseException as error:
-        cleanup_errors = []
-        for action in (context.stop_proxy, context.stop_timers, context.stop_api):
-            try:
-                action()
-            except BaseException as cleanup_error:
-                cleanup_errors.append(f"{type(cleanup_error).__name__}: {cleanup_error}")
+        if not context.proxy_active():
+            raise AbortError("恢复登记已释放，但 Nginx 未恢复；可安全续做服务恢复")
+    # The complete receipt and all pre-release gates precede atomic admission
+    # release. This resume path can idempotently finish service activation and
+    # repair a missing report without repeating any database/artifact restore.
+    return _update_progress(context, paths, progress, phase="complete", state="complete",
+                            abort_receipt=receipt, completed_at_ns=time.time_ns())
+
+
+def _cleanup_held_resume(context, paths, progress, error):
+    cleanup_errors = []
+    for action in (context.stop_proxy, context.stop_timers, context.stop_api):
         try:
-            Maintenance(context.data_root).rehold_after_abort_failure(
-                bundle["operation_id"], context.database, f"恢复旧版本服务失败：{error}"
-            )
-        except BaseException as rehold_error:
-            cleanup_errors.append(f"维护重新冻结失败: {type(rehold_error).__name__}: {rehold_error}")
-        _update_progress(context, paths, progress, phase="resume_failed", state="failed_maintenance_held",
-                         error=f"{type(error).__name__}: {error}", cleanup_errors=cleanup_errors)
-        raise
+            action()
+        except BaseException as cleanup_error:
+            cleanup_errors.append(f"{type(cleanup_error).__name__}: {cleanup_error}")
+    try:
+        state = Maintenance(context.data_root).read()
+        if state and state.get("state") == "released":
+            return False, cleanup_errors
+        if not state or state.get("state") not in {"held", "abort_resuming"}:
+            cleanup_errors.append("维护状态无法确认仍处于冻结")
+            return False, cleanup_errors
+        _update_progress(context, paths, progress, phase=progress.get("phase", "in_progress"),
+                         state="failed_maintenance_held",
+                         last_error=f"{type(error).__name__}: {error}",
+                         cleanup_errors=cleanup_errors)
+    except BaseException as progress_error:
+        cleanup_errors.append(f"恢复失败登记写入失败：{type(progress_error).__name__}")
+    return True, cleanup_errors
 
 
 def execute(context, operation_id, release, *, confirm=False, expected_plan_sha256=None):
@@ -872,110 +1062,181 @@ def execute(context, operation_id, release, *, confirm=False, expected_plan_sha2
             raise AbortError("该中止恢复已完成；禁止重复执行")
         state_now = Maintenance(context.data_root).read()
         if state_now and state_now.get("state") == "released" and state_now.get("release_reason") == "precommit_abort":
-            if not progress:
+            if (not progress or progress.get("phase") not in {"ready_to_release", "released"} or
+                    progress.get("plan_sha256") != expected_plan_sha256):
                 raise AbortError("维护已经释放但中止执行登记缺失；不能自动推断恢复状态")
+            paths, bundle, progress, _report = _save_or_resume_plan(
+                context, operation_id, release, expected_plan_sha256
+            )
             return _finish_released_resume(context, paths, bundle, progress)
         paths, bundle, progress, report = _save_or_resume_plan(context, operation_id, release, expected_plan_sha256)
-        context.drained()
-        if _verify_not_committed(context).get("cutover_registry") not in {"absent", "empty"}:
-            raise AbortError("历史商品换号已提交；拒绝回退旧版本")
-        initial_state = Maintenance(context.data_root).read()
-        if not initial_state or initial_state.get("state") != "held" or initial_state.get("operation_id") != operation_id:
-            raise AbortError("生产维护未保持冻结")
-        backup = _verify_bound_backup(context, paths, initial_state, report["backup"])
-        if (backup["manifest"]["sha256"] != bundle.get("backup_manifest_sha256") or
-                backup["database"]["sha256"] != bundle.get("backup_database_sha256") or
-                backup["uploads"]["sha256"] != bundle.get("backup_uploads_sha256")):
-            raise AbortError("执行前完整备份摘要发生变化")
-
-        # A process restart may have reactivated Nginx while the API guard
-        # correctly kept business code stopped. Reassert the private window on
-        # every run, including resume paths, before replacing database files.
-        context.stop_proxy()
-        if progress.get("phase") == "authorized":
-            progress = _update_progress(context, paths, progress, phase="database_restore_started")
-        if progress.get("phase") == "database_restore_started":
-            # Always restore both database and uploads again after a process
-            # interruption at this phase. The existing restore helper is
-            # transactional for failed steps and verifies its complete set.
-            context.restore_database(bundle)
-            state_after_restore = _rebind_after_restore(context, initial_state, bundle, paths)
-            progress = _update_progress(context, paths, progress, phase="database_restored",
-                                        restored_database_identity=database_identity(context.database),
-                                        restored_revision=_database_facts(context)["revision"])
-        else:
-            current_identity = database_identity(context.database)
-            if current_identity != progress.get("restored_database_identity"):
-                raise AbortError("恢复后的数据库身份发生变化")
-            state_after_restore = Maintenance(context.data_root).require(operation_id, context.database)
-            _rebind_after_restore(context, initial_state, bundle, paths)
-
-        if progress.get("phase") in {"database_restored", "code_restore_started"}:
-            progress = _update_progress(context, paths, progress, phase="code_restore_started")
-            _restore_old_artifacts(context, bundle, paths)
-            db_facts = _database_facts(context, expect_frozen={
-                "business_sha256": initial_state["frozen_business_sha256"],
-                "counters": initial_state.get("frozen_counters", {}),
-            })
-            progress = _update_progress(context, paths, progress, phase="artifacts_restored",
-                                        restored_database_identity=db_facts["database_identity"])
-        else:
-            db_facts = _database_facts(context, expect_frozen={
-                "business_sha256": initial_state["frozen_business_sha256"],
-                "counters": initial_state.get("frozen_counters", {}),
-            })
-            _restore_old_artifacts(context, bundle, paths)
-
-        state_after_restore = Maintenance(context.data_root).require(operation_id, context.database)
-        _verify_not_committed(context)
         if hasattr(context, "api_startup_safe"):
             context.api_startup_safe()
-        if progress.get("phase") != "probe_passed":
-            progress = _update_progress(context, paths, progress, phase="probe_started")
-            if not _run_readonly_probe(context, state_after_restore, bundle, expected_plan_sha256):
-                raise AbortError("旧服务只读探测失败")
-            db_after_probe = _database_facts(context, expect_frozen={
-                "business_sha256": initial_state["frozen_business_sha256"],
-                "counters": initial_state.get("frozen_counters", {}),
-            })
-            if db_after_probe["database_identity"] != db_facts["database_identity"]:
-                raise AbortError("只读服务探测期间数据库身份变化")
-            progress = _update_progress(context, paths, progress, phase="probe_passed",
-                                        probe_database_identity=db_after_probe["database_identity"])
+        try:
+            maintenance = Maintenance(context.data_root)
+            initial_state = _read_abort_resume_state(context, operation_id, bundle, progress)
+            if (initial_state.get("release_sha") != bundle.get("release_sha") or
+                    initial_state.get("frozen_business_sha256") != report.get("maintenance", {}).get("frozen_business_sha256")):
+                raise AbortError("维护 operation/release 或冻结摘要与批准计划不匹配")
+            _verify_not_committed(context)
+            backup = _verify_bound_backup(context, paths, initial_state, report["backup"])
+            if (backup["manifest"]["sha256"] != bundle.get("backup_manifest_sha256") or
+                    backup["database"]["sha256"] != bundle.get("backup_database_sha256") or
+                    backup["uploads"]["sha256"] != bundle.get("backup_uploads_sha256")):
+                raise AbortError("执行前完整备份摘要发生变化")
 
-        state_after_restore = Maintenance(context.data_root).require(operation_id, context.database)
-        receipt = {
-            "format": ABORT_RECEIPT,
-            "state": "complete",
-            "operation_id": operation_id,
-            "release_sha": state_after_restore["release_sha"],
-            "database_identity": database_identity(context.database),
-            "previous_commit": bundle["previous_commit"],
-            "plan_sha256": expected_plan_sha256,
-            "checks": {
+            # A restart may have reactivated Nginx, API, or a timer after a
+            # previous process stopped. Reassert the private window before
+            # checking drain state or touching database/artifact files.
+            context.stop_proxy()
+            context.stop_timers()
+            context.stop_api()
+            context.drained()
+
+            initial_state = _read_abort_resume_state(context, operation_id, bundle, progress)
+            _verify_not_committed(context)
+            _verify_bound_backup(context, paths, initial_state, report["backup"])
+            phase = progress.get("phase")
+            db_state, _db_facts = _validate_resume_database_state(
+                context, paths, progress, bundle, initial_state
+            )
+
+            if phase == "authorized":
+                progress = _update_progress(context, paths, progress, phase="database_restore_started")
+                phase = "database_restore_started"
+                db_state = "source"
+            if phase == "database_restore_started":
+                if db_state == "source":
+                    context.restore_database(bundle)
+                # A crash after the restore helper returned but before the
+                # progress checkpoint is resumable only when the installed DB
+                # and uploads exactly match this approved backup.
+                state_after_restore = _rebind_after_restore(context, initial_state, bundle, paths)
+                db_facts = _restored_database_matches(
+                    context, paths, progress, bundle, state_after_restore, require_saved_identity=False
+                )
+                progress = _update_progress(context, paths, progress, phase="database_restored",
+                                            restored_database_identity=db_facts["database_identity"],
+                                            restored_revision=db_facts["revision"])
+                phase = "database_restored"
+            else:
+                db_facts = _restored_database_matches(
+                    context, paths, progress, bundle, initial_state, require_saved_identity=True
+                )
+                if initial_state.get("state") == "held":
+                    state_after_restore = _rebind_after_restore(context, initial_state, bundle, paths)
+                else:
+                    state_after_restore = initial_state
+
+            if phase in {"database_restored", "code_restore_started"}:
+                progress = _update_progress(context, paths, progress, phase="code_restore_started")
+                _restore_old_artifacts(context, bundle, paths)
+                db_facts = _restored_database_matches(
+                    context, paths, progress, bundle, state_after_restore, require_saved_identity=True
+                )
+                progress = _update_progress(context, paths, progress, phase="artifacts_restored",
+                                            restored_database_identity=db_facts["database_identity"])
+                phase = "artifacts_restored"
+            else:
+                _restore_old_artifacts(context, bundle, paths)
+
+            state_after_restore = maintenance.require_abort(operation_id, context.database)
+            _verify_not_committed(context)
+            if phase not in {"probe_passed", "resume_starting", "ready_to_release"}:
+                progress = _update_progress(context, paths, progress, phase="probe_started")
+                if not _run_readonly_probe(context, state_after_restore, bundle, expected_plan_sha256):
+                    raise AbortError("旧服务只读探测失败")
+                db_after_probe = _restored_database_matches(
+                    context, paths, progress, bundle, state_after_restore, require_saved_identity=True
+                )
+                if db_after_probe["database_identity"] != db_facts["database_identity"]:
+                    raise AbortError("只读服务探测期间数据库身份变化")
+                progress = _update_progress(context, paths, progress, phase="probe_passed",
+                                            probe_database_identity=db_after_probe["database_identity"])
+
+            state_after_restore = maintenance.begin_abort_resume(
+                operation_id, context.database, release_sha=bundle["release_sha"],
+                plan_sha256=expected_plan_sha256, previous_commit=bundle["previous_commit"],
+                expires_at_ns=time.time_ns() + 10 * 60 * 10**9,
+            )
+            progress = _update_progress(context, paths, progress, phase="resume_starting", state="in_progress")
+            before_ai = context.ai_fingerprint() if hasattr(context, "ai_fingerprint") else None
+            context.start_api()
+            context.health_readonly()
+            final_db = _database_facts(context, expect_frozen={
+                "business_sha256": state_after_restore["frozen_business_sha256"],
+                "counters": state_after_restore.get("frozen_counters", {}),
+            })
+            if final_db["database_identity"] != database_identity(context.database):
+                raise AbortError("恢复期间数据库文件身份变化")
+            if before_ai is not None and context.ai_fingerprint() != before_ai:
+                raise AbortError("旧服务启动改变了 AI 本地文件；保持维护")
+            context.start_timers(bundle.get("timers_were_active", []))
+            if context.proxy_active():
+                raise AbortError("Nginx 必须保持停止，直到中止恢复登记原子释放")
+            context.health_readonly()
+            _verify_not_committed(context)
+            final_db = _database_facts(context, expect_frozen={
+                "business_sha256": state_after_restore["frozen_business_sha256"],
+                "counters": state_after_restore.get("frozen_counters", {}),
+            })
+            if before_ai is not None and context.ai_fingerprint() != before_ai:
+                raise AbortError("服务恢复期间 AI 本地文件变化；保持维护")
+            checks = {
                 "cutover_not_committed": True,
                 "database_restored": True,
                 "old_code_restored": True,
                 "api_readonly_probe": True,
                 "inventory_readonly_checks": True,
-            },
-            "backup_manifest_sha256": bundle["backup_manifest_sha256"],
-            "verified_at_ns": time.time_ns(),
-        }
-        validation = {
-            "format": "numbering-abort-validation-v1",
-            "state": "probe_passed",
-            "operation_id": operation_id,
-            "release_sha": state_after_restore["release_sha"],
-            "database_identity": database_identity(context.database),
-            "previous_commit": bundle["previous_commit"],
-            "plan_sha256": expected_plan_sha256,
-            "checks": receipt["checks"],
-            "verified_at_ns": time.time_ns(),
-        }
-        atomic_json(Maintenance(context.data_root).directory / "abort-validation.json", validation,
-                    group=Path(context.database).stat().st_gid)
-        Maintenance(context.data_root).abort_release(operation_id, context.database, receipt)
+                "normal_api_health": True,
+                "ai_unchanged": True,
+                "timers_restored": True,
+                "proxy_stopped_until_release": True,
+            }
+            receipt = {
+                "format": ABORT_RECEIPT,
+                "state": "complete",
+                "operation_id": operation_id,
+                "release_sha": state_after_restore["release_sha"],
+                "database_identity": final_db["database_identity"],
+                "previous_commit": bundle["previous_commit"],
+                "plan_sha256": expected_plan_sha256,
+                "checks": checks,
+                "backup_manifest_sha256": bundle["backup_manifest_sha256"],
+                "ai_fingerprint_sha256": before_ai,
+                "verified_at_ns": time.time_ns(),
+            }
+            validation = {
+                "format": "numbering-abort-validation-v1",
+                "state": "ready_to_release",
+                "operation_id": operation_id,
+                "release_sha": state_after_restore["release_sha"],
+                "database_identity": final_db["database_identity"],
+                "previous_commit": bundle["previous_commit"],
+                "plan_sha256": expected_plan_sha256,
+                "checks": checks,
+                "verified_at_ns": time.time_ns(),
+            }
+            atomic_json(maintenance.directory / "abort-validation.json", validation,
+                        group=Path(context.database).stat().st_gid)
+            progress = _update_progress(context, paths, progress, phase="ready_to_release",
+                                        state="ready_to_release", abort_receipt=receipt)
+            maintenance.abort_release(operation_id, context.database, receipt)
+        except Exception as error:
+            held, cleanup_errors = _cleanup_held_resume(context, paths, progress, error)
+            if not held:
+                raise AbortError(
+                    "恢复释放登记可能已经提交；请先读取状态和维护 receipt，禁止再次执行替换"
+                ) from error
+            if cleanup_errors:
+                raise AbortError(
+                    f"中止恢复失败并保持维护；清理未完全确认：{'；'.join(cleanup_errors)}"
+                ) from error
+            raise
+
+        # The receipt and all successful gates are durable before admission is
+        # opened. A report failure now is recoverable from this receipt and must
+        # never restart/rollback an already released service.
         progress = _update_progress(context, paths, progress, phase="released", state="released",
                                     abort_receipt=receipt)
         return _finish_released_resume(context, paths, bundle, progress)
@@ -1059,11 +1320,25 @@ class ProductionAbortContext:
             raise AbortError(f"systemctl {args[0]} {args[1] if len(args) > 1 else ''} 失败")
         return result
 
+    def _active_state(self, unit):
+        result = self._systemctl("show", unit, "--property=LoadState,ActiveState", check=False)
+        if result.returncode != 0:
+            raise AbortError(f"查询服务状态失败（ActiveState）：{unit}")
+        properties = dict(
+            line.partition("=")[::2] for line in result.stdout.splitlines() if "=" in line
+        )
+        if properties.get("LoadState") != "loaded":
+            raise AbortError(f"服务单元未加载或状态不可确认（LoadState）：{unit}")
+        state = properties.get("ActiveState", "")
+        if state not in {"active", "activating", "deactivating", "reloading", "inactive", "failed"}:
+            raise AbortError(f"服务状态无法确认（ActiveState）：{unit}")
+        return state
+
     def api_active(self):
-        return self._systemctl("is-active", "--quiet", self.service, check=False).returncode == 0
+        return self._active_state(self.service) in {"active", "activating", "deactivating", "reloading"}
 
     def proxy_active(self):
-        return self._systemctl("is-active", "--quiet", self.proxy, check=False).returncode == 0
+        return self._active_state(self.proxy) in {"active", "activating", "deactivating", "reloading"}
 
     def stop_proxy(self):
         if self.proxy_active():
@@ -1092,7 +1367,28 @@ class ProductionAbortContext:
 
     def stop_timers(self):
         for timer in self.timers:
-            self._systemctl("stop", timer, check=False)
+            try:
+                self._systemctl("stop", timer)
+            except Exception as error:
+                raise AbortError(f"停止 timer 失败（stop_timers）：{timer}") from error
+            try:
+                result = self._systemctl(
+                    "show", timer, "--property=LoadState,ActiveState", check=False
+                )
+            except Exception as error:
+                raise AbortError(f"查询 timer 状态失败（stop_timers）：{timer}") from error
+            if result.returncode != 0:
+                raise AbortError(f"查询 timer 状态失败（stop_timers）：{timer}")
+            properties = dict(
+                line.partition("=")[::2] for line in result.stdout.splitlines() if "=" in line
+            )
+            if properties.get("LoadState") != "loaded":
+                raise AbortError(f"timer 单元未加载或状态不可确认（stop_timers）：{timer}")
+            active_state = properties.get("ActiveState", "")
+            if active_state not in {"inactive", "failed"}:
+                raise AbortError(
+                    f"未确认 timer 已停止（stop_timers）：{timer}（ActiveState={active_state or 'unknown'}）"
+                )
 
     def start_proxy(self):
         self._systemctl("start", self.proxy)

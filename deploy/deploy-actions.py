@@ -24,9 +24,14 @@ ENV_FILE = Path('/etc/inventory-system.env')
 DATA_DIR = Path('/var/lib/inventory-system')
 NUMBERING_LIBRARY = Path('/usr/local/lib/inventory-numbering')
 SERVICE = 'inventory-system-api.service'
+PROXY = 'nginx.service'
 HEALTH_URL = 'http://127.0.0.1:8102/api/dashboard/summary'
 TIMERS = ('inventory-db-backup.timer', 'inventory-full-backup.timer')
 API_ITEMS = ('app', 'alembic', 'scripts', 'alembic.ini', 'requirements.txt', 'requirements.lock.txt')
+SERVICE_GUARD = Path('/usr/local/sbin/inventory-numbering-service-guard')
+ABORT_CLI = Path('/usr/local/sbin/inventory-numbering-abort')
+API_GUARD_DROPIN = Path('/etc/systemd/system/inventory-system-api.service.d/numbering-guard.conf')
+PROXY_GUARD_DROPIN = Path('/etc/systemd/system/nginx.service.d/numbering-guard.conf')
 
 
 def command(*args: str, capture: bool = False) -> str:
@@ -128,6 +133,26 @@ def numbering_capable(payload: Path) -> bool:
         return False
 
 
+def _root_owned_file(path: Path, *, executable: bool = False) -> bool:
+    try:
+        info = path.lstat()
+        return (not path.is_symlink() and path.is_file() and info.st_uid == 0 and
+                not info.st_mode & 0o022 and (not executable or bool(info.st_mode & 0o111)))
+    except OSError:
+        return False
+
+
+def _loaded_guard_dropin(unit: str, path: Path, directive: str) -> bool:
+    if not _root_owned_file(path):
+        return False
+    try:
+        loaded = command('systemctl', 'show', unit, '--property=DropInPaths', '--value', capture=True).split()
+        lines = path.read_text(encoding='utf8').splitlines()
+    except (OSError, RuntimeError):
+        return False
+    return str(path) in loaded and directive in lines
+
+
 def enter_numbering_hold(payload: Path, database: Path, operation_id: str, commit: str) -> None:
     # The caller already owns /run/inventory-actions.lock. Stdlib-only helpers;
     # no application startup, AI state, model client or production secrets.
@@ -138,22 +163,21 @@ def enter_numbering_hold(payload: Path, database: Path, operation_id: str, commi
             raise RuntimeError('Install reviewed root-owned numbering helpers separately before deployment')
     if not (NUMBERING_LIBRARY / 'app/services/product_code_cutover.py').is_file():
         raise RuntimeError('Root-owned numbering helpers are not installed')
-    abort_cli = Path('/usr/local/sbin/inventory-numbering-abort')
+    abort_cli = ABORT_CLI
     abort_module = NUMBERING_LIBRARY / 'numbering_abort.py'
     for path in (abort_cli, abort_module):
-        info = path.lstat()
-        if (path.is_symlink() or not path.is_file() or info.st_uid != 0 or
-                info.st_mode & 0o022 or (path == abort_cli and not info.st_mode & 0o111)):
+        if not _root_owned_file(path, executable=(path == abort_cli)):
             raise RuntimeError('Reviewed root-owned pre-commit abort recovery must be installed before numbering hold')
-    dropins = command('systemctl', 'show', SERVICE, '--property=DropInPaths', '--value', capture=True).split()
-    guard = Path('/usr/local/sbin/inventory-numbering-service-guard')
-    expected = Path('/etc/systemd/system/inventory-system-api.service.d/numbering-guard.conf')
-    for path in (guard, expected):
-        info = path.lstat()
-        if path.is_symlink() or info.st_uid != 0 or info.st_mode & 0o022:
-            raise RuntimeError('Root-owned persistent service guard must be installed first')
-    if str(expected) not in dropins or 'ExecStartPre=/usr/local/sbin/inventory-numbering-service-guard' not in expected.read_text():
+    if not _root_owned_file(SERVICE_GUARD, executable=True):
+        raise RuntimeError('Root-owned persistent service guard must be installed first')
+    if not _loaded_guard_dropin(
+            SERVICE, API_GUARD_DROPIN,
+            'ExecStartPre=/usr/local/sbin/inventory-numbering-service-guard'):
         raise RuntimeError('Persistent API guard is not loaded; do not enter the release window')
+    if not _loaded_guard_dropin(
+            PROXY, PROXY_GUARD_DROPIN,
+            'ExecStartPre=/usr/local/sbin/inventory-numbering-service-guard --proxy'):
+        raise RuntimeError('Persistent Nginx guard is not loaded; do not enter the release window')
     sys.path.insert(0, str(NUMBERING_LIBRARY))
     try:
         from app.services.numbering_environment import ProductionEnvironment
@@ -165,14 +189,17 @@ def enter_numbering_hold(payload: Path, database: Path, operation_id: str, commi
 
 def numbering_abort_installed() -> bool:
     try:
-        cli = Path('/usr/local/sbin/inventory-numbering-abort')
+        cli = ABORT_CLI
         module = NUMBERING_LIBRARY / 'numbering_abort.py'
-        for path in (cli, module):
-            info = path.lstat()
-            if (path.is_symlink() or not path.is_file() or info.st_uid != 0 or
-                    info.st_mode & 0o022 or (path == cli and not info.st_mode & 0o111)):
-                return False
-        return True
+        if not _root_owned_file(cli, executable=True) or not _root_owned_file(module):
+            return False
+        return (_root_owned_file(SERVICE_GUARD, executable=True) and
+                _loaded_guard_dropin(
+                    SERVICE, API_GUARD_DROPIN,
+                    'ExecStartPre=/usr/local/sbin/inventory-numbering-service-guard') and
+                _loaded_guard_dropin(
+                    PROXY, PROXY_GUARD_DROPIN,
+                    'ExecStartPre=/usr/local/sbin/inventory-numbering-service-guard --proxy'))
     except OSError:
         return False
 

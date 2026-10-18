@@ -7,8 +7,9 @@ import { useEffect, useRef, useState } from "react";
 import PageHeading from "@/components/common/PageHeading";
 import ProductImage from "@/components/inventory/ProductImage";
 import RegionSelector from "./RegionSelector";
-import { getVisualProduct, getVisualStatus, rebuildVisual, saveVisualFeedback, searchVisual, type CropRegion, type VisualProduct, type VisualResult, type VisualSource, type VisualStatus } from "@/lib/api/visual-search";
+import { getVisualCatalogVersion, getVisualProduct, getVisualStatus, rebuildVisual, saveVisualFeedback, searchVisual, type CropRegion, type VisualProduct, type VisualResult, type VisualSource, type VisualStatus } from "@/lib/api/visual-search";
 import { getVisualApiBaseUrl } from "@/lib/api/visual-endpoint";
+import { assertCatalogVersion, CatalogVersionError, verifyCatalogVersion } from "@/lib/ai-catalog-version";
 
 interface SearchTask {
   key: string;
@@ -67,6 +68,20 @@ export default function VisualSearchWorkspace() {
     return () => { active = false; };
   }, [source]);
   useEffect(() => () => { urls.current.forEach((url) => URL.revokeObjectURL(url)); }, []);
+  useEffect(() => {
+    const results = photos.flatMap(p => p.tasks).map(t => t.result).filter(r => r?.source === "production-catalog");
+    if (!results.length) return;
+    let active = true;
+    const check = () => { void getVisualCatalogVersion().then(version => {
+      results.forEach(result => assertCatalogVersion(result!, version));
+    }).catch(problem => {
+      if (!active) return;
+      setPhotos(items => items.map(p => ({ ...p, tasks: p.tasks.map(t => ({ key: t.key, region: t.region })) })));
+      setDetail(undefined); setStatusError(problem.message);
+    }); };
+    check(); window.addEventListener("focus", check); window.addEventListener("pageshow", check); document.addEventListener("visibilitychange", check);
+    return () => { active = false; window.removeEventListener("focus", check); window.removeEventListener("pageshow", check); document.removeEventListener("visibilitychange", check); };
+  }, [photos]);
   const running = status?.jobs.some((job) => job.status === "running");
   useEffect(() => {
     if (!running) return;
@@ -110,10 +125,16 @@ export default function VisualSearchWorkspace() {
     if (!current || !task?.result || busyRef.current) return;
     busyRef.current = true; setBusy(true);
     try {
+      if (task.result.source === "production-catalog") await verifyCatalogVersion(task.result);
       await saveVisualFeedback(task.result.query_id, productId, task.result.source);
       updateTask(current.id, task.key, { confirmed: productId ?? "none" });
       message.success("人工确认已保存");
-    } catch (error) { message.error(errorText(error)); }
+    } catch (error) {
+      if (error instanceof CatalogVersionError || /商品目录已更新|旧结果/.test(errorText(error))) {
+        setPhotos(items => items.map(p => ({ ...p, tasks: p.tasks.map(t => ({ key: t.key, region: t.region })) })));
+        setDetail(undefined); setStatusError(errorText(error));
+      } else message.error(errorText(error));
+    }
     finally { busyRef.current = false; setBusy(false); }
   }
   function addRegion(region: CropRegion) {

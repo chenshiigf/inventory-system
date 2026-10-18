@@ -24,6 +24,7 @@ from PIL import Image
 
 from .images import MAX_BYTES, MAX_PIXELS
 from .lock import CallLock
+from .catalog_metadata import fingerprint
 
 MAGIC = "inventory-production-catalog-v1"
 JSON_LIMIT = 8 * 1024 * 1024
@@ -36,10 +37,6 @@ class CatalogError(Exception):
 
 def timestamp():
     return datetime.now(timezone.utc).isoformat()
-
-
-def fingerprint(value):
-    return sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 def atomic_json(path: Path, value):

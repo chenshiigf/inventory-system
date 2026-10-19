@@ -24,7 +24,7 @@
    - `app/services/numbering_environment.py`
    - `app/services/product_code_cutover.py`
    - `app/services/product_code_offline.py`、`app/services/product_code_rehearsal.py`（只复用纯计算函数，离线路径权限不变）
-   - `deploy/numbering_abort.py`
+   - `deploy/numbering_abort.py`、`deploy/numbering_abort_probe.py`
    - `scripts/cutover_product_codes.py`
    另将 `deploy/numbering-abort-cli.py` 安装为 `/usr/local/sbin/inventory-numbering-abort`（root 所有、755）。
    入口脚本按自身位置加载上面的独立模块；以 root 使用 Python 3.12 运行。部署器也只从该 root 所有的目录导入，不从 inventory 可写的 release 目录执行 root Python 代码。部署器、模块和迁移必须来自同一审定 commit，安装后校验 SHA256。
@@ -154,6 +154,20 @@ sudo /usr/local/sbin/inventory-numbering-abort execute \
   --confirm-precommit-abort --expected-plan-sha256 '<plan-sha256>'
 ```
 
-执行会从本次维护窗口的完整备份恢复数据库和 uploads，再恢复已摘要绑定的旧 API、虚拟环境及静态产物。API 只读探测期间 Nginx 必须停止。探测通过后进入持久的 `abort_resuming` 状态；该状态在服务重启后仍阻断所有普通 API 写请求，独立 Nginx `ExecStartPre` guard 也拒绝代理启动。旧 API 仅在 operation/release/数据库身份/计划摘要绑定的短时授权下于 loopback 启动，先完成健康检查和 AI 本地指纹复核，再恢复原有 timer，并确认代理仍停止。完整检查摘要先持久化，随后才通过一次原子状态更新解除维护；之后才恢复原有 Nginx。若在此之前进程中断，代理保持关闭、普通写请求继续被维护状态拒绝；重新执行时先停止代理、API 和 timer，再按保存阶段重新核验数据库及完整备份。若释放已原子提交但进度报告尚未完成，CLI 验证完整 receipt 后可幂等地恢复 API、timer 和代理并补齐报告，不重复恢复数据库或代码。
+执行会从本次维护窗口的完整备份恢复数据库和 uploads，再恢复已摘要绑定的旧 API、虚拟环境及静态产物。进入持久的 `abort_resuming` 后，普通 API、Nginx 和备份 timer 仍全部停止。API 和 Nginx 的独立 `ExecStartPre` guard 在 `held/abort_resuming` 下无条件拒绝普通服务启动；旧的 probe/resume 标记不能作为启动普通 API 的例外。这也适用于重启机器和恢复进程中断，不依赖旧 API 含有维护中间件，不依赖 `/run` 中的临时 systemd 环境覆盖。
+
+恢复验收使用 root 管理的 `numbering_abort_probe.py` 一次性子进程，以 inventory 用户和恢复后的 Python/依赖运行旧应用。该进程不启动 uvicorn、不创建 HTTP 监听端口，通过 ASGI 调用固定的 dashboard 和 products GET 路由；应用外层独立拒绝所有其他请求。SQLite 使用真正的 URI `mode=ro`，应用临时数据写入本次调用新建的隔离目录。生产适配器通过 `env -i` 清空环境，不提供模型密钥或生产 AI 目录；子进程结束后只清理本次创建的目录，之前中断留下的目录不复用、不自动清理。旧 API 的普通 loopback 服务在维护期间没有监听，因此直接访问原 API 端口也没有可绕过的普通业务服务。`--abort-probe` guard 只验证独立子进程的 operation/release/数据库身份/计划标记/旧 commit 和代理停止状态，不授权启动普通 API。
+
+Nginx 状态必须查询成功且 `LoadState=loaded`，仅明确的 `ActiveState=inactive/failed` 可视为停止。活动、过渡、未知、缺失、重复或无法解析的状态、非零退出码、超时和执行异常均拒绝探测。探测成功后再次核验冻结数据库、完整备份恢复状态、AI 指纹和服务排空状态。receipt 的检查项为 `isolated_api_health`、`normal_api_stopped`、`timers_stopped` 等真实完成的检查，不再把维护期的探测描述成普通可写 API 已健康或 timer 已恢复。
+
+完整验收登记及 receipt 先持久化，随后才原子切换为 `released`。这之后才启动普通 API、检查正常服务健康、恢复原有 timer 和 Nginx。若释放前失败或中断，维护继续保持，续做重新检查数据库和备份并重新执行独立只读探测。若释放已提交而服务激活或报告失败，必须按 released receipt 续做服务/报告恢复，不能再次恢复数据库或回退代码；普通 API 健康检查通过前不启动 Nginx。`released` 是正式开放条件，最后的 `phase=complete` 是服务激活和报告完成记录。
+
+CLI 在释放前失败时返回 1 并明确维护继续保持；若持久状态已为 `released`，服务激活或报告失败返回 3 并明确禁止再次替换数据库。状态损坏或无法读取时不宣称仍受维护保护，停止并要求核查。
+
+Phase 4B-2C 组件必须作为同一审定版本单独安装；部署器同时要求存在 root 管理的独立 probe 脚本和已加载的两个 guard。旧版 receipt/validation 若仍含 `normal_api_health/timers_restored`，新版 guard 会拒绝将其当作新的只读隔离验收，不自动转换标记。不得在已进行中的真实操作里混装不同版本；当前阶段没有授权生产安装或执行。
+
+如发现旧版本残留的 `/run/systemd/system/inventory-system-api.service.d/numbering-abort-probe.conf`，新工具停止并保持维护，不自动删除或使用该覆盖文件。需人工核实旧操作状态，不能据此假定新版普通 API 会使用预期配置。
+
+本阶段本地验证使用 Windows / Python 3.14.6、合成业务数据库和仓库外新临时目录。12 个相关测试文件回归为 216 通过、13 平台跳过；最后补充 CLI 失败状态区分后，3 个完整核心文件复验为 76 通过、12 平台跳过，当前相关集合收集到 231 项。实际子进程测试覆盖无维护中间件的 ASGI/FastAPI 应用、SQLite 只读写入拒绝、探测失败和中断续做；systemd 命令返回值使用 Mock。跳过项为 12 个 Unix 文件锁集成测试及 1 个系统不允许的符号链接测试，须在 Ubuntu 24.04 / Python 3.12 补验，不能作为 Linux 已通过的证据。没有修改或放宽离线工具路径保护。
 
 `production_numbering_cutovers` 一旦存在已提交记录，prepare/plan/execute 普通中止路径都会拒绝操作；不能回退旧编号生成代码或删除维护标记。提交后恢复必须另行审批成套恢复或前向修复。没有发布前基线、恢复包损坏、数据库 sidecar 或旧产物不匹配时也不会自动解锁，需停留在维护状态等待人工处置。

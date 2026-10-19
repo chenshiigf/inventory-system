@@ -15,6 +15,7 @@ import sqlite3
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 
@@ -46,10 +47,10 @@ PROJECT = Path("/srv/inventory-system")
 STATIC = Path("/var/www/inventory-system/out")
 BACKUPS = Path("/var/backups/inventory-system/actions")
 DATA_DIR = Path("/var/lib/inventory-system")
-ENV_FILE = Path("/etc/inventory-system.env")
-RUNTIME_DROPIN_ROOT = Path("/run/systemd/system/inventory-system-api.service.d")
-RUNTIME_PROBE_ROOT = Path("/run/inventory-numbering-abort")
 PROBE_DATA_ROOT = Path("/var/tmp/inventory-numbering-abort")
+PROBE_SCRIPT = Path("/usr/local/lib/inventory-numbering/numbering_abort_probe.py")
+SERVICE_GUARD = Path("/usr/local/sbin/inventory-numbering-service-guard")
+LEGACY_PROBE_DROPIN = Path("/run/systemd/system/inventory-system-api.service.d/numbering-abort-probe.conf")
 TIMERS = ("inventory-db-backup.timer", "inventory-full-backup.timer")
 
 
@@ -229,30 +230,6 @@ def write_abort_bundle(context, rollback, release, operation_id, release_sha,
         raise AbortError("受控中止恢复包已存在；拒绝覆盖")
     atomic_json(paths["bundle"], bundle, group=Path(context.database).stat().st_gid)
     return bundle
-
-
-def atomic_text(path, content, mode=0o600):
-    target = Path(path)
-    checked_path(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_name("." + target.name + "-" + os.urandom(8).hex())
-    try:
-        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
-        fd = os.open(temporary, flags, mode)
-        with os.fdopen(fd, "w", encoding="utf8", newline="\n") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, target)
-        if os.name != "nt":
-            fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(fd)
-            finally:
-                os.close(fd)
-    finally:
-        if temporary.exists():
-            temporary.unlink()
 
 
 def _read_json(path, label):
@@ -816,17 +793,15 @@ def _verify_not_committed(context):
 
 def _run_readonly_probe(context, state, bundle, plan_sha256):
     context.stop_proxy()
+    context.stop_api()
     _verify_not_committed(context)
     _write_probe_marker(context, state, bundle, plan_sha256)
-    started = False
     try:
         context.configure_readonly_probe(bundle["operation_id"], context.database)
-        context.start_api()
-        started = True
-        context.health_readonly()
+        context.probe_readonly()
+        if context.api_active() or context.proxy_active():
+            raise AbortError("只读探测期间普通 API 或代理意外启动")
     finally:
-        if started or context.api_active():
-            context.stop_api()
         context.clear_readonly_probe(bundle["operation_id"])
         _clear_probe_marker(context, bundle["operation_id"])
     return True
@@ -977,9 +952,10 @@ def _finish_released_resume(context, paths, bundle, progress):
         "old_code_restored": True,
         "api_readonly_probe": True,
         "inventory_readonly_checks": True,
-        "normal_api_health": True,
+        "isolated_api_health": True,
+        "normal_api_stopped": True,
         "ai_unchanged": True,
-        "timers_restored": True,
+        "timers_stopped": True,
         "proxy_stopped_until_release": True,
     }
     validation_path = Maintenance(context.data_root).directory / "abort-validation.json"
@@ -1142,18 +1118,6 @@ def execute(context, operation_id, release, *, confirm=False, expected_plan_sha2
 
             state_after_restore = maintenance.require_abort(operation_id, context.database)
             _verify_not_committed(context)
-            if phase not in {"probe_passed", "resume_starting", "ready_to_release"}:
-                progress = _update_progress(context, paths, progress, phase="probe_started")
-                if not _run_readonly_probe(context, state_after_restore, bundle, expected_plan_sha256):
-                    raise AbortError("旧服务只读探测失败")
-                db_after_probe = _restored_database_matches(
-                    context, paths, progress, bundle, state_after_restore, require_saved_identity=True
-                )
-                if db_after_probe["database_identity"] != db_facts["database_identity"]:
-                    raise AbortError("只读服务探测期间数据库身份变化")
-                progress = _update_progress(context, paths, progress, phase="probe_passed",
-                                            probe_database_identity=db_after_probe["database_identity"])
-
             state_after_restore = maintenance.begin_abort_resume(
                 operation_id, context.database, release_sha=bundle["release_sha"],
                 plan_sha256=expected_plan_sha256, previous_commit=bundle["previous_commit"],
@@ -1161,20 +1125,16 @@ def execute(context, operation_id, release, *, confirm=False, expected_plan_sha2
             )
             progress = _update_progress(context, paths, progress, phase="resume_starting", state="in_progress")
             before_ai = context.ai_fingerprint() if hasattr(context, "ai_fingerprint") else None
-            context.start_api()
-            context.health_readonly()
-            final_db = _database_facts(context, expect_frozen={
-                "business_sha256": state_after_restore["frozen_business_sha256"],
-                "counters": state_after_restore.get("frozen_counters", {}),
-            })
-            if final_db["database_identity"] != database_identity(context.database):
-                raise AbortError("恢复期间数据库文件身份变化")
-            if before_ai is not None and context.ai_fingerprint() != before_ai:
-                raise AbortError("旧服务启动改变了 AI 本地文件；保持维护")
-            context.start_timers(bundle.get("timers_were_active", []))
+            # No ordinary API is started before atomic release, including on
+            # resume/reboot. The child has no socket and distrusts legacy gates.
+            if not _run_readonly_probe(context, state_after_restore, bundle, expected_plan_sha256):
+                raise AbortError("旧服务独立只读探测失败")
+            _restored_database_matches(
+                context, paths, progress, bundle, state_after_restore, require_saved_identity=True
+            )
+            context.drained()
             if context.proxy_active():
                 raise AbortError("Nginx 必须保持停止，直到中止恢复登记原子释放")
-            context.health_readonly()
             _verify_not_committed(context)
             final_db = _database_facts(context, expect_frozen={
                 "business_sha256": state_after_restore["frozen_business_sha256"],
@@ -1188,9 +1148,10 @@ def execute(context, operation_id, release, *, confirm=False, expected_plan_sha2
                 "old_code_restored": True,
                 "api_readonly_probe": True,
                 "inventory_readonly_checks": True,
-                "normal_api_health": True,
+                "isolated_api_health": True,
+                "normal_api_stopped": True,
                 "ai_unchanged": True,
-                "timers_restored": True,
+                "timers_stopped": True,
                 "proxy_stopped_until_release": True,
             }
             receipt = {
@@ -1353,6 +1314,9 @@ class ProductionAbortContext:
             raise AbortError("API 未停止")
 
     def start_api(self):
+        state = Maintenance(self.data_root).read()
+        if not state or state.get("state") != "released":
+            raise AbortError("维护未原子释放，禁止启动普通 API")
         self._systemctl("start", self.service)
         if not self.api_active():
             raise AbortError("API 未进入 active")
@@ -1435,50 +1399,55 @@ class ProductionAbortContext:
         if not OPERATION_RE.fullmatch(operation_id):
             raise AbortError("操作 ID 无效")
         self.stop_proxy()
-        runtime_root = RUNTIME_PROBE_ROOT / operation_id
-        data_parent = PROBE_DATA_ROOT / operation_id
-        data_root = data_parent / "data"
-        for root, target in ((RUNTIME_PROBE_ROOT, runtime_root), (PROBE_DATA_ROOT, data_parent)):
-            checked_path(root)
-            checked_path(target)
-            if os.path.lexists(target):
-                if target.is_symlink() or target.resolve().parent != root.resolve():
-                    raise AbortError("旧 abort probe 临时目录存在路径别名")
-                shutil.rmtree(target)
-        runtime_root.mkdir(parents=True, exist_ok=False, mode=0o700)
-        data_root.mkdir(parents=True, exist_ok=False, mode=0o700)
-        subprocess.run(["chown", "-R", "inventory:inventory", str(PROBE_DATA_ROOT / operation_id)], check=True)
-        runtime_root.chmod(0o700)
-        if os.path.lexists(RUNTIME_DROPIN_ROOT) and RUNTIME_DROPIN_ROOT.is_symlink():
-            raise AbortError("systemd runtime drop-in 目录是符号链接")
-        RUNTIME_DROPIN_ROOT.mkdir(parents=True, exist_ok=True)
-        dropin = RUNTIME_DROPIN_ROOT / "numbering-abort-probe.conf"
-        if os.path.lexists(dropin):
-            if dropin.is_symlink() or "numbering-abort-probe.conf" not in dropin.name:
-                raise AbortError("abort probe drop-in 是链接或路径异常")
-            _safe_remove(dropin)
-        database_uri = f"sqlite:///file:{database.as_posix()}?mode=ro&uri=true"
-        env_path = runtime_root / "probe.env"
-        atomic_text(env_path, f"DATABASE_URL={database_uri}\nINVENTORY_DATA_DIR={data_root}\n")
-        atomic_text(dropin,
-                    "[Service]\nEnvironmentFile=\nEnvironmentFile=/etc/inventory-system.env\n"
-                    f"EnvironmentFile={env_path}\nUnsetEnvironment=DASHSCOPE_API_KEY\n")
-        self._systemctl("daemon-reload")
+        self.stop_api()
+        if database_identity(database) != database_identity(self.database):
+            raise AbortError("只读探测数据库身份不符")
+        checked_path(PROBE_DATA_ROOT)
+        PROBE_DATA_ROOT.mkdir(mode=0o750, parents=True, exist_ok=True)
+        # Only this invocation's new directory may be cleaned; never reuse an
+        # interrupted probe's path or recover by removing a service override.
+        self._probe_operation = operation_id
+        self._probe_directory = Path(tempfile.mkdtemp(prefix=operation_id + "-", dir=PROBE_DATA_ROOT))
+        os.chown(PROBE_DATA_ROOT, 0, __import__("grp").getgrnam("inventory").gr_gid)
+        PROBE_DATA_ROOT.chmod(0o750)
+        self._probe_directory.chmod(0o700)
+        self.chown_inventory(self._probe_directory)
+
+    def probe_readonly(self):
+        script = checked_path(PROBE_SCRIPT, existing=True)
+        for path in (script, *script.parents):
+            info = path.stat()
+            if info.st_uid != 0 or info.st_mode & 0o022:
+                raise AbortError("独立只读探测程序及父目录必须由 root 管理且不可被组/其他用户写入")
+        if self.api_active() or self.proxy_active():
+            raise AbortError("普通 API 和 Nginx 必须停止，才能运行独立只读探测")
+        try:
+            subprocess.run([str(SERVICE_GUARD), "--abort-probe"], check=True,
+                           capture_output=True, text=True, timeout=15)
+            result = subprocess.run([
+                "runuser", "-u", "inventory", "--", "env", "-i", "PATH=/usr/bin:/bin",
+                "LANG=C.UTF-8", str(self.api / ".venv/bin/python"), "-B", str(script),
+                "--api-root", str(self.api), "--database", str(self.database),
+                "--data-root", str(self._probe_directory),
+            ], check=True, capture_output=True, text=True, timeout=60)
+            # Ignore legacy logging on preceding lines, never echo it to reports.
+            report = json.loads(result.stdout.splitlines()[-1])
+            if report != {"format": "numbering-abort-readonly-probe-v1", "state": "passed",
+                          "transport": "asgi-no-listener", "read_routes": 2, "writes_rejected": True}:
+                raise AbortError("独立只读探测返回无效验收结果")
+        except (OSError, subprocess.SubprocessError, ValueError, IndexError) as error:
+            raise AbortError("独立只读探测失败；普通 API 继续停止，维护继续保持") from error
 
     def clear_readonly_probe(self, operation_id):
-        self.stop_api()
-        dropin = RUNTIME_DROPIN_ROOT / "numbering-abort-probe.conf"
-        if dropin.exists() or dropin.is_symlink():
-            _safe_remove(dropin)
-        for root, target in ((RUNTIME_PROBE_ROOT, RUNTIME_PROBE_ROOT / operation_id),
-                             (PROBE_DATA_ROOT, PROBE_DATA_ROOT / operation_id)):
-            checked_path(root)
-            checked_path(target)
-            if os.path.lexists(target):
-                if target.is_symlink() or target.resolve().parent != root.resolve():
-                    raise AbortError("只读探测临时目录存在路径别名，拒绝清理")
-                shutil.rmtree(target)
-        self._systemctl("daemon-reload")
+        target = getattr(self, "_probe_directory", None)
+        if target is None:
+            return
+        if (getattr(self, "_probe_operation", None) != operation_id or
+                checked_path(target).parent != checked_path(PROBE_DATA_ROOT) or
+                not target.name.startswith(operation_id + "-")):
+            raise AbortError("只读探测临时目录身份异常，拒绝清理")
+        shutil.rmtree(target)
+        del self._probe_directory
 
     def health_readonly(self):
         if not self.api_active():
@@ -1492,6 +1461,8 @@ class ProductionAbortContext:
                 raise AbortError("旧服务只读 API 检查失败") from error
 
     def api_startup_safe(self):
+        if os.path.lexists(LEGACY_PROBE_DROPIN):
+            raise AbortError("发现旧版临时 probe 服务覆盖；保持维护并人工核查，禁止混用恢复版本")
         visual_root = self.data_root / "visual-search"
         development_index = visual_root / "index.db"
         if development_index.is_file() and not development_index.is_symlink():
@@ -1539,6 +1510,7 @@ def production_main(argv=None):
     parser.add_argument("--confirm-prepare-precommit-abort", action="store_true")
     parser.add_argument("--expected-plan-sha256")
     args = parser.parse_args(argv)
+    context = None
     try:
         context = ProductionAbortContext(args.database)
         if args.action == "prepare":
@@ -1565,5 +1537,16 @@ def production_main(argv=None):
         print(json.dumps(public, ensure_ascii=False, sort_keys=True))
         return 0
     except Exception as error:
-        print("中止恢复已停止并保持维护：" + str(error), file=sys.stderr)
+        try:
+            state = Maintenance(context.data_root).read() if context is not None else None
+        except (OSError, MaintenanceError):
+            state = None
+        if state and state.get("state") == "released":
+            print("released 状态已持久化；本次命令未完成，禁止再次替换数据库。"
+                  "请先检查状态，仅未完成的服务或报告可按原操作续做：" + str(error), file=sys.stderr)
+            return 3
+        if state and state.get("state") in {"held", "abort_resuming"}:
+            print("中止恢复已停止并保持维护：" + str(error), file=sys.stderr)
+        else:
+            print("中止恢复已停止，维护状态无法确认，禁止自动重试：" + str(error), file=sys.stderr)
         return 1

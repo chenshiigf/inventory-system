@@ -165,7 +165,7 @@ def enter_numbering_hold(payload: Path, database: Path, operation_id: str, commi
         raise RuntimeError('Root-owned numbering helpers are not installed')
     abort_cli = ABORT_CLI
     abort_module = NUMBERING_LIBRARY / 'numbering_abort.py'
-    for path in (abort_cli, abort_module):
+    for path in (abort_cli, abort_module, NUMBERING_LIBRARY / 'numbering_abort_probe.py'):
         if not _root_owned_file(path, executable=(path == abort_cli)):
             raise RuntimeError('Reviewed root-owned pre-commit abort recovery must be installed before numbering hold')
     if not _root_owned_file(SERVICE_GUARD, executable=True):
@@ -191,7 +191,8 @@ def numbering_abort_installed() -> bool:
     try:
         cli = ABORT_CLI
         module = NUMBERING_LIBRARY / 'numbering_abort.py'
-        if not _root_owned_file(cli, executable=True) or not _root_owned_file(module):
+        if (not _root_owned_file(cli, executable=True) or not _root_owned_file(module) or
+                not _root_owned_file(NUMBERING_LIBRARY / 'numbering_abort_probe.py')):
             return False
         return (_root_owned_file(SERVICE_GUARD, executable=True) and
                 _loaded_guard_dropin(

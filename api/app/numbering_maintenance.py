@@ -135,9 +135,8 @@ class Maintenance:
 
     def held(self):
         state = self.read()
-        # Abort resumption is still a maintenance state. The old API may be
-        # started privately for health checks, but its write admission remains
-        # closed until the complete receipt is atomically published as released.
+        # Abort resumption remains maintenance. The ordinary API stays stopped;
+        # the independent read probe never authorizes a normal service start.
         return state is not None and state['state'] in {'held', 'abort_resuming'}
 
     def require(self, operation_id, database):
@@ -157,13 +156,13 @@ class Maintenance:
 
     def begin_abort_resume(self, operation_id, database, *, release_sha,
                            plan_sha256, previous_commit, expires_at_ns):
-        """Persist a private old-API startup window without opening writes."""
+        """Persist the final read-only verification phase; no API startup grant."""
         state = self.require_abort(operation_id, database)
         if (state.get('release_sha') != release_sha or
                 not re.fullmatch(r'[0-9a-f]{64}', str(plan_sha256)) or
                 not re.fullmatch(r'[0-9a-f]{40}', str(previous_commit)) or
                 type(expires_at_ns) is not int or expires_at_ns <= time.time_ns()):
-            raise MaintenanceError('中止恢复 API 启动授权无效')
+            raise MaintenanceError('中止恢复只读验收绑定无效')
         marker = {
             'format': 'numbering-abort-resume-v1',
             'state': 'authorized',
@@ -177,7 +176,7 @@ class Maintenance:
         existing = state.get('abort_resume')
         if existing is not None and any(existing.get(key) != marker[key] for key in marker
                                         if key != 'expires_at_ns'):
-            raise MaintenanceError('已有中止恢复 API 授权与本次操作不匹配')
+            raise MaintenanceError('已有中止恢复验收绑定与本次操作不匹配')
         updated = {**state, 'state': 'abort_resuming', 'abort_resume': marker,
                    'abort_resume_started_at_ns': time.time_ns()}
         atomic_json(self.path, updated, group=Path(database).stat().st_gid)
@@ -252,9 +251,10 @@ class Maintenance:
                 'old_code_restored': True,
                 'api_readonly_probe': True,
                 'inventory_readonly_checks': True,
-                'normal_api_health': True,
+                'isolated_api_health': True,
+                'normal_api_stopped': True,
                 'ai_unchanged': True,
-                'timers_restored': True,
+                'timers_stopped': True,
                 'proxy_stopped_until_release': True,
             },
         }
@@ -286,7 +286,7 @@ class Maintenance:
                 marker.get('plan_sha256') != receipt['plan_sha256'] or
                 marker.get('previous_commit') != receipt['previous_commit'] or
                 type(marker.get('expires_at_ns')) is not int or marker['expires_at_ns'] <= time.time_ns()):
-            raise MaintenanceError('中止恢复 API 授权与最终验收登记不匹配')
+            raise MaintenanceError('中止恢复阶段绑定与最终验收登记不匹配')
         atomic_json(self.path, {**state, 'state': 'released', 'release_reason': 'precommit_abort',
                                'abort_receipt': receipt, 'released_at_ns': time.time_ns()},
                     group=Path(database).stat().st_gid)

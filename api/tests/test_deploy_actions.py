@@ -457,13 +457,14 @@ def _abort_guard_fixture(tmp_path):
     return guard, data, maintenance, database, project, capability, old_commit
 
 
-def test_service_guard_allows_only_operation_bound_private_abort_probe(tmp_path):
+@pytest.mark.parametrize('state_name', ['held', 'abort_resuming'])
+def test_only_independent_probe_is_authorized_ordinary_api_is_always_denied(tmp_path, state_name):
     guard, data, maintenance, database, project, capability, old_commit = _abort_guard_fixture(tmp_path)
     operation_id = 'abort-probe-001'
     release_sha = 'b' * 40
     now = 1_000_000
     state = {
-        'format': 'numbering-maintenance-v1', 'state': 'held',
+        'format': 'numbering-maintenance-v1', 'state': state_name,
         'operation_id': operation_id, 'release_sha': release_sha,
         'database_identity': guard._database_identity(database),
         'abort_probe': {
@@ -475,22 +476,18 @@ def test_service_guard_allows_only_operation_bound_private_abort_probe(tmp_path)
         },
     }
     (maintenance / 'state.json').write_text(json.dumps(state))
-    guard.verify(data, capability, project, proxy_active=lambda: False,
-                 service_loopback=lambda: True, now_ns=now)
+    guard.verify_readonly_probe(data, project, proxy_active=lambda: False, now_ns=now)
+    with pytest.raises(RuntimeError, match='normal API startup is forbidden'):
+        guard.verify(data, capability, project)
     with pytest.raises(RuntimeError, match='Nginx must remain stopped'):
-        guard.verify(data, capability, project, proxy_active=lambda: True,
-                     service_loopback=lambda: True, now_ns=now)
-    with pytest.raises(RuntimeError, match='loopback'):
-        guard.verify(data, capability, project, proxy_active=lambda: False,
-                     service_loopback=lambda: False, now_ns=now)
+        guard.verify_readonly_probe(data, project, proxy_active=lambda: True, now_ns=now)
     state['abort_probe']['expires_at_ns'] = now
     (maintenance / 'state.json').write_text(json.dumps(state))
     with pytest.raises(RuntimeError, match='expired'):
-        guard.verify(data, capability, project, proxy_active=lambda: False,
-                     service_loopback=lambda: True, now_ns=now)
+        guard.verify_readonly_probe(data, project, proxy_active=lambda: False, now_ns=now)
 
 
-def test_service_guard_allows_private_abort_resume_only_with_proxy_down(tmp_path):
+def test_legacy_resume_marker_cannot_start_normal_api_even_after_restart(tmp_path):
     guard, data, maintenance, database, project, capability, old_commit = _abort_guard_fixture(tmp_path)
     operation_id = 'abort-resume-001'
     release_sha = 'b' * 40
@@ -508,16 +505,68 @@ def test_service_guard_allows_private_abort_resume_only_with_proxy_down(tmp_path
         },
     }
     (maintenance / 'state.json').write_text(json.dumps(state))
-    guard.verify(data, capability, project, proxy_active=lambda: False,
-                 service_loopback=lambda: True, now_ns=now)
-    with pytest.raises(RuntimeError, match='Nginx must remain stopped'):
-        guard.verify(data, capability, project, proxy_active=lambda: True,
-                     service_loopback=lambda: True, now_ns=now)
-    state['abort_resume']['expires_at_ns'] = now
-    (maintenance / 'state.json').write_text(json.dumps(state))
-    with pytest.raises(RuntimeError, match='expired'):
-        guard.verify(data, capability, project, proxy_active=lambda: False,
-                     service_loopback=lambda: True, now_ns=now)
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match='normal API startup is forbidden'):
+            guard.verify(data, capability, project)
+        with pytest.raises(RuntimeError, match='Nginx startup is forbidden'):
+            guard.verify_proxy(data, capability, project)
+
+
+@pytest.mark.parametrize('stdout,returncode,error,allowed', [
+    ('LoadState=loaded\nActiveState=inactive\n', 0, None, True),
+    ('LoadState=loaded\nActiveState=failed\n', 0, None, True),
+    *[(f'LoadState=loaded\nActiveState={state}\n', 0, None, False)
+      for state in ('active', 'activating', 'deactivating', 'reloading', 'unknown')],
+    ('LoadState=loaded\nActiveState=inactive\n', 1, None, False),
+    ('LoadState=not-found\nActiveState=inactive\n', 0, None, False),
+    ('LoadState=error\nActiveState=inactive\n', 0, None, False),
+    ('ActiveState=inactive\n', 0, None, False),
+    ('LoadState=loaded\n', 0, None, False),
+    ('LoadState=loaded\nActiveState=inactive\nActiveState=active\n', 0, None, False),
+    ('unparseable output', 0, None, False),
+    ('', 0, None, False),
+    ('', 0, 'timeout', False),
+    ('', 0, 'exec', False),
+    ('', 0, 'missing', False),
+])
+def test_api_guard_proxy_query_fails_closed(tmp_path, monkeypatch, stdout, returncode, error, allowed):
+    guard, data, maintenance, database, project, capability, old_commit = _abort_guard_fixture(tmp_path)
+    now = 100
+    (maintenance / 'state.json').write_text(json.dumps({
+        'format': 'numbering-maintenance-v1', 'state': 'abort_resuming',
+        'operation_id': 'abort-query-001', 'release_sha': 'b' * 40,
+        'database_identity': guard._database_identity(database),
+        'abort_probe': {'format': 'numbering-abort-probe-v1', 'state': 'authorized',
+                        'operation_id': 'abort-query-001', 'release_sha': 'b' * 40,
+                        'database_identity': guard._database_identity(database),
+                        'previous_commit': old_commit, 'plan_sha256': 'c' * 64,
+                        'expires_at_ns': now + 1},
+    }))
+    monkeypatch.setattr(guard.shutil, 'which', lambda _: None if error == 'missing' else '/usr/bin/systemctl')
+
+    def query(args, **kwargs):
+        assert args == ['systemctl', 'show', 'nginx.service', '--property=LoadState,ActiveState', '--no-pager']
+        assert kwargs['timeout'] == 10
+        if error == 'timeout':
+            raise subprocess.TimeoutExpired(args, 10)
+        if error == 'exec':
+            raise OSError('synthetic execution failure')
+        return subprocess.CompletedProcess(args, returncode, stdout=stdout, stderr='')
+
+    monkeypatch.setattr(guard.subprocess, 'run', query)
+    if allowed:
+        assert guard._systemd_proxy_active() is False
+        guard.verify_readonly_probe(data, project, now_ns=now)
+        # An explicitly stopped proxy only satisfies one check. It cannot
+        # authorize a different old release or start the ordinary service.
+        project.joinpath('.actions-deployed.json').write_text(json.dumps({'commit': 'f' * 40}))
+        with pytest.raises(RuntimeError, match='restored old release'):
+            guard.verify_readonly_probe(data, project, now_ns=now)
+    else:
+        with pytest.raises(RuntimeError):
+            guard.verify_readonly_probe(data, project, now_ns=now)
+    with pytest.raises(RuntimeError, match='normal API startup is forbidden'):
+        guard.verify(data, capability, project)
 
 
 @pytest.mark.parametrize('state_name', ['held', 'abort_resuming'])
@@ -537,6 +586,8 @@ def test_numbering_abort_installed_requires_loaded_api_and_nginx_guards(installe
     cli.write_text('synthetic')
     module = library / 'numbering_abort.py'
     module.write_text('synthetic')
+    probe = library / 'numbering_abort_probe.py'
+    probe.write_text('synthetic')
     service_guard = tmp_path / 'numbering-service-guard'
     service_guard.write_text('synthetic')
     api_dropin = tmp_path / 'api-guard.conf'
@@ -553,6 +604,9 @@ def test_numbering_abort_installed_requires_loaded_api_and_nginx_guards(installe
         api_dropin if args[2] == installer.SERVICE else proxy_dropin
     ))
     assert installer.numbering_abort_installed()
+    probe.unlink()
+    assert not installer.numbering_abort_installed()
+    probe.write_text('synthetic')
 
     monkeypatch.setattr(installer, 'command', lambda *args, **kwargs: str(api_dropin))
     assert not installer.numbering_abort_installed()
@@ -562,8 +616,8 @@ def test_service_guard_allows_verified_precommit_abort_release_only_for_old_comm
     guard, data, maintenance, database, project, capability, old_commit = _abort_guard_fixture(tmp_path)
     checks = {'cutover_not_committed': True, 'database_restored': True,
               'old_code_restored': True, 'api_readonly_probe': True,
-              'inventory_readonly_checks': True, 'normal_api_health': True,
-              'ai_unchanged': True, 'timers_restored': True,
+              'inventory_readonly_checks': True, 'isolated_api_health': True,
+              'normal_api_stopped': True, 'ai_unchanged': True, 'timers_stopped': True,
               'proxy_stopped_until_release': True}
     state = {
         'format': 'numbering-maintenance-v1', 'state': 'released',

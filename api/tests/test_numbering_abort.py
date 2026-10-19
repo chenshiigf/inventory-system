@@ -48,6 +48,8 @@ class SyntheticAbortContext:
         self.probe_mode = False
         self.failure = None
         self.restore_calls = 0
+        self.normal_start_states = []
+        self.probe_calls = 0
 
     @contextmanager
     def locked(self):
@@ -85,7 +87,10 @@ class SyntheticAbortContext:
         self.service_running = False
 
     def start_api(self):
-        if (self.probe_mode and self.failure == "probe_start") or (not self.probe_mode and self.failure == "normal_start"):
+        state = Maintenance(self.data_root).read()["state"]
+        assert state == "released", "ordinary legacy API must never start during maintenance"
+        self.normal_start_states.append(state)
+        if self.failure == "normal_start":
             raise abort.AbortError("synthetic API start failure")
         self.service_running = True
 
@@ -103,6 +108,18 @@ class SyntheticAbortContext:
         if self.proxy_running:
             raise abort.AbortError("proxy must be stopped for synthetic probe")
         self.probe_mode = True
+        if self.failure == "probe_start":
+            raise abort.AbortError("synthetic isolated probe start failure")
+
+    def probe_readonly(self):
+        self.probe_calls += 1
+        assert self.probe_mode and not self.service_running
+        if self.failure == "probe_health":
+            raise abort.AbortError("synthetic read-only probe health failure")
+        with sqlite3.connect(self.database.as_uri() + "?mode=ro", uri=True) as db:
+            assert db.execute("SELECT count(*) FROM products").fetchone()[0] == 7
+            with pytest.raises(sqlite3.OperationalError, match="readonly"):
+                db.execute("UPDATE products SET remark='should not write' WHERE id=2")
 
     def clear_readonly_probe(self, _operation_id):
         self.service_running = False
@@ -509,7 +526,8 @@ def test_resume_stops_at_proxy_active_release_gap_and_keeps_writes_blocked(tmp_p
     state = Maintenance(context.data_root).read()
     assert state["state"] == "abort_resuming"
     # The fixture begins with Nginx active; it must stay stopped until release.
-    assert not context.proxy_running and context.service_running and context.timer_running
+    assert not context.proxy_running and not context.service_running and not context.timer_running
+    assert context.normal_start_states == []
     # Simulate an unexpected proxy activation after restart. The application
     # admission layer still rejects the write, while the systemd proxy guard
     # test separately proves a normal Nginx start is refused in this state.
@@ -549,6 +567,8 @@ def test_resume_stops_at_proxy_active_release_gap_and_keeps_writes_blocked(tmp_p
     assert result["state"] == "complete"
     assert Maintenance(context.data_root).held() is False
     assert context.proxy_running
+    assert context.normal_start_states == ["released"]
+    assert context.probe_calls == 2  # repeat the real gate on resume, never trust a stale success
 
 
 def test_released_resume_repairs_report_after_proxy_activation_and_restart(tmp_path, monkeypatch):
@@ -622,23 +642,19 @@ def test_timer_stop_failure_never_completes_abort_or_releases_maintenance(tmp_pa
 
 def test_readonly_probe_cleanup_removes_only_operation_scoped_temporary_data(tmp_path, monkeypatch):
     context = abort.ProductionAbortContext.__new__(abort.ProductionAbortContext)
-    runtime_root = tmp_path / "runtime"
     data_root = tmp_path / "probe-data"
-    dropin_root = tmp_path / "dropins"
-    for path in (runtime_root / OPERATION, data_root / OPERATION / "data", dropin_root):
-        path.mkdir(parents=True)
-    (runtime_root / OPERATION / "probe.env").write_text("synthetic")
-    (data_root / OPERATION / "data/visual-index.db").write_bytes(b"synthetic probe-only data")
-    (dropin_root / "numbering-abort-probe.conf").write_text("synthetic")
-    monkeypatch.setattr(abort, "RUNTIME_PROBE_ROOT", runtime_root)
+    owned = data_root / (OPERATION + "-new")
+    untouched = data_root / (OPERATION + "-interrupted")
+    owned.mkdir(parents=True)
+    untouched.mkdir()
+    (owned / "visual-index.db").write_bytes(b"synthetic probe-only data")
+    (untouched / "keep").write_bytes(b"previous interruption evidence")
     monkeypatch.setattr(abort, "PROBE_DATA_ROOT", data_root)
-    monkeypatch.setattr(abort, "RUNTIME_DROPIN_ROOT", dropin_root)
-    context.stop_api = lambda: None
-    context._systemctl = lambda *args, **kwargs: None
+    context._probe_operation = OPERATION
+    context._probe_directory = owned
     context.clear_readonly_probe(OPERATION)
-    assert not (runtime_root / OPERATION).exists()
-    assert not (data_root / OPERATION).exists()
-    assert not (dropin_root / "numbering-abort-probe.conf").exists()
+    assert not owned.exists()
+    assert (untouched / "keep").read_bytes() == b"previous interruption evidence"
 
 
 @pytest.mark.parametrize("failure", ["probe_start", "probe_health", "unsafe_api_startup"])
@@ -657,16 +673,20 @@ def test_probe_failure_does_not_release_maintenance_or_open_proxy(tmp_path, fail
     assert abort.status(context, OPERATION, RELEASE)["state"] == expected_state
 
 
-def test_normal_old_service_failure_during_abort_resume_keeps_proxy_closed(tmp_path):
+def test_normal_old_service_failure_after_verified_release_keeps_proxy_closed_and_is_resumable(tmp_path):
     context, _release_dir, _ = _fixture(tmp_path)
     plan = _plan(context)
     context.failure = "normal_health"
     with pytest.raises(abort.AbortError, match="synthetic read-only API health failure"):
         _execute(context, plan)
-    assert Maintenance(context.data_root).held()
+    # The independent read probe completed before release. Ordinary startup is
+    # now activation after acceptance, never a reason to repeat DB restoration.
+    assert context.probe_calls == 1
+    assert Maintenance(context.data_root).read()["state"] == "released"
     assert not context.proxy_running
-    assert not context.service_running
-    assert abort.status(context, OPERATION, RELEASE)["state"] == "failed_maintenance_held"
+    context.failure = None
+    assert _execute(context, plan)["state"] == "complete"
+    assert context.restore_calls == 1
 
 
 def test_abort_release_method_requires_durable_probe_validation(tmp_path):
@@ -691,3 +711,28 @@ def test_abort_release_method_requires_durable_probe_validation(tmp_path):
     with pytest.raises(MaintenanceError):
         maintenance.abort_release(OPERATION, context.database, receipt)
     assert maintenance.held()
+
+
+@pytest.mark.parametrize("failure,expected_exit,expected_state", [
+    ("probe_health", 1, "abort_resuming"),
+    ("normal_health", 3, "released"),
+])
+def test_cli_distinguishes_probe_failure_from_postrelease_activation_failure(
+        tmp_path, monkeypatch, capsys, failure, expected_exit, expected_state):
+    context, _release_dir, _ = _fixture(tmp_path)
+    plan = _plan(context)
+    context.failure = failure
+    monkeypatch.setattr(abort, "ProductionAbortContext", lambda _database: context)
+    result = abort.production_main([
+        "execute", "--database", str(context.database), "--operation-id", OPERATION,
+        "--release", RELEASE, "--confirm-precommit-abort", "--expected-plan-sha256", plan["plan_sha256"],
+    ])
+    assert result == expected_exit
+    assert Maintenance(context.data_root).read()["state"] == expected_state
+    assert not context.proxy_running
+    if expected_exit == 3:
+        assert "released" in capsys.readouterr().err
+        assert context.restore_calls == 1
+    else:
+        assert "保持维护" in capsys.readouterr().err
+        assert context.normal_start_states == []

@@ -406,12 +406,135 @@ def _load_baseline(context, operation_id, release):
     return paths, baseline
 
 
+def _marker_withdrawal_binding(context, bundle):
+    """Accept absence only with the immutable, maintenance-bound staging intent."""
+    paths, baseline = _load_baseline(context, bundle["operation_id"], bundle["release"])
+    loaded_paths, loaded = _load_bundle(context, bundle["operation_id"], bundle["release"])
+    if loaded != bundle:
+        raise AbortError("恢复包在标记核验期间发生变化")
+    state = Maintenance(context.data_root).require_abort(bundle["operation_id"], context.database)
+    if (state.get("release_sha") != bundle["release_sha"] or
+            state.get("frozen_business_sha256") != bundle.get("frozen_business_sha256") or
+            state.get("frozen_counters") != bundle.get("frozen_counters")):
+        raise AbortError("标记撤下登记与维护冻结状态不匹配")
+    for key in ("database_identity_before_deploy", "previous_metadata_sha256", "previous_commit",
+                "old_api_tree_sha256", "old_venv_tree_sha256", "old_static_tree_sha256"):
+        if baseline.get(key) != bundle.get(key):
+            raise AbortError("标记撤下登记的恢复基线与恢复包不匹配")
+    journal = paths["release_dir"] / "numbering-marker-withdrawal.json"
+    intent = _read_json(journal, "编号暂存标记撤下登记")
+    expected = {
+        "format": "numbering-marker-withdrawal-v1",
+        "state": "replacement_authorized_maintenance_held",
+        "operation_id": bundle["operation_id"], "release": bundle["release"],
+        "release_sha": bundle["release_sha"],
+        "previous_metadata_sha256": bundle["previous_metadata_sha256"],
+        "baseline_binding": file_binding(paths["baseline"]),
+        "bundle_binding": file_binding(loaded_paths["bundle"]),
+    }
+    if any(intent.get(key) != value for key, value in expected.items()):
+        raise AbortError("编号暂存标记撤下登记缺失、变化或绑定不匹配")
+    if file_binding(paths["previous_metadata"])["sha256"] != bundle["previous_metadata_sha256"]:
+        raise AbortError("旧部署标记备份摘要不匹配")
+    _verify_not_committed(context)
+    return {"intent": file_binding(journal), **expected}
+
+
+def withdraw_deployed_marker(context, operation_id, release):
+    """Called under the deployment lock after the full recovery bundle is durable."""
+    paths, bundle = _load_bundle(context, operation_id, release)
+    _build_plan(context, operation_id, release)  # frozen DB, full backup, artifacts and old marker
+    _, baseline = _load_baseline(context, operation_id, release)
+    if os.path.lexists(paths["progress"]):
+        raise AbortError("中止恢复已经开始，禁止撤下部署标记")
+    journal = paths["release_dir"] / "numbering-marker-withdrawal.json"
+    if os.path.lexists(journal):
+        raise AbortError("部署标记撤下登记已存在，禁止重复发布")
+    intent = {
+        "format": "numbering-marker-withdrawal-v1",
+        "state": "replacement_authorized_maintenance_held",
+        "operation_id": operation_id, "release": release,
+        "release_sha": bundle["release_sha"],
+        "previous_metadata_sha256": baseline["previous_metadata_sha256"],
+        "baseline_binding": file_binding(paths["baseline"]),
+        "bundle_binding": file_binding(paths["bundle"]),
+    }
+    # Windows _commit requires a writable handle even when no bytes are changed.
+    mode = "r+b" if os.name == "nt" else "rb"
+    with checked_path(paths["previous_metadata"], existing=True).open(mode) as stream:
+        os.fsync(stream.fileno())
+    _fsync_directory(paths["release_dir"])
+    atomic_json(journal, intent, group=Path(context.database).stat().st_gid)
+    _marker_withdrawal_binding(context, bundle)
+    _old_metadata(context, bundle)  # never remove a changed or aliased marker
+    marker = checked_path(context.project / ".actions-deployed.json", existing=True)
+    marker.unlink()
+    _fsync_directory(marker.parent)
+
+
+def _verify_marker_plan(context, bundle, report):
+    expected = report.get("marker_withdrawal")
+    journal = _bundle_paths(context, bundle["release"])["release_dir"] / "numbering-marker-withdrawal.json"
+    actual = _marker_withdrawal_binding(context, bundle) if os.path.lexists(journal) else None
+    if actual != expected:
+        raise AbortError("部署标记恢复授权与已批准计划不匹配")
+    if not os.path.lexists(context.project / ".actions-deployed.json") and expected is None:
+        raise AbortError("旧部署标记异常缺失，已批准计划未授权恢复")
+    return _old_metadata(context, bundle)
+
+
+def _fsync_directory(directory):
+    if os.name != "nt":
+        fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def _restore_deployed_marker(context, bundle, report):
+    _verify_marker_plan(context, bundle, report)
+    target = checked_path(context.project / ".actions-deployed.json")
+    if os.path.lexists(target):
+        return  # already restored and strictly verified, never overwrite a mismatch
+    if (api_items_digest(context.api) != bundle["old_api_tree_sha256"] or
+            tree_digest(context.api / ".venv") != bundle["old_venv_tree_sha256"] or
+            tree_digest(context.static) != bundle["old_static_tree_sha256"]):
+        raise AbortError("旧产物未完整恢复，禁止发布旧部署标记")
+    source = checked_path(bundle["previous_metadata"], existing=True)
+    content = source.read_bytes()
+    if (hashlib.sha256(content).hexdigest() != bundle["previous_metadata_sha256"] or
+            file_binding(source)["sha256"] != bundle["previous_metadata_sha256"]):
+        raise AbortError("旧部署标记备份在恢复期间变化")
+    temporary = target.with_name("." + target.name + "-" + os.urandom(8).hex())
+    try:
+        with temporary.open("xb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        if os.name != "nt":
+            temporary.chmod(0o640)
+            if os.geteuid() == 0:
+                os.chown(temporary, 0, Path(context.database).stat().st_gid)
+        _verify_marker_plan(context, bundle, report)
+        if not os.path.lexists(target):
+            os.replace(temporary, target)
+            _fsync_directory(target.parent)
+        _old_metadata(context, bundle)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
 def _old_metadata(context, bundle):
     previous = _read_json(bundle["previous_metadata"], "切换前部署版本记录")
     if (file_binding(bundle["previous_metadata"])["sha256"] != bundle.get("previous_metadata_sha256") or
             previous.get("commit") != bundle.get("previous_commit")):
         raise AbortError("切换前代码版本记录与恢复包不匹配")
     current_path = context.project / ".actions-deployed.json"
+    if not os.path.lexists(current_path):
+        _marker_withdrawal_binding(context, bundle)
+        return previous
     current = _read_json(current_path, "当前部署版本记录")
     if (file_binding(current_path)["sha256"] != bundle.get("previous_metadata_sha256") or
             current != previous):
@@ -506,6 +629,8 @@ def _build_plan(context, operation_id, release):
         },
         "backup": backup,
         "artifacts": artifact,
+        "marker_withdrawal": (_marker_withdrawal_binding(context, bundle)
+                              if os.path.lexists(paths["release_dir"] / "numbering-marker-withdrawal.json") else None),
         "proxy_was_active": bundle["proxy_was_active"],
         "timers_were_active": active_timers,
         "decision": "restore full frozen backup and previous release; keep maintenance until both API probes pass",
@@ -740,6 +865,12 @@ def _restore_tree(source, target, *, replace=True):
 
 
 def _restore_old_artifacts(context, bundle, paths):
+    progress = _read_progress(paths["progress"])
+    if not progress:
+        raise AbortError("缺少已批准的旧产物恢复计划")
+    _, _, _, report = _save_or_resume_plan(
+        context, bundle["operation_id"], bundle["release"], progress.get("plan_sha256"))
+    _verify_marker_plan(context, bundle, report)
     if api_items_digest(paths["api"]) != bundle["old_api_tree_sha256"]:
         raise AbortError("旧 API 恢复副本摘要不匹配")
     if tree_digest(paths["venv"]) != bundle["old_venv_tree_sha256"]:
@@ -752,6 +883,7 @@ def _restore_old_artifacts(context, bundle, paths):
     _restore_tree(paths["venv"], context.api / ".venv")
     context.chown_inventory(context.api / ".venv")
     _restore_tree(paths["static"], context.static)
+    _restore_deployed_marker(context, bundle, report)
     if _old_metadata(context, bundle).get("commit") != bundle["previous_commit"]:
         raise AbortError("恢复旧版本后部署记录不匹配")
     result = _artifact_facts(context, bundle)
@@ -1055,6 +1187,7 @@ def execute(context, operation_id, release, *, confirm=False, expected_plan_sha2
                     initial_state.get("frozen_business_sha256") != report.get("maintenance", {}).get("frozen_business_sha256")):
                 raise AbortError("维护 operation/release 或冻结摘要与批准计划不匹配")
             _verify_not_committed(context)
+            _verify_marker_plan(context, bundle, report)
             backup = _verify_bound_backup(context, paths, initial_state, report["backup"])
             if (backup["manifest"]["sha256"] != bundle.get("backup_manifest_sha256") or
                     backup["database"]["sha256"] != bundle.get("backup_database_sha256") or
@@ -1072,6 +1205,7 @@ def execute(context, operation_id, release, *, confirm=False, expected_plan_sha2
             initial_state = _read_abort_resume_state(context, operation_id, bundle, progress)
             _verify_not_committed(context)
             _verify_bound_backup(context, paths, initial_state, report["backup"])
+            _verify_marker_plan(context, bundle, report)
             phase = progress.get("phase")
             db_state, _db_facts = _validate_resume_database_state(
                 context, paths, progress, bundle, initial_state

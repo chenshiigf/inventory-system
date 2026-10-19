@@ -736,3 +736,115 @@ def test_cli_distinguishes_probe_failure_from_postrelease_activation_failure(
     else:
         assert "保持维护" in capsys.readouterr().err
         assert context.normal_start_states == []
+
+
+def _withdrawn_fixture(tmp_path, *, perform_withdrawal=True):
+    context, release_dir, state = _fixture(tmp_path)
+    # Restore the untouched pre-deploy fixture, then use the real withdrawal
+    # helper exactly where the deployer will call it (before replacing code).
+    for item in abort.API_ITEMS:
+        abort._restore_tree(release_dir / "api" / item, context.api / item)
+    abort._restore_tree(release_dir / "old-venv", context.api / ".venv")
+    abort._restore_tree(release_dir / "old-static", context.static)
+    if perform_withdrawal:
+        abort.withdraw_deployed_marker(context, OPERATION, RELEASE)
+        assert not (context.project / ".actions-deployed.json").exists()
+    assert Maintenance(context.data_root).held()
+    return context, release_dir, state
+
+
+def test_withdrawn_marker_restores_verified_old_artifacts_and_exact_metadata(tmp_path):
+    context, release_dir, _ = _withdrawn_fixture(tmp_path)
+    expected = (release_dir / "previous-deployed.json").read_bytes()
+    plan = _plan(context)
+    assert plan["marker_withdrawal"]["state"] == "replacement_authorized_maintenance_held"
+    assert _execute(context, plan)["state"] == "complete"
+    assert (context.project / ".actions-deployed.json").read_bytes() == expected
+    assert abort.api_items_digest(context.api) == abort.api_items_digest(release_dir / "api")
+    assert abort.tree_digest(context.api / ".venv") == abort.tree_digest(release_dir / "old-venv")
+    assert abort.tree_digest(context.static) == abort.tree_digest(release_dir / "old-static")
+    assert context.normal_start_states == ["released"]
+    if os.name != "nt":
+        assert (context.project / ".actions-deployed.json").stat().st_mode & 0o777 == 0o640
+
+
+@pytest.mark.parametrize("change", ["current", "previous", "baseline", "intent", "missing_intent", "missing_baseline"])
+def test_withdrawn_marker_requires_unchanged_trusted_state_before_any_restore(tmp_path, change):
+    context, release_dir, _ = _withdrawn_fixture(tmp_path)
+    plan = _plan(context)
+    if change == "current":
+        (context.project / ".actions-deployed.json").write_text('{"commit":"tampered"}')
+    elif change == "previous":
+        (release_dir / "previous-deployed.json").write_text('{"commit":"tampered"}')
+    else:
+        name = "numbering-abort-baseline.json" if "baseline" in change else "numbering-marker-withdrawal.json"
+        path = release_dir / name
+        if change.startswith("missing"):
+            path.unlink()
+        else:
+            value = json.loads(path.read_text())
+            value["operation_id"] = "wrong-operation"
+            path.write_text(json.dumps(value))
+    with pytest.raises((abort.AbortError, MaintenanceError)):
+        _execute(context, plan)
+    assert context.restore_calls == 0
+    assert Maintenance(context.data_root).held()
+    assert not context.service_running and not context.timer_running
+    if change == "current":
+        assert (context.project / ".actions-deployed.json").read_text() == '{"commit":"tampered"}'
+
+
+def test_missing_marker_without_withdrawal_intent_is_not_generally_recoverable(tmp_path):
+    context, _release_dir, _ = _fixture(tmp_path)
+    (context.project / ".actions-deployed.json").unlink()
+    with pytest.raises((abort.AbortError, MaintenanceError)):
+        _plan(context)
+    assert context.restore_calls == 0
+    assert Maintenance(context.data_root).held()
+    assert not context.service_running and not context.timer_running
+
+
+@pytest.mark.parametrize("after_replace", [False, True])
+def test_withdrawn_marker_atomic_publish_interruption_can_resume(tmp_path, monkeypatch, after_replace):
+    context, release_dir, _ = _withdrawn_fixture(tmp_path)
+    plan = _plan(context)
+    marker = context.project / ".actions-deployed.json"
+    original = os.replace
+
+    def interrupted(source, target):
+        if Path(target) == marker:
+            assert Maintenance(context.data_root).held()
+            assert not context.service_running and not context.timer_running and not context.proxy_running
+            if after_replace:
+                original(source, target)
+            raise KeyboardInterrupt("synthetic interruption during atomic old-marker publish")
+        return original(source, target)
+
+    monkeypatch.setattr(abort.os, "replace", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        _execute(context, plan)
+    assert marker.exists() is after_replace
+    assert Maintenance(context.data_root).held()
+    assert not context.service_running and not context.timer_running and not context.proxy_running
+    monkeypatch.setattr(abort.os, "replace", original)
+    assert _execute(context, plan)["state"] == "complete"
+    assert marker.read_bytes() == (release_dir / "previous-deployed.json").read_bytes()
+    assert context.restore_calls == 1
+    assert context.normal_start_states == ["released"]
+
+
+def test_marker_backup_fsync_failure_never_withdraws_marker_or_releases_hold(tmp_path, monkeypatch):
+    context, release_dir, _ = _withdrawn_fixture(tmp_path, perform_withdrawal=False)
+    marker = context.project / ".actions-deployed.json"
+    before = marker.read_bytes()
+    backup_before = file_binding(release_dir / "previous-deployed.json")
+    def fail_sync(_descriptor):
+        raise OSError("synthetic durability failure")
+    monkeypatch.setattr(abort.os, "fsync", fail_sync)
+    with pytest.raises(OSError, match="durability failure"):
+        abort.withdraw_deployed_marker(context, OPERATION, RELEASE)
+    assert marker.read_bytes() == before
+    assert file_binding(release_dir / "previous-deployed.json") == backup_before
+    assert not (release_dir / "numbering-marker-withdrawal.json").exists()
+    assert Maintenance(context.data_root).held()
+    assert not context.service_running and not context.timer_running

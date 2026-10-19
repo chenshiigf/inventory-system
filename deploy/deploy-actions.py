@@ -282,6 +282,18 @@ def write_numbering_abort_bundle(rollback: Path, release: str, operation_id: str
         sys.path.pop(0)
 
 
+def withdraw_numbering_deployed_marker(database: Path, operation_id: str, release: str) -> None:
+    helpers = _abort_helpers()
+    try:
+        sys.path.insert(0, str(NUMBERING_LIBRARY))
+        try:
+            helpers.withdraw_deployed_marker(helpers.ProductionAbortContext(database), operation_id, release)
+        finally:
+            sys.path.pop(0)
+    finally:
+        sys.path.pop(0)
+
+
 def maintenance_held() -> bool:
     directory = DATA_DIR / 'numbering-maintenance'
     if not os.path.lexists(directory):
@@ -461,6 +473,8 @@ print(json.dumps({'current': current[0], 'head': heads[0]}))
                 rollback, release, operation_id, metadata['commit'], db, abort_baseline,
                 backup_manifests[0].parent,
             )
+            # Persist and verify the recovery authority before the first replacement.
+            withdraw_numbering_deployed_marker(db, operation_id, release)
             (api / '.venv').rename(old_venv)
             command('chown', '-R', 'root:inventory', str(old_venv))
         changed = True

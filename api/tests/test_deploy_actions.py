@@ -114,12 +114,15 @@ def test_rejects_links_and_wrong_digest(installer, tmp_path):
 @pytest.fixture
 def server(installer, tmp_path, monkeypatch, request):
     if os.name != 'posix':
-        if request.node.name not in {
+        if request.node.name.split('[', 1)[0] not in {
+            'test_hold_stages_schema_and_keeps_api_timers_stopped',
+            'test_hold_backup_failure_does_not_restart_business',
+            'test_hold_marker_backup_tamper_refuses_before_replacement',
             'test_hold_release_install_failure_keeps_business_services_stopped',
             'test_hold_alembic_upgrade_failure_keeps_business_services_stopped',
         }:
             pytest.skip('Deployment integration tests require a Unix file lock')
-        # These two fault-injection tests exercise deployer state transitions,
+        # Selected tests exercise deployer state transitions,
         # not OS lock semantics. Linux CI tests the actual flock behavior.
         monkeypatch.setitem(sys.modules, 'fcntl', SimpleNamespace(LOCK_EX=2, LOCK_NB=4, flock=lambda *args: None))
         monkeypatch.setattr(os, 'chown', lambda *args: None, raising=False)
@@ -150,15 +153,42 @@ def server(installer, tmp_path, monkeypatch, request):
     digest = archive(m.INCOMING / (release + '.tar.gz'), entries(m, commit))
     calls = []
     state = {'head': 'old', 'failure': None, 'health_calls': 0}
+    if os.name != 'posix':
+        original_symlink_to = Path.symlink_to
+        def simulated_venv_link(path, target, target_is_directory=False):
+            if path == m.PROJECT / 'api/.venv':
+                m.shutil.copytree(target, path)
+            else:
+                original_symlink_to(path, target, target_is_directory=target_is_directory)
+        monkeypatch.setattr(Path, 'symlink_to', simulated_venv_link)
     monkeypatch.setattr(m, 'environment', lambda: {})
     monkeypatch.setattr(m.os, 'geteuid', lambda: 0, raising=False)
     monkeypatch.setattr(m.shutil, 'which', lambda tool: '/usr/bin/' + tool)
     monkeypatch.setattr(m, 'active', lambda unit: unit in {m.SERVICE, 'nginx.service', *m.TIMERS})
     monkeypatch.setattr(m, 'numbering_abort_installed', lambda: True)
-    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: None)
+    def enter_hold(_payload, database, operation_id, commit):
+        directory = m.DATA_DIR / 'numbering-maintenance'
+        directory.mkdir()
+        (directory / 'state.json').write_text(json.dumps({
+            'format': 'numbering-maintenance-v1', 'state': 'held',
+            'operation_id': operation_id, 'release_sha': commit,
+        }))
+    monkeypatch.setattr(m, 'enter_numbering_hold', enter_hold)
     # Bundle assembly is covered with the synthetic abort context tests. The
     # deployer contract tests only need to exercise staging boundaries.
     monkeypatch.setattr(m, 'write_numbering_abort_bundle', lambda *args, **kwargs: None)
+    # Root helper safety is exercised with real files/DBs in test_numbering_abort.
+    # This fixture tests the deployment call order with synthetic backup contents.
+    def withdraw_marker(database, operation_id, release):
+        baseline = _verified_marker_backup(m, release)
+        marker = m.PROJECT / '.actions-deployed.json'
+        if hashlib.sha256(marker.read_bytes()).hexdigest() != baseline['previous_metadata_sha256']:
+            raise RuntimeError('Previous release marker changed before withdrawal')
+        assert ('systemctl', 'stop', m.SERVICE) in calls
+        assert m.maintenance_held()
+        calls.append(('withdraw_deployed_marker', operation_id))
+        marker.unlink()
+    monkeypatch.setattr(m, 'withdraw_numbering_deployed_marker', withdraw_marker)
     # Replace the lock path with a temporary file; production calls remain mocked.
     original_open = open
     monkeypatch.setattr(m, 'open', lambda path, *args: original_open(tmp_path / 'lock' if path == '/run/inventory-actions.lock' else path, *args), raising=False)
@@ -277,10 +307,21 @@ def test_first_numbering_release_cannot_use_standard_deploy(server):
     assert ('systemctl', 'stop', m.SERVICE) not in calls
 
 
+def _verified_marker_backup(module, release):
+    rollback = module.BACKUPS / release
+    baseline = json.loads((rollback / 'numbering-abort-baseline.json').read_text())
+    content = (rollback / 'previous-deployed.json').read_bytes()
+    if hashlib.sha256(content).hexdigest() != baseline['previous_metadata_sha256']:
+        raise RuntimeError('Previous release marker backup failed verification')
+    assert json.loads(content) == {'commit': 'c' * 40, 'release': 'old-release'}
+    return baseline
+
+
 def test_hold_stages_schema_and_keeps_api_timers_stopped(server, monkeypatch):
     m, release, digest, calls, state = numbering_payload(server)
     held = []
-    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: held.append(args))
+    enter = m.enter_numbering_hold
+    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: (enter(*args), held.append(args)))
     state['head'] = 'new'
     m.deploy(release, digest, True, 'synthetic-cutover')
     assert len(held) == 1
@@ -291,11 +332,15 @@ def test_hold_stages_schema_and_keeps_api_timers_stopped(server, monkeypatch):
     baseline = json.loads((m.BACKUPS / release / 'numbering-abort-baseline.json').read_text())
     assert baseline['format'] == 'numbering-abort-baseline-v1'
     assert baseline['previous_commit'] == 'c' * 40
+    assert _verified_marker_backup(m, release) == baseline
+    staged = json.loads((m.PROJECT / '.actions-numbering-staged.json').read_text())
+    assert staged['operation_id'] == 'synthetic-cutover' and staged['release'] == release
+    assert staged['commit'] == 'a' * 40
+    assert m.maintenance_held()
 
 
 def test_hold_backup_failure_does_not_restart_business(server, monkeypatch):
     m, release, digest, calls, state = numbering_payload(server)
-    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: None)
     state['failure'] = 'backup'
     with pytest.raises(subprocess.CalledProcessError):
         m.deploy(release, digest, False, 'synthetic-cutover')
@@ -306,7 +351,8 @@ def test_hold_backup_failure_does_not_restart_business(server, monkeypatch):
 def test_hold_release_install_failure_keeps_business_services_stopped(server, monkeypatch):
     m, release, digest, calls, _ = numbering_payload(server)
     entered = []
-    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: entered.append(args))
+    enter = m.enter_numbering_hold
+    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: (enter(*args), entered.append(args)))
     original_copytree = m.shutil.copytree
     release_app = m.PROJECT / '.actions-releases' / release / 'payload/api/app'
 
@@ -325,6 +371,9 @@ def test_hold_release_install_failure_keeps_business_services_stopped(server, mo
     assert (rollback / 'api/app/old.txt').read_text() == 'old code'
     assert (rollback / 'old-venv/bin/python').read_text() == 'old interpreter'
     assert not (m.PROJECT / '.actions-numbering-staged.json').exists()
+    assert not (m.PROJECT / '.actions-deployed.json').exists()
+    _verified_marker_backup(m, release)
+    assert m.maintenance_held()
     assert ('systemctl', 'start', m.SERVICE) not in calls
     assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
 
@@ -333,17 +382,8 @@ def test_hold_alembic_upgrade_failure_keeps_business_services_stopped(server, mo
     m, release, digest, calls, state = numbering_payload(server)
     state.update(head='new', failure='migration')
     entered = []
-    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: entered.append(args))
-    if os.name != 'posix':
-        original_symlink_to = Path.symlink_to
-
-        def simulated_venv_link(path, target, target_is_directory=False):
-            if path == m.PROJECT / 'api/.venv':
-                m.shutil.copytree(target, path)
-            else:
-                original_symlink_to(path, target, target_is_directory=target_is_directory)
-
-        monkeypatch.setattr(Path, 'symlink_to', simulated_venv_link)
+    enter = m.enter_numbering_hold
+    monkeypatch.setattr(m, 'enter_numbering_hold', lambda *args: (enter(*args), entered.append(args)))
 
     with pytest.raises(subprocess.CalledProcessError):
         m.deploy(release, digest, True, 'synthetic-cutover')
@@ -352,7 +392,26 @@ def test_hold_alembic_upgrade_failure_keeps_business_services_stopped(server, mo
     assert len(entered) == 1
     assert (rollback / 'api/app/old.txt').read_text() == 'old code'
     assert (rollback / 'old-venv/bin/python').read_text() == 'old interpreter'
+    assert not (m.PROJECT / '.actions-deployed.json').exists()
+    _verified_marker_backup(m, release)
+    assert m.maintenance_held()
+    assert ('systemctl', 'start', m.SERVICE) not in calls
+    assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
+
+
+def test_hold_marker_backup_tamper_refuses_before_replacement(server, monkeypatch):
+    m, release, digest, calls, state = numbering_payload(server)
+    original_bundle = m.write_numbering_abort_bundle
+    def tamper_after_bundle(*args, **kwargs):
+        original_bundle(*args, **kwargs)
+        (m.BACKUPS / release / 'previous-deployed.json').write_text('{"commit":"tampered"}')
+    monkeypatch.setattr(m, 'write_numbering_abort_bundle', tamper_after_bundle)
+    with pytest.raises(RuntimeError, match='backup failed verification'):
+        m.deploy(release, digest, True, 'synthetic-cutover')
+    assert (m.PROJECT / 'api/app/old.txt').read_text() == 'old code'
+    assert (m.PROJECT / 'api/.venv/bin/python').read_text() == 'old interpreter'
     assert json.loads((m.PROJECT / '.actions-deployed.json').read_text())['commit'] == 'c' * 40
+    assert m.maintenance_held()
     assert ('systemctl', 'start', m.SERVICE) not in calls
     assert all(('systemctl', 'start', timer) not in calls for timer in m.TIMERS)
 
@@ -403,6 +462,9 @@ def test_capability_and_dispatch_gate_are_explicit(installer, tmp_path):
     assert "vars.DEPLOY_ENABLED == 'true'" in workflow
     assert '--capabilities' in workflow and '--numbering-hold' in workflow
     assert 'python -m pytest tests' in workflow
+    assert 'TMPDIR: ${{ runner.temp }}' in workflow
+    assert '--basetemp "${RUNNER_TEMP}/inventory-pytest"' in workflow
+    assert 'Path(tempfile.gettempdir()).resolve()' in workflow
     assert 'node --test tests/*.test.mjs' in workflow
 
 

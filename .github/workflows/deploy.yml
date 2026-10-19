@@ -51,10 +51,13 @@ jobs:
       - name: Run backend and deployment tests
         working-directory: api
         env:
+          TMPDIR: ${{ runner.temp }}
           INVENTORY_DATA_DIR: ${{ runner.temp }}/inventory-ci-data
           DATABASE_URL: sqlite:///${{ runner.temp }}/inventory-ci-data/inventory.db
           DASHSCOPE_API_KEY: ''
-        run: python -m pytest tests -q -p no:cacheprovider --basetemp "${RUNNER_TEMP}/inventory-pytest"
+        run: |
+          python -c 'import os,tempfile; from pathlib import Path; assert Path(tempfile.gettempdir()).resolve() == Path(os.environ["RUNNER_TEMP"]).resolve()'
+          python -m pytest tests -q -p no:cacheprovider --basetemp "${RUNNER_TEMP}/inventory-pytest"
       - name: Prepare API source and prebuilt dependency wheels
         run: |
           set -euo pipefail

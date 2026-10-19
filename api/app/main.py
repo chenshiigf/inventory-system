@@ -27,6 +27,7 @@ from app.services.visual_search.admission import VisualSearchAdmission
 from app.services.visual_search.upload_limit import VisualUploadLimit
 from app.services.visual_search.runtime_control import DailyBudgetLedger, RuntimeSwitch
 from app.services.visual_search.images import VisualError
+from app.numbering_maintenance import Maintenance, MaintenanceError, MaintenanceAdmission
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ def create_app(
     visual_production_provider=None,
 ) -> FastAPI:
     data_root = (data_directory or DATA_DIR).expanduser().resolve()
+    try:
+        maintenance_held = Maintenance(data_root).held()
+    except MaintenanceError:
+        maintenance_held = True
     default_uploads_directory = (
         UPLOADS_DIRECTORY if data_directory is None else data_root / "uploads"
     )
@@ -93,6 +98,8 @@ def create_app(
     budget = None
     try:
         visual_config = visual_config if visual_config is not None else VisualConfig.from_env()
+        if maintenance_held:
+            raise MaintenanceError('维护期间不初始化视觉索引、任务或账本')
         budget = DailyBudgetLedger(visual_root / "daily-budget.sqlite3", visual_config)
         visual_service = VisualService(
             visual_root, uploads_root, visual_config, visual_provider,
@@ -114,11 +121,13 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI):
-        await asyncio.to_thread(sessions.cleanup)
+        if not maintenance_held:
+            await asyncio.to_thread(sessions.cleanup)
         async def cleanup_tasks():
             while True:
                 await asyncio.sleep(60)
-                registry.cleanup()
+                if not Maintenance(data_root).held():
+                    registry.cleanup()
 
         cleanup = asyncio.create_task(cleanup_tasks())
         try:
@@ -136,6 +145,7 @@ def create_app(
     application.state.visual_config_error = visual_config_error
     application.state.visual_search = visual_service
     application.state.visual_sources = visual_sources
+    application.state.production_catalog_directory = production_catalog_directory or visual_root / 'production-catalog'
     application.state.product_import_preview_sessions = sessions
     application.state.uploads_directory = uploads_root
     application.state.product_image_directory = product_image_directory
@@ -156,6 +166,7 @@ def create_app(
         configuration_available=not visual_config_error,
     )
     application.add_middleware(VisualUploadLimit)
+    application.add_middleware(MaintenanceAdmission, data_root=data_root)
 
     application.include_router(products_router)
     application.include_router(dashboard_router)

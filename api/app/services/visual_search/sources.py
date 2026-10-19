@@ -2,6 +2,7 @@
 from contextlib import nullcontext
 from dataclasses import dataclass
 import re
+import sqlite3
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -10,6 +11,7 @@ from app.models import Product
 from app.schemas import ProductDetailRead
 from .images import VisualError, gallery_image, image_hash
 from .production_catalog import CatalogError, ProductionCatalog
+from .catalog_metadata import catalog_context
 
 PRODUCTION_ID = "aliyun-inventory-production"
 
@@ -116,5 +118,10 @@ class ProductionSource:
         return nullcontext(None)
 
     def context(self):
-        return {"source": self.name, "source_id": self.source_id, "index_namespace": self.identity_key,
-                "catalog_fingerprint": self.mirror.metadata()["last_report"]["catalog_fingerprint"]}
+        try:
+            context = catalog_context(self.mirror.root)
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
+            raise VisualError('生产图库目录版本无法核验，请稍后重试', 503) from error
+        if context['index_namespace'] != self.identity_key:
+            raise VisualError('图库来源已变化，请联系管理员', 503)
+        return context

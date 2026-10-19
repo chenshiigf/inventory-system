@@ -287,15 +287,17 @@ def test_deactivate_does_not_add_delete_endpoint(lifecycle_context) -> None:
     assert response.status_code in {404, 405}
 
 
-def test_product_code_is_not_reused_after_deactivation(lifecycle_context) -> None:
+def test_product_code_is_not_reused_after_deactivation(lifecycle_context, monkeypatch) -> None:
+    from datetime import datetime, timezone
+    monkeypatch.setattr("app.product_codes.product_creation_time", lambda: datetime(2026, 10, 17, tzinfo=timezone.utc))
     client, _session_factory, ids = lifecycle_context
     first = create_product(client, ids)
     assert client.post(f"/api/products/{first['id']}/deactivate").status_code == 200
 
     second = create_product(client, ids)
 
-    assert first["product_code"] == "01-01-001"
-    assert second["product_code"] == "01-01-002"
+    assert first["product_code"] == "261001"
+    assert second["product_code"] == "261002"
 
 
 def test_existing_product_rows_created_by_current_schema_are_active(lifecycle_context) -> None:

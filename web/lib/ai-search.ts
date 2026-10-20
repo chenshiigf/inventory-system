@@ -83,7 +83,8 @@ export function validateProductionResult(value: unknown): asserts value is Visua
 }
 export function validateProductionDetail(value: unknown, expectedId: number, search: VisualResult): asserts value is VisualProductResponse {
   validateContext(value);
-  if (!record(value) || value.index_namespace !== search.index_namespace || value.catalog_fingerprint !== search.catalog_fingerprint) throw new AISearchSourceError();
+  if (!record(value) || value.index_namespace !== search.index_namespace || value.catalog_fingerprint !== search.catalog_fingerprint
+    || value.catalog_revision !== search.catalog_revision) throw new AISearchSourceError();
   validateProduct(value.product);
   if (value.product.id !== expectedId) throw new AISearchSourceError();
 }

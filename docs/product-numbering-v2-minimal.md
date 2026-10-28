@@ -31,7 +31,6 @@ python -B scripts/numbering_v2.py plan \
   --backup-catalog /isolated/backups/catalog.sqlite \
   --visual-root /isolated/data/visual-search \
   --catalog-root /isolated/data/visual-search/production-catalog \
-  --manifest /isolated/data/visual-search/production-catalog/manifests/CURRENT.json \
   --namespace production-EXISTING_NAMESPACE_HASH \
   --index-key EXISTING_INDEX_KEY \
   --output /isolated/reports/plan-UNIQUE
@@ -52,7 +51,7 @@ python -B scripts/numbering_v2.py verify \
 - `execute` 必须提供审核过的**完整计划摘要**及已停止全部写入的明确确认；重新生成并逐项比较整个计划、文件身份、备份、全字段摘要和 AI 身份。任何变化即停止，不能自动重建计划继续。
 - 业务库和 `catalog.sqlite` 使用 SQLite ATTACH + `BEGIN IMMEDIATE`、DELETE journal、FULL synchronous 的**同一提交事务**，同时写入一次性 `numbering_v2_runs` 登记。该表仅由明确执行命令在事务内建立；日常 ORM 及结构升级不依赖它。
 - 仅修改业务 `products.product_code`、必要的月计数器；AI 仅修改已有 `mirror_products.document.product_code`、`last_report.catalog_fingerprint` 及 `mirror_meta.numbering_cutover` 完成/目录版本元数据。原货号、图片引用及其他镜像字段不变。
-- 保留原 fingerprint 序列化规则，基于与当前目录匹配的**原始同步 manifest**重算，支持业务数量与镜像数量不同。缺少镜像商品只报告，不补录；未知镜像商品、旧号漂移或 manifest 不匹配即拒绝。
+- 生产 AI 原始同步 manifest 可能不存在：工具直接严格核对已有镜像的来源身份、已有商品 ID 和旧货号、同步范围/数量及当前 catalog_fingerprint 的格式。历史 fingerprint 保留原值作为同步记录，不伪造重算快照；新增独立的 catalog_revision 用于使旧 AI 结果失效。支持业务数量与镜像数量不同；缺少镜像商品只报告，不补录；未知镜像商品或旧号漂移即拒绝。
 - 不导入/构造 provider，不下载或读取图片，不创建索引任务，不打开索引/预算的写连接；校验 source identity、namespace、index_key 和模型参数，前后比较索引与账本文件完整摘要。
 
 ## 验证与故障处理

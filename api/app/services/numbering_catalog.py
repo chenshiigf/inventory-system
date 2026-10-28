@@ -1,6 +1,6 @@
 """Pure metadata checks reused from the reviewed cutover, without provider/index jobs."""
 from contextlib import closing
-from copy import deepcopy
+import re
 import json
 from pathlib import Path
 
@@ -8,9 +8,6 @@ from .numbering_io import binding, checked_path, connect, digest, integrity, no_
 from .visual_search.catalog_metadata import MAGIC, SOURCE_ID, fingerprint
 
 CONTROL = 'numbering_cutover'
-PROJECTION = ('id', 'product_code', 'original_product_code', 'is_active', 'category_id',
-              'warehouse_id', 'size', 'unit', 'image_identifier', 'thumbnail_identifier',
-              'source_updated_at', 'packagings')
 
 
 def meta(db):
@@ -72,8 +69,7 @@ def protected(options):
         if db.execute("SELECT count(*) FROM visual_jobs WHERE status='running'").fetchone()[0]:
             raise ValueError('AI 索引任务未排空')
     paths = {'source': catalog / 'source.json', 'binding': index / 'source-binding.json',
-             'index': index / 'index.db', 'budget': root / 'daily-budget.sqlite3',
-             'manifest': Path(options['manifest'])}
+             'index': index / 'index.db', 'budget': root / 'daily-budget.sqlite3'}
     for path in (paths['index'], paths['budget']):
         no_sidecars(path)
         with closing(connect(path)) as db:
@@ -82,47 +78,42 @@ def protected(options):
 
 
 def plan(db, options, mapping):
+    # The original full-sync manifest is not retained on every production
+    # installation. Validate the persisted mirror itself instead of guessing
+    # the missing snapshot. Retain the historical fingerprint as a record of
+    # that sync; the cutover gains a separate revision marker.
     identity, files = protected(options)
     metadata, products = meta(db), rows(db)
     if CONTROL in metadata or metadata.get('identity') != identity:
         raise ValueError('镜像已换号或来源身份不一致')
-    manifest = json.loads(Path(options['manifest']).read_text(encoding='utf8'))
-    original = manifest['snapshot']
-    if (manifest.get('identity') != identity or fingerprint(original) != metadata['last_report']['catalog_fingerprint'] or
-            metadata.get('categories') != original.get('categories') or metadata.get('warehouses') != original.get('warehouses')):
-        raise ValueError('当前目录与同步 manifest 不符')
+    last_report = metadata.get('last_report')
+    if not isinstance(last_report, dict) or last_report.get('scope') not in {'full', 'sample'}:
+        raise ValueError('镜像同步范围异常')
+    before = last_report.get('catalog_fingerprint')
+    if not isinstance(before, str) or not re.fullmatch(r'[0-9a-f]{64}', before):
+        raise ValueError('镜像原始同步指纹无效')
+    if not isinstance(last_report.get('selected_products'), int) or last_report['selected_products'] <= 0:
+        raise ValueError('镜像同步商品数量无效')
+    if not isinstance(metadata.get('categories'), list) or not isinstance(metadata.get('warehouses'), list):
+        raise ValueError('镜像分类或仓库元数据异常')
+    if last_report['scope'] == 'full':
+        present = sum(row.get('source_present') is True for row in products)
+        if present != last_report['selected_products']:
+            raise ValueError('全量同步报告与已有镜像商品数不符')
     by_id = {r['product_id']: r for r in mapping}
-    records = {r['id']: r for r in manifest['records']}
-    if len(records) != len(manifest['records']):
-        raise ValueError('同步 manifest 商品重复')
     ids = {r['id'] for r in products}
-    scope = metadata['last_report']['scope']
-    if scope not in {'full', 'sample'} or not set(records).issubset(ids):
-        raise ValueError('镜像同步范围或商品集合异常')
+    if not products or len(ids) != len(products):
+        raise ValueError('镜像商品集合无效')
     updates = []
     for row in products:
         pid = row['id']
-        if pid not in by_id or row['product_code'] != by_id[pid]['old_code']:
+        if pid not in by_id or row.get('product_code') != by_id[pid]['old_code']:
             raise ValueError('未知镜像商品、映射缺失或旧货号漂移')
-        if ((pid in records and records[pid] != row) or
-                (scope == 'full' and row.get('source_present') and pid not in records)):
-            raise ValueError('镜像与同步 manifest 记录不符')
-        updates.append({'product_id': pid, 'old_code': row['product_code'], 'new_code': by_id[pid]['new_code']})
-    changed = deepcopy(original)
-    seen = []
-    for row in changed['products']:
-        pid = row['id']
-        if (pid not in by_id or pid not in records or row['product_code'] != by_id[pid]['old_code'] or
-                any(row.get(k) != records[pid].get(k) for k in PROJECTION)):
-            raise ValueError('目录指纹的原始投影不符')
-        seen.append(pid)
-        row['product_code'] = by_id[pid]['new_code']
-    if len(seen) != len(set(seen)) or set(seen) != set(records):
-        raise ValueError('目录快照商品集合异常')
+        updates.append({'product_id': pid, 'old_code': row['product_code'],
+                        'new_code': by_id[pid]['new_code']})
     return {'invariants': snapshot(db), 'protected': files, 'updates': updates,
             'missing_from_mirror': sorted(set(by_id) - ids),
-            'fingerprint_before': fingerprint(original), 'fingerprint_after': fingerprint(changed),
-            'snapshot_after': changed}
+            'fingerprint_before': before, 'mirror_after_codes_sha256': digest(updates)}
 
 
 def apply(db, prepared, approval):
@@ -131,11 +122,12 @@ def apply(db, prepared, approval):
         row['product_code'] = updates[row['id']]
         db.execute('UPDATE ai.mirror_products SET document=? WHERE source_id=? AND id=?',
                    (json.dumps(row, ensure_ascii=False), SOURCE_ID, row['id']))
-    last_report = meta(db)['last_report']
-    last_report['catalog_fingerprint'] = prepared['fingerprint_after']
-    db.execute("UPDATE ai.mirror_meta SET document=? WHERE key='last_report'", (json.dumps(last_report, ensure_ascii=False),))
+    # last_report.catalog_fingerprint describes the original sync snapshot;
+    # do not fabricate a replacement fingerprint for a lost manifest. A new
+    # independently verifiable catalog_revision invalidates old AI sessions.
     record = {'state': 'committed', 'approved_plan_sha256': approval,
-              'fingerprint_after': prepared['fingerprint_after']}
+              'fingerprint_before': prepared['fingerprint_before'],
+              'mirror_after_codes_sha256': prepared['mirror_after_codes_sha256']}
     record['commit_sha256'] = fingerprint(record)
     db.execute('INSERT INTO ai.mirror_meta VALUES (?,?)', (CONTROL, json.dumps(record)))
 
@@ -149,6 +141,8 @@ def verify(db, prepared, approval):
     record = metadata[CONTROL]
     if (record.get('state') != 'committed' or record.get('approved_plan_sha256') != approval or
             record.get('commit_sha256') != fingerprint({k:v for k,v in record.items() if k != 'commit_sha256'}) or
-            metadata['last_report']['catalog_fingerprint'] != prepared['fingerprint_after'] or
-            fingerprint(prepared['snapshot_after']) != prepared['fingerprint_after']):
+            record.get('fingerprint_before') != prepared['fingerprint_before'] or
+            record.get('mirror_after_codes_sha256') != prepared['mirror_after_codes_sha256'] or
+            digest(prepared['updates']) != prepared['mirror_after_codes_sha256'] or
+            metadata['last_report']['catalog_fingerprint'] != prepared['fingerprint_before']):
         raise ValueError('镜像完成登记或指纹不符')

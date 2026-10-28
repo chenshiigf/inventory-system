@@ -71,14 +71,12 @@ def fixture(tmp_path, monkeypatch):
                         'source_present':True, 'synced_at':'2026-10-20', 'image_status':'ready',
                         'image':{'sha256':'c'*64, 'path':'images/synthetic.webp'}, 'image_error':None})
     original = {'products':projections, 'categories':[], 'warehouses':[{'id':1,'name':'合成仓库'}], 'source_total':3}
-    manifest = cat / 'manifest.json'
-    manifest.write_text(json.dumps({'identity':identity,'snapshot':original,'records':records}), encoding='utf8')
     with sqlite3.connect(cat / 'catalog.sqlite') as db:
         db.execute('CREATE TABLE mirror_products(source_id TEXT NOT NULL,id INTEGER NOT NULL,document TEXT NOT NULL,PRIMARY KEY(source_id,id))')
         db.execute('CREATE TABLE mirror_meta(key TEXT PRIMARY KEY,document TEXT NOT NULL)')
         for row in records:
             db.execute('INSERT INTO mirror_products VALUES(?,?,?)',(SOURCE_ID,row['id'],json.dumps(row)))
-        for key, value in {'identity':identity,'last_report':{'scope':'full','catalog_fingerprint':fingerprint(original)},
+        for key, value in {'identity':identity,'last_report':{'scope':'full','selected_products':3,'catalog_fingerprint':fingerprint(original)},
                            'categories':original['categories'],'warehouses':original['warehouses']}.items():
             db.execute('INSERT INTO mirror_meta VALUES (?,?)',(key,json.dumps(value)))
     namespace = 'production-' + fingerprint(identity)
@@ -109,7 +107,7 @@ def fixture(tmp_path, monkeypatch):
     shutil.copy2(cat/'catalog.sqlite',backups/'catalog.db')
     options={'database':str(database),'backup_database':str(backups/'business.db'),
              'backup_catalog':str(backups/'catalog.db'),'visual_root':str(root),'catalog_root':str(cat),
-             'manifest':str(manifest),'namespace':namespace,'index_key':key}
+             'namespace':namespace,'index_key':key}
     # Fail on every forbidden action, and separately count them.
     probes={name:Mock(side_effect=AssertionError('forbidden '+name)) for name in ('provider','embedding','download','index_job','network')}
     monkeypatch.setattr('app.services.visual_search.provider.DashScopeProvider.__init__',probes['provider'])
@@ -146,7 +144,10 @@ def test_plan_execute_verify_preserves_all_noncode_data_and_ai(fixture):
         assert db.execute('SELECT original_product_code FROM products WHERE id=4').fetchone()[0]=='原-4'
         assert db.execute('SELECT count(*) FROM inventory_movements').fetchone()[0]==1
         assert db.execute('SELECT count(*) FROM product_import_batches').fetchone()[0]==1
-    assert catalog_context(Path(options['catalog_root']))!=context
+    updated_context=catalog_context(Path(options['catalog_root']))
+    assert updated_context['catalog_fingerprint']==context['catalog_fingerprint']
+    assert updated_context['catalog_revision'] != context.get('catalog_revision')
+    assert updated_context != context
     for probe in probes.values():
         assert probe.call_count==0
     for key,value in before.items():

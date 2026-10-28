@@ -11,6 +11,7 @@ import { AI_SEARCH_SOURCE, AISearchSourceError, confirmedProductCode, toAISearch
 import { createSearchRequestId, currentSearchInput, type SearchRequest } from "@/lib/ai-search-session";
 import { sameCrop, validSingleCrop } from "@/lib/image-crop";
 import { AIImageProcessingError, prepareAISearchImage, readAIPhoto } from "@/lib/ai-search-image";
+import { CatalogVersionError, verifyCatalogVersion } from "@/lib/ai-catalog-version";
 import type { CropRegion } from "@/lib/api/visual-search";
 import ImageUploader, { type ImageUploaderHandle } from "./ImageUploader";
 import { useAISearchSession } from "./AISearchSessionProvider";
@@ -24,6 +25,7 @@ import "./ai-search.css";
 type SearchState = "idle" | "uploading" | "searching" | "success" | "error";
 
 function failureText(error: unknown): string {
+  if (error instanceof CatalogVersionError) return error.message;
   if (error instanceof AIImageProcessingError) return error.message;
   if (error instanceof AISearchSourceError) return "识别区域或商品资料无法核对，请重新框选或联系管理员。";
   if (error instanceof ApiResponseError && error.statusCode === 413) return "图片大小超过限制";
@@ -37,7 +39,7 @@ function failureText(error: unknown): string {
 
 export default function AISearchWorkspace() {
   const { message } = App.useApp();
-  const { session, replacePhoto, setCrop, startSearch, completeSearch, finishSearch, confirmSelection } = useAISearchSession();
+  const { session, replacePhoto, setCrop, startSearch, completeSearch, finishSearch, confirmSelection, invalidateCatalog } = useAISearchSession();
   const { file, result, confirmedId, crop } = session;
   const queryImage = { image: session.image, name: file?.name ?? "" };
   const [state, setState] = useState<SearchState>(result ? "success" : "idle");
@@ -74,6 +76,34 @@ export default function AISearchWorkspace() {
     detailController.current?.abort();
     if (activeRequest.current) finishSearch(activeRequest.current);
   }, [finishSearch]);
+
+  useEffect(() => {
+    if (!result) return;
+    let active = true;
+    const check = () => {
+      if (document.visibilityState === "hidden") return;
+      void verifyCatalogVersion(result).catch(problem => {
+        if (!active) return;
+        invalidateCatalog(result.query_id);
+        selection.current += 1;
+        detailController.current?.abort();
+        setDetailOpen(false); setDetail(null); setCopyError(false);
+        setError(problem.message); setState("idle");
+      });
+    };
+    check(); // Includes client navigation restoring the root provider's session.
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check); // BFCache restoration.
+    document.addEventListener("visibilitychange", check);
+    return () => { active = false; window.removeEventListener("focus", check); window.removeEventListener("pageshow", check); document.removeEventListener("visibilitychange", check); };
+  }, [result, invalidateCatalog]);
+
+  function discardCatalog(problem: unknown) {
+    if (result) invalidateCatalog(result.query_id);
+    selection.current += 1;
+    setCopyError(false); setError(problem instanceof CatalogVersionError ? problem.message : "商品目录已更新，请重新搜索。");
+    setState("idle"); closeDetail();
+  }
 
   function closeDetail() {
     detailVersion.current += 1;
@@ -139,6 +169,8 @@ export default function AISearchWorkspace() {
       if (version !== selection.current || controller.signal.aborted || activeRequest.current !== request) return;
       validateProductionResult(response);
       if (!sameCrop(response.crop, prepared.serverCrop)) throw new AISearchSourceError();
+      await verifyCatalogVersion(response);
+      if (version !== selection.current || controller.signal.aborted) return;
       completeSearch(request, response, prepared.serverCrop); setState("success");
     } catch (problem) {
       if (version === selection.current && !controller?.signal.aborted) { setError(failureText(problem)); setState("error"); }
@@ -158,11 +190,13 @@ export default function AISearchWorkspace() {
     detailController.current?.abort(); detailController.current = controller;
     setDetail(null); setDetailError(null); setDetailOpen(true); setDetailLoading(true);
     try {
+      await verifyCatalogVersion(result);
       const response = await getVisualProduct(product.productId, AI_SEARCH_SOURCE, controller.signal);
       if (version !== detailVersion.current || inputVersion !== selection.current) return;
       validateProductionDetail(response, product.productId, result);
       setDetail(toAISearchProduct(response.product));
     } catch (problem) {
+      if (problem instanceof CatalogVersionError) discardCatalog(problem);
       if (version === detailVersion.current && !controller.signal.aborted) setDetailError(problem instanceof AISearchSourceError ? "商品资料暂时无法核对，请联系管理员。" : "商品资料加载失败，请关闭后重试。");
     } finally {
       if (version === detailVersion.current) setDetailLoading(false);
@@ -178,15 +212,18 @@ export default function AISearchWorkspace() {
     const version = selection.current;
     setConfirmingId(productId);
     try {
+      await verifyCatalogVersion(result);
+      if (version !== selection.current) return;
       const response = await saveVisualFeedback(result.query_id, productId, AI_SEARCH_SOURCE);
       if (version !== selection.current) return;
       if (response.saved !== true || response.query_id !== result.query_id) throw new AISearchSourceError();
       confirmSelection(input, result.query_id, productId); setCopyError(false); message.success("已确认商品");
-    } catch {
-      if (version === selection.current) message.error("确认保存失败，请重试；不会重新识别照片。");
+    } catch (problem) {
+      if (problem instanceof CatalogVersionError || (problem instanceof ApiResponseError && problem.statusCode === 409 && /商品目录已更新|旧结果/.test(problem.message))) discardCatalog(problem);
+      else if (version === selection.current) message.error("确认保存失败，请重试；不会重新识别照片。");
     } finally {
       feedbackLock.current = false;
-      if (version === selection.current) setConfirmingId(null);
+      setConfirmingId(null);
     }
   }
 
@@ -195,14 +232,17 @@ export default function AISearchWorkspace() {
     const version = selection.current;
     copyLock.current = true; setCopying(true); setCopyError(false);
     try {
+      await verifyCatalogVersion(result!);
+      if (version !== selection.current) return;
       if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
       await navigator.clipboard.writeText(copyCode);
       if (version === selection.current) message.success("货号已复制，可到库存系统搜索。");
-    } catch {
-      if (version === selection.current) { setCopyError(true); message.warning("复制未成功，请手动复制下方货号。"); }
+    } catch (problem) {
+      if (problem instanceof CatalogVersionError) discardCatalog(problem);
+      else if (version === selection.current) { setCopyError(true); message.warning("复制未成功，请手动复制下方货号。"); }
     } finally {
       copyLock.current = false;
-      if (version === selection.current) setCopying(false);
+      setCopying(false);
     }
   }
 

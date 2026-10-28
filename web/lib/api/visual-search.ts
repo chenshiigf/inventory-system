@@ -48,6 +48,7 @@ export interface VisualProductResponse {
   source_id: string;
   index_namespace?: string;
   catalog_fingerprint?: string;
+  catalog_revision?: string;
   product: VisualProduct;
 }
 export interface VisualResult {
@@ -56,6 +57,7 @@ export interface VisualResult {
   source_id: string;
   index_namespace?: string;
   catalog_fingerprint?: string;
+  catalog_revision?: string;
   model: string;
   version: string;
   elapsed_ms: number;
@@ -108,4 +110,10 @@ export function rebuildVisual(dry_run: boolean, max_items: number, source: Visua
 
 export function getVisualProduct(id: number, source: VisualSource, signal?: AbortSignal) {
   return apiRequest<VisualProductResponse>(`/api/visual-search/catalog/products/${id}?source=${source}`, { credentials: "include", signal }, getVisualApiBaseUrl());
+}
+
+export type VisualCatalogVersion = Pick<VisualResult, "source" | "source_id" | "index_namespace" | "catalog_fingerprint" | "catalog_revision">;
+export function getVisualCatalogVersion(signal?: AbortSignal) {
+  return apiRequest<VisualCatalogVersion>("/api/visual-search/catalog/version?source=production-catalog",
+    { credentials: "include", signal: signal ?? AbortSignal.timeout(10_000) }, getVisualApiBaseUrl());
 }

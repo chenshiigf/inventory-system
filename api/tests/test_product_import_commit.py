@@ -1,5 +1,6 @@
 from io import BytesIO
 from pathlib import Path
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,7 +8,7 @@ from openpyxl.drawing.spreadsheet_drawing import AnchorMarker, TwoCellAnchor
 from PIL import Image as PillowImage
 from sqlalchemy import func, select
 
-from app.models import Category, Product, ProductImportBatch, ProductPackaging
+from app.models import Category, Product, ProductCodeMonth, ProductImportBatch, ProductPackaging
 from app.services.products import ProductCreationError
 from app.services.product_import import commit_service
 from app.services.product_import.preview_service import PreparedProductImport
@@ -20,6 +21,11 @@ from tests.test_product_import import (
     valid_row,
     workbook_bytes,
 )
+
+
+@pytest.fixture(autouse=True)
+def fixed_creation_time(monkeypatch):
+    monkeypatch.setattr("app.product_codes.product_creation_time", lambda: datetime(2026, 10, 17, tzinfo=timezone.utc))
 
 
 def commit(client: TestClient, session_id: str):
@@ -116,7 +122,7 @@ def test_commit_creates_single_packaging_product_and_batch(import_context) -> No
     result = response.json()
     assert result["product_count"] == 1
     assert result["packaging_count"] == 1
-    assert result["created_products"][0]["product_code"] == "01-01-007"
+    assert result["created_products"][0]["product_code"] == "261001"
     assert result["created_products"][0]["excel_rows"] == [2]
     assert not (preview_directory / preview_data["preview_session_id"]).exists()
     with session_factory() as db:
@@ -146,6 +152,9 @@ def test_commit_merges_group_into_one_product_with_multiple_packagings(
         ]
     )
     preview_data = preview_payload(client, data)
+
+    with session_factory() as db:
+        assert db.scalar(select(ProductCodeMonth)) is None
 
     result = commit(client, preview_data["preview_session_id"])
 
@@ -183,7 +192,7 @@ def test_blank_groups_create_independent_products_and_codes(import_context) -> N
 
     assert result.status_code == 200
     codes = [row["product_code"] for row in result.json()["created_products"]]
-    assert codes == ["01-01-007", "01-01-008"]
+    assert codes == ["261001", "261002"]
     with session_factory() as db:
         assert db.scalar(select(func.count(Product.id))) == 2
 
@@ -422,12 +431,17 @@ def test_modified_file_creates_new_batch_and_group_name_is_not_global_identity(
         assert db.scalar(select(func.count(ProductImportBatch.id))) == 2
 
 
+@pytest.mark.parametrize("existing_next", [None, 98])
 def test_commit_failure_rolls_back_database_sequence_and_new_images(
     import_context,
     monkeypatch,
+    existing_next,
 ) -> None:
     client, session_factory, _application, uploads_directory, _previews = import_context
     ids = seed_reference_data(session_factory)
+    if existing_next is not None:
+        with session_factory.begin() as db:
+            db.add(ProductCodeMonth(period_ym="202610", next_sequence=existing_next))
     data = workbook_bytes(
         [valid_row(remark="第一件"), valid_row(remark="第二件", packing_qty=48)],
         images={
@@ -460,6 +474,15 @@ def test_commit_failure_rolls_back_database_sequence_and_new_images(
         assert db.scalar(select(func.count(ProductPackaging.id))) == 0
         assert db.scalar(select(func.count(ProductImportBatch.id))) == 0
         assert db.get(Category, ids["plate"]).next_product_sequence == 7
+        counter = db.get(ProductCodeMonth, "202610")
+        assert (counter.next_sequence if counter else None) == existing_next
+
+    # A retried successful import starts at 01; Preview and rollback took no number.
+    monkeypatch.setattr(commit_service, "create_product_record", real_create)
+    retry = commit(client, preview_data["preview_session_id"])
+    assert retry.status_code == 200, retry.text
+    first = existing_next or 1
+    assert [p["product_code"] for p in retry.json()["created_products"]] == [f"2610{first:02d}", f"2610{first + 1:02d}"]
 
 
 def test_committed_product_is_visible_in_inventory_api(import_context) -> None:
@@ -476,7 +499,7 @@ def test_committed_product_is_visible_in_inventory_api(import_context) -> None:
 
     assert inventory.status_code == 200
     assert inventory.json()["total"] == 1
-    assert inventory.json()["items"][0]["product_code"] == "01-01-007"
+    assert inventory.json()["items"][0]["product_code"] == "261001"
     assert inventory.json()["items"][0]["total_carton_count"] == 9
     movements = client.get(
         "/api/inventory-movements",

@@ -13,6 +13,7 @@ interface SessionContext {
   completeSearch: (request: SearchRequest, result: VisualResult, submittedCrop?: CropRegion | null) => void;
   finishSearch: (request: SearchRequest) => void;
   confirmSelection: (input: SearchInput, queryId: string, productId: number) => void;
+  invalidateCatalog: (queryId: string) => void;
 }
 
 const SearchSessionContext = createContext<SessionContext | null>(null);
@@ -38,8 +39,9 @@ export function AISearchSessionProvider({ children }: { children: ReactNode }) {
   const completeSearch = useCallback((request: SearchRequest, result: VisualResult, submittedCrop?: CropRegion | null) => dispatch({ type: "complete", request, result, submittedCrop }), []);
   const finishSearch = useCallback((request: SearchRequest) => dispatch({ type: "finish", request }), []);
   const confirmSelection = useCallback((input: SearchInput, queryId: string, productId: number) => dispatch({ type: "confirm", input, queryId, productId }), []);
-  const value = useMemo(() => ({ session, replacePhoto, setCrop, startSearch, completeSearch, finishSearch, confirmSelection }),
-    [session, replacePhoto, setCrop, startSearch, completeSearch, finishSearch, confirmSelection]);
+  const invalidateCatalog = useCallback((queryId: string) => dispatch({ type: "catalog-invalid", queryId }), []);
+  const value = useMemo(() => ({ session, replacePhoto, setCrop, startSearch, completeSearch, finishSearch, confirmSelection, invalidateCatalog }),
+    [session, replacePhoto, setCrop, startSearch, completeSearch, finishSearch, confirmSelection, invalidateCatalog]);
 
   return <SearchSessionContext.Provider value={value}>
     {process.env.NODE_ENV === "development" ? <AISearchPreviewSessionProvider>{children}</AISearchPreviewSessionProvider> : children}

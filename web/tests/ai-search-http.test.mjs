@@ -22,7 +22,11 @@ const response = () => ({
 // Execute the production component's actual button handler with small UI/hook
 // mocks. Browser APIs reflect a public HTTP origin; every fetch is in-process.
 function workspace({ crypto = {}, failInitialization = false, crop = null, initialResult = null, confirmedId = null, clipboard } = {}) {
-  const requests = [], states = [], refs = [], modules = new Map();
+  const requests = [], versionRequests = [], states = [], refs = [], modules = new Map(), effects = [];
+  const listeners = new Map();
+  const events = { addEventListener(name, callback) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(callback); },
+    removeEventListener(name, callback) { listeners.get(name)?.delete(callback); } };
+  let catalogVersion = response(), versionFailure = false;
   let stateIndex = 0, refIndex = 0, contextValue, resolveSearch;
   let initializationFailures = failInitialization ? 1 : 0;
   const jsx = (type, props) => ({ type, props: props ?? {} });
@@ -35,9 +39,14 @@ function workspace({ crypto = {}, failInitialization = false, crop = null, initi
         return new AbortController();
       }
     },
-    window: { location: { protocol: "http:", origin: "http://inventory.example:8082" }, matchMedia: () => ({ matches: false }) },
+    window: { ...events, location: { protocol: "http:", origin: "http://inventory.example:8082" }, matchMedia: () => ({ matches: false }) },
+    document: { ...events, visibilityState: "visible" },
     process: { env: { NODE_ENV: "production" } },
     fetch: async (url, init) => {
+      if (url.includes("/catalog/version?")) {
+        versionRequests.push(url);
+        return versionFailure ? Response.json({ detail: "unavailable" }, { status: 503 }) : Response.json(catalogVersion);
+      }
       requests.push({ url, init });
       if (url.includes("/feedback?")) return Response.json({ saved: true, query_id: JSON.parse(init.body).query_id });
       return new Promise(resolve => { resolveSearch = () => resolve(Response.json(response())); });
@@ -46,7 +55,7 @@ function workspace({ crypto = {}, failInitialization = false, crop = null, initi
   const ui = Object.fromEntries(["Button", "Card", "Alert", "Empty", "Image", "Input", "Spin"].map(name => [name, name]));
   ui.App = { useApp: () => ({ message: { success() {}, warning() {}, error() {} } }) };
   const react = {
-    useEffect() {},
+    useEffect(callback) { effects.push(callback); },
     useRef(value) { const index = refIndex++; return refs[index] ??= { current: value }; },
     useState(value) {
       const index = stateIndex++;
@@ -95,6 +104,7 @@ function workspace({ crypto = {}, failInitialization = false, crop = null, initi
   function render() {
     stateIndex = refIndex = 0;
     contextValue = { session, replacePhoto() {}, setCrop() {},
+      invalidateCatalog: queryId => dispatch({ type: "catalog-invalid", queryId }),
       confirmSelection: (input, queryId, productId) => dispatch({ type: "confirm", input, queryId, productId }),
       startSearch: request => dispatch({ type: "start", request }),
       completeSearch: (request, result, submittedCrop) => dispatch({ type: "complete", request, result, submittedCrop }),
@@ -108,7 +118,10 @@ function workspace({ crypto = {}, failInitialization = false, crop = null, initi
     return predicate(node) ? node : find(node.props?.children, predicate);
   }
   const button = () => find(render(), node => node.type === "Button" && ["开始找商品", "识别框选商品"].includes(node.props.children));
-  return { context, requests, sessionTools, render, button, states, find, getSession: () => session,
+  return { context, requests, versionRequests, sessionTools, render, button, states, find, getSession: () => session,
+    setCatalogVersion: value => { catalogVersion = value; }, failCatalog: () => { versionFailure = true; },
+    mountEffects: () => { effects.length = 0; render(); effects.splice(0).forEach(callback => callback()); },
+    emit: name => { listeners.get(name)?.forEach(callback => callback()); },
     release: () => resolveSearch(), error: () => find(render(), node => node.type === "Alert" && node.props.type === "error") };
 }
 
@@ -131,6 +144,84 @@ test("HTTP click without randomUUID starts exactly one search and releases the b
     assert.equal(app.states[0], "success");
     assert.equal(app.getSession().activeRequestId, null);
     assert.equal(app.button().props.disabled, false);
+  }
+});
+
+test("copy rejects changed catalog and removes old result, confirmation and manual fallback", async () => {
+  const r = response();
+  r.candidates = [{ product: { id: 1, product_key: "aliyun-inventory-production:1", source_id: r.source_id,
+    product_code: "OLD-1", image_path: null, category_name: null, warehouse_name: null, size: "Mock", unit: "pcs",
+    is_active: true, source_present: true, synced_at: "2026-10-12T00:00:00Z", packagings: [] }, similarity: .9 }];
+  const copied = [];
+  const app = workspace({ initialResult: r, confirmedId: 1, clipboard: { writeText: async value => copied.push(value) } });
+  app.setCatalogVersion({ ...r, catalog_fingerprint: "e".repeat(64) });
+  const alert = app.find(app.render(), node => node.type === "Alert" && node.props.type === "success");
+  await app.find(alert.props.description, node => node.type === "Button").props.onClick();
+  assert.equal(app.getSession().result, null);
+  assert.equal(app.getSession().confirmedId, null);
+  assert.deepEqual(copied, []);
+  assert.equal(app.requests.length, 0, "no model search or feedback");
+  assert.match(app.error().props.title, /目录已更新/);
+  assert.ok(!app.find(app.render(), node => node.type === "Input"));
+});
+
+test("unavailable version never copies an unverified code", async () => {
+  const r = response();
+  r.candidates = [{ product: { id: 1, product_key: "aliyun-inventory-production:1", source_id: r.source_id,
+    product_code: "OLD-1", image_path: null, category_name: null, warehouse_name: null, size: "Mock", unit: "pcs",
+    is_active: true, source_present: true, synced_at: "2026-10-12T00:00:00Z", packagings: [] }, similarity: .9 }];
+  const copied = [];
+  const app = workspace({ initialResult: r, confirmedId: 1, clipboard: { writeText: async value => copied.push(value) } });
+  app.failCatalog();
+  const alert = app.find(app.render(), node => node.type === "Alert" && node.props.type === "success");
+  await app.find(alert.props.description, node => node.type === "Button").props.onClick();
+  assert.equal(app.getSession().result, null);
+  assert.equal(copied.length, 0);
+  assert.match(app.error().props.title, /商品管理页核对/);
+});
+
+test("focus, BFCache and visibility restoration check without a paid search", async () => {
+  for (const event of ["focus", "pageshow", "visibilitychange"]) {
+    const app = workspace({ initialResult: response() });
+    app.mountEffects();
+    await new Promise(resolve => setImmediate(resolve));
+    app.setCatalogVersion({ ...response(), catalog_fingerprint: "e".repeat(64) });
+    app.emit(event);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.getSession().result, null);
+    assert.equal(app.getSession().confirmedId, null);
+    assert.equal(app.requests.length, 0);
+    assert.equal(app.versionRequests.length, 2);
+  }
+});
+
+test("restoring an already stale root session clears it on mount", async () => {
+  const app = workspace({ initialResult: response() });
+  app.setCatalogVersion({ ...response(), catalog_fingerprint: "e".repeat(64) });
+  app.mountEffects();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.getSession().result, null);
+  assert.equal(app.requests.length, 0);
+});
+
+test("a cutover epoch clears a session even when the legacy snapshot fingerprint is unchanged", async () => {
+  const app = workspace({ initialResult: response() });
+  app.setCatalogVersion({ ...response(), catalog_revision: "f".repeat(64) });
+  app.mountEffects();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(app.getSession().result, null);
+  assert.equal(app.requests.length, 0);
+});
+
+test("malformed version responses are unavailable, never a clipboard fallback", async () => {
+  for (const invalid of [null, {}, { ...response(), catalog_fingerprint: null }]) {
+    const app = workspace({ initialResult: response() });
+    app.setCatalogVersion(invalid);
+    app.mountEffects();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(app.getSession().result, null);
+    assert.match(app.error().props.title, /无法核验/);
+    assert.equal(app.requests.length, 0);
   }
 });
 

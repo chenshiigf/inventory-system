@@ -136,6 +136,7 @@ def create_app(
     application.state.visual_config_error = visual_config_error
     application.state.visual_search = visual_service
     application.state.visual_sources = visual_sources
+    application.state.production_catalog_directory = production_catalog_directory or visual_root / "production-catalog"
     application.state.product_import_preview_sessions = sessions
     application.state.uploads_directory = uploads_root
     application.state.product_image_directory = product_image_directory

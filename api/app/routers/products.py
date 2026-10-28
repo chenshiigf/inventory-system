@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
-from sqlalchemy import Integer, and_, case, cast, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 from starlette.responses import StreamingResponse
 
@@ -31,7 +31,6 @@ from app.services.products import ProductCreationError, create_product_record
 router = APIRouter(prefix="/api/products", tags=["products"])
 
 
-# Product codes are three numeric components; zero-padding is display-only.
 def _product_code_ordering():
     code = Product.product_code
     first_separator = func.instr(code, "-")
@@ -51,14 +50,23 @@ def _product_code_ordering():
         ),
     )
 
-    return (
-        case((has_numeric_code, 0), else_=1).asc(),
-        *(
-            case((has_numeric_code, cast(component, Integer)), else_=0).asc()
-            for component in components
-        ),
-        Product.id.asc(),
-    )
+    digits = and_(func.length(code) >= 6, code.op("NOT GLOB")("*[^0-9]*"))
+    historical = and_(digits, func.length(code) == 6, func.substr(code, 1, 2) == "25")
+    monthly = and_(digits, ~historical, func.substr(code, 3, 2).between("01", "12"),
+                   func.ltrim(func.substr(code, 5), "0") != "")
+    group = case((has_numeric_code, 0), (historical, 1), (monthly, 2), else_=3)
+    ordering = [group.asc()]
+    # Length + lexical comparison avoids overflow even for long numeric suffixes.
+    for component in components:
+        normalized = func.ltrim(component, "0")
+        ordering.extend((case((has_numeric_code, func.length(normalized)), else_=0).asc(),
+                         case((has_numeric_code, normalized), else_="").asc()))
+    suffix = func.ltrim(func.substr(code, 5), "0")
+    ordering.extend((case((monthly, func.substr(code, 1, 4)), else_="").asc(),
+                     case((historical, code), else_="").asc(),
+                     case((monthly, func.length(suffix)), else_=0).asc(),
+                     case((monthly, suffix), else_="").asc(), Product.id.asc()))
+    return tuple(ordering)
 
 
 @router.get("", response_model=ProductListRead)

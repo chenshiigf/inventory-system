@@ -259,6 +259,7 @@ class VisualService:
 
     def _search_locked(self, db, owner, data, crop=None, top_k=5, *, max_image_bytes=None, max_image_pixels=None):
         started = time.perf_counter()
+        query_context = self.source.context() if self.source.production else None
         timing = SearchTiming()
         if getattr(self.provider, "paid_calls", False):
             self.runtime_switch.require_enabled()
@@ -307,6 +308,7 @@ class VisualService:
             if self.source.production:
                 # Re-read all current metadata once, preserving the post-API
                 # state/image checks without 2 SQLite connections per ID.
+                query_context = self.source.context()
                 current_products = {p.id: p for p in self.source.products(None)}
                 for pid in list(gallery):
                     try:
@@ -320,6 +322,11 @@ class VisualService:
             ranked = rank_candidates(result.vector, gallery, self.config.dimension, top_k, self.config.min_score)
             timing.mark("numpy_similarity")
         # Keep only the normalized query crop, outside the public uploads mount.
+        if query_context is not None and self.source.context() != query_context:
+            raise VisualError('商品目录已更新，请重新搜索；不会自动重复调用模型', 409)
+        candidate_ids = [pid for pid, _ in ranked]
+        if query_context is not None:
+            candidate_ids = {'ids': candidate_ids, 'catalog': query_context}
         directory = self.store.root / "queries"
         directory.mkdir(parents=True, exist_ok=True)
         reference = f"queries/{query_id}.jpg"
@@ -329,11 +336,11 @@ class VisualService:
             connection.execute("INSERT INTO visual_queries VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", (
                 query_id, owner, self.config.index_key, self.config.model, self.config.version,
                 reference, image_hash(data), json.dumps(crop) if crop else None,
-                json.dumps([pid for pid, _ in ranked]), elapsed, json.dumps(usage), now(),
+                json.dumps(candidate_ids), elapsed, json.dumps(usage), now(),
             ))
         timing.mark("query_persistence")
         logger.info("visual_search query=%s elapsed_ms=%s candidates=%s", query_id, elapsed, len(ranked))
-        response = {**self.source.context(), "query_id": query_id, "model": self.config.model, "version": self.config.version,
+        response = {**(query_context or self.source.context()), "query_id": query_id, "model": self.config.model, "version": self.config.version,
                 "elapsed_ms": elapsed, "usage": usage, "call_summary": self.store.usage_summary(query_id),
                 "crop": crop, "message": "候选仅供人工核对，相似度不是准确率" if ranked else "没有可用匹配，请检查图库索引或重新框选",
                 "candidates": [{"product": available[pid].detail, "similarity": round(score, 6)} for pid, score in ranked]}
@@ -343,15 +350,33 @@ class VisualService:
         return response
 
     def feedback(self, db, owner, query_id, selected_product_id, no_match):
+        if not self.source.production:
+            return self._feedback_locked(db, owner, query_id, selected_product_id, no_match)
+        # Metadata cutover holds this same OS lock. Feedback is an index write,
+        # even though it never calls a model, and must not race that cutover.
+        if not self._acquire():
+            raise VisualError('AI找货正忙，请稍后重试', 409)
+        try:
+            return self._feedback_locked(db, owner, query_id, selected_product_id, no_match)
+        finally:
+            self._release()
+
+    def _feedback_locked(self, db, owner, query_id, selected_product_id, no_match):
         with self.store.connection() as connection:
             query = connection.execute("SELECT * FROM visual_queries WHERE id=? AND owner=?", (query_id, owner)).fetchone()
             if query is None:
                 raise VisualError("查询不存在或无权访问", 404)
+            candidates = json.loads(query['candidate_ids'])
+            if self.source.production:
+                if (query['index_key'] != self.config.index_key or not isinstance(candidates, dict) or
+                        candidates.get('catalog') != self.source.context()):
+                    raise VisualError('商品目录已更新或旧结果无法核验，请重新搜索', 409)
+                candidates = candidates.get('ids', [])
             if no_match != (selected_product_id is None):
                 raise VisualError("请选择一个候选商品或明确无匹配", 422)
             if selected_product_id is not None:
                 product = self.source.get(db, selected_product_id)
-                if selected_product_id not in json.loads(query["candidate_ids"]) or product is None or not product.is_active:
+                if selected_product_id not in candidates or product is None or not product.is_active:
                     raise VisualError("所选商品不是本次有效候选，请重新搜索", 422)
             connection.execute("INSERT OR REPLACE INTO visual_feedback VALUES (?,?,?,?,?)", (query_id, selected_product_id, int(no_match), owner, now()))
         return {"saved": True, "query_id": query_id}

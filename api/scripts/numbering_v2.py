@@ -13,7 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description='人工维护窗口内的一次性编号切换；不管理服务、不调用模型')
     commands = parser.add_subparsers(dest='command', required=True)
     planning = commands.add_parser('plan', help='只读生成完整映射与批准摘要')
-    for name in ('database', 'backup-database', 'backup-catalog', 'visual-root', 'catalog-root', 'manifest', 'namespace', 'index-key', 'output'):
+    for name in ('database', 'backup-database', 'backup-catalog', 'visual-root', 'catalog-root', 'namespace', 'index-key', 'output'):
         planning.add_argument('--' + name, required=True)
     execution = commands.add_parser('execute', help='同时事务换号业务与已有 AI 镜像；必须先停止全部写入')
     execution.add_argument('--plan', required=True)

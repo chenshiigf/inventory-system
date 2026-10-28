@@ -33,6 +33,7 @@ export type SearchSessionAction =
   | { type: "start"; request: SearchRequest }
   | { type: "complete"; request: SearchRequest; result: VisualResult; submittedCrop?: CropRegion | null }
   | { type: "finish"; request: SearchRequest }
+  | { type: "catalog-invalid"; queryId: string }
   | { type: "confirm"; input: SearchInput; queryId: string; productId: number };
 
 export function initialSearchSession(): SearchSession {
@@ -61,6 +62,8 @@ export function searchSessionReducer(session: SearchSession, action: SearchSessi
       return { ...session, activeRequestId: null, result: action.result, confirmedId: null };
     }
     case "finish": return matchesSearchInput(session, action.request) && session.activeRequestId === action.request.requestId ? { ...session, activeRequestId: null } : session;
+    case "catalog-invalid": return session.result?.query_id === action.queryId
+      ? { ...session, result: null, confirmedId: null, activeRequestId: null } : session;
     case "confirm": return matchesSearchInput(session, action.input) && session.result?.query_id === action.queryId && session.result.candidates.some((c) => c.product.id === action.productId)
       ? { ...session, confirmedId: action.productId } : session;
   }

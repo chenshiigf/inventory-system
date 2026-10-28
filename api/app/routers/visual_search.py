@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -9,6 +10,8 @@ from starlette.responses import FileResponse
 from app.database import get_db
 from app.services.visual_search.auth import require_visual_admin, require_visual_user
 from app.services.visual_search.images import SEARCH_MAX_BYTES, SEARCH_MAX_PIXELS, VisualError
+from app.services.visual_search.catalog_metadata import catalog_context
+from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api/visual-search", tags=["visual-search"])
 Admin = Annotated[str, Depends(require_visual_admin)]
@@ -58,6 +61,18 @@ def run(action):
 @router.get("/index/status")
 def index_status(request: Request, db: SourceDB, admin: Admin, source: SourceName = "development"):
     return run(lambda: service(request, source).status(db))
+
+
+@router.get('/catalog/version')
+def catalog_version(request: Request, user: User, source: SourceName = 'production-catalog'):
+    if source != 'production-catalog':
+        raise HTTPException(422, '目录版本检查仅用于生产镜像')
+    try:
+        # Do not call service()/status(): those can initialize jobs or budgets.
+        value = catalog_context(request.app.state.production_catalog_directory)
+    except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
+        raise HTTPException(503, '目录版本暂时无法核验，请稍后重试或到商品管理页核对') from error
+    return JSONResponse(value, headers={'Cache-Control': 'private, no-store'})
 
 
 @router.post("/index/rebuild")

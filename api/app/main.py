@@ -132,6 +132,7 @@ def create_app(
 
     application = FastAPI(title="Inventory System API", version="0.1.0", lifespan=lifespan)
     application.state.product_import_preview_tasks = registry
+    application.state.production_catalog_directory = production_catalog_directory or visual_root / "production-catalog"
     application.state.visual_config = visual_config
     application.state.visual_config_error = visual_config_error
     application.state.visual_search = visual_service

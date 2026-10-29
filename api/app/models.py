@@ -79,6 +79,17 @@ class Warehouse(Base):
     )
 
 
+class ProductCodeMonth(Base):
+    __tablename__ = "product_code_months"
+    __table_args__ = (
+        CheckConstraint("length(period_ym) = 6 AND period_ym NOT GLOB '*[^0-9]*' AND substr(period_ym, 5, 2) BETWEEN '01' AND '12'", name="ck_product_code_months_period"),
+        CheckConstraint("next_sequence >= 1", name="ck_product_code_months_sequence"),
+    )
+
+    period_ym: Mapped[str] = mapped_column(String(6), primary_key=True)
+    next_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
 class Product(Base):
     __tablename__ = "products"
     __table_args__ = (

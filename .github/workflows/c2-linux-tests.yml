@@ -1,0 +1,61 @@
+name: C2 isolated Linux validation
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c2-linux-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  c2-linux:
+    if: github.event_name == 'pull_request' && github.ref != 'refs/heads/master'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12.3'
+      - name: Install exact runtime and test dependencies
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/c2-venv"
+          "$RUNNER_TEMP/c2-venv/bin/python" -m pip --isolated install -r api/tests/requirements-c2-linux.lock.txt
+          "$RUNNER_TEMP/c2-venv/bin/python" -m pip check
+      - name: Synthetic Linux and SIGTERM checks only
+        working-directory: api
+        run: |
+          set -euo pipefail
+          test ! -e "$RUNNER_TEMP/c2-synthetic-tests"
+          sudo -n env -i \
+            HOME="$RUNNER_TEMP/c2-root-home" \
+            PATH="$RUNNER_TEMP/c2-venv/bin:/usr/bin:/bin" \
+            LD_LIBRARY_PATH="$pythonLocation/lib" \
+            PYTHONDONTWRITEBYTECODE=1 \
+            INVENTORY_DATA_DIR="$RUNNER_TEMP/c2-unused-app" \
+            DATABASE_URL="sqlite:///$RUNNER_TEMP/c2-unused-app/inventory.db" \
+            "$RUNNER_TEMP/c2-venv/bin/python" -B -m pytest -q -s -rA \
+              -p no:cacheprovider --basetemp "$RUNNER_TEMP/c2-synthetic-tests" \
+              --junitxml "$RUNNER_TEMP/c2-results.xml" \
+              tests/test_numbering_v2_c2_workflow.py \
+              tests/test_numbering_v2_c2_snapshot.py \
+              tests/test_numbering_v2_c2_linux.py \
+              tests/test_numbering_v2_c2_sigterm.py
+      - name: Reject skipped or missing targeted checks
+        run: |
+          "$RUNNER_TEMP/c2-venv/bin/python" - "$RUNNER_TEMP/c2-results.xml" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          cases = ET.parse(sys.argv[1]).findall('.//testcase')
+          assert cases and not any(c.find('skipped') is not None for c in cases)
+          assert sum('test_linux_snapshot_entry_' in c.attrib['name'] for c in cases) == 5
+          assert sum('test_real_sigterm_' in c.attrib['name'] for c in cases) == 6
+          print('C2: five Linux checks and six SIGTERM scenarios executed; risk scenarios do not authorize maintenance.')
+          PY

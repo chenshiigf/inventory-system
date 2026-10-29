@@ -97,6 +97,7 @@ except (OSError, ValueError, KeyError, TypeError):
     output = tmp_path / 'snapshot'
     fsync_log = tmp_path / 'fsync-paths.txt'
     env = {'PATH': str(commands) + os.pathsep + os.defpath, 'PYTHONDONTWRITEBYTECODE': '1',
+           'LD_LIBRARY_PATH': str(Path(sys.base_prefix) / 'lib'),
            'SCENARIO': scenario, 'SNAPSHOT_SCRIPT': str(ROOT / 'deploy/numbering-v2-c2-snapshot.py'),
            'SYNTHETIC_DEPLOY_LOCK': str(deployment_lock), 'OUTPUT': str(output), 'FSYNC_LOG': str(fsync_log)}
     argv = [sys.executable, '-B', str(driver), '--source', str(business.parent),

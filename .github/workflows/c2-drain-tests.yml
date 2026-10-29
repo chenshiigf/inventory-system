@@ -53,6 +53,6 @@ jobs:
           import sys, xml.etree.ElementTree as ET
           cases = ET.parse(sys.argv[1]).findall('.//testcase')
           assert cases and not any(c.find('skipped') is not None for c in cases)
-          assert sum('test_linux_' in c.attrib['name'] for c in cases) == 4
-          print('C2_DRAIN_RESULT all four Linux control scenarios executed; no production access or stop command')
+          assert sum('test_linux_' in c.attrib['name'] for c in cases) == 5
+          print('C2_DRAIN_RESULT all five Linux control scenarios executed; no production access or stop command')
           PY

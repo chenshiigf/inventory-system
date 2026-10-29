@@ -176,7 +176,7 @@ def test_http_abort_is_unknown_even_after_count_reaches_zero(setup):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize('failure', ['missing', 'corrupt', 'journal', 'unknown_cost', 'running_index'])
+@pytest.mark.parametrize('failure', ['missing', 'corrupt', 'journal', 'invalid_state', 'running_index'])
 def test_unknown_or_unfinished_state_is_blocked_without_repair(setup, failure):
     gate, budget, business = setup
     if failure == 'missing':
@@ -185,8 +185,10 @@ def test_unknown_or_unfinished_state_is_blocked_without_repair(setup, failure):
         budget.path.write_bytes(b'SYNTHETIC CORRUPTION')
     elif failure == 'journal':
         budget.path.with_name(budget.path.name + '-journal').write_bytes(b'SYNTHETIC LOG')
-    elif failure == 'unknown_cost':
-        budget.settle(budget.reserve(), {}, known=False)
+    elif failure == 'invalid_state':
+        budget.reserve()
+        with closing(sqlite3.connect(budget.path)) as db, db:
+            db.execute("UPDATE call_reservations SET state='invalid'")
     else:
         with closing(sqlite3.connect(gate.visual_root / 'index.db')) as db, db:
             db.executescript("CREATE TABLE visual_jobs(status TEXT); INSERT INTO visual_jobs VALUES('running');")

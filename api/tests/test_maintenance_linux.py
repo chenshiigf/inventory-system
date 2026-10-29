@@ -118,6 +118,9 @@ systemctl() {
 
 def test_linux_idle_private_control_and_resume(environment):
     app, client, root, ledger = environment
+    ledger.settle(ledger.reserve(), {}, known=False)
+    with closing(sqlite3.connect(ledger.path)) as db:
+        assert db.execute('SELECT state FROM call_reservations').fetchall() == [('unknown',)]
     assert client.get('/docs').status_code == 200
     assert client.get('/maintenance/status').status_code == 404
     assert stat.S_IMODE((root / 'control.sock').stat().st_mode) == 0o600
@@ -236,3 +239,72 @@ def test_linux_real_index_settlement_and_expired_drain_never_stop(environment, h
         release.set()
         service.executor.shutdown(wait=True)
     print(f'C2_DRAIN_RESULT index_hold={hold_seconds}s stop_commands=0 settlement=settled business_sha=unchanged API=running')
+
+
+def test_linux_inventory_readonly_catalog_lock_permissions():
+    import asyncio
+    import multiprocessing
+    import tempfile
+    from app.maintenance import DrainGate
+    # Dedicated synthetic UID/GID; no system accounts or production permissions changed.
+    uid, gid = 23455, 23456
+    with tempfile.TemporaryDirectory(prefix='c2-lock-permissions-') as directory:
+        root = Path(directory)
+        catalog = root / 'production-catalog'
+        catalog.mkdir()
+        for path in (root, catalog):
+            os.chown(path, 0, gid)
+            path.chmod(0o750)
+            (path / 'calls.lock').write_bytes(b'0')
+            os.chown(path / 'calls.lock', 0, gid)
+            (path / 'calls.lock').chmod(0o640)
+        ledger = DailyBudgetLedger(root / 'daily-budget.sqlite3', VisualConfig())
+        with closing(ledger._connect()):
+            pass
+        os.chown(ledger.path, 0, gid)
+        ledger.path.chmod(0o640)
+        before = {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+        parent, child = multiprocessing.get_context('fork').Pipe()
+        def inspect():
+            contender.file.close()  # close inherited FD without unlocking the parent's lease
+            contender.file = None
+            os.setgroups([])
+            os.setgid(gid)
+            os.setuid(uid)
+            async def run():
+                for _ in range(2):
+                    child.recv()
+                    gate = DrainGate(root, catalog)
+                    gate.observers.append(lambda: {'preview_tasks': 0})
+                    child.send(await gate.command({'command': 'begin'}))
+                    child.recv()
+                    await gate.close()
+                    child.send('released')
+            asyncio.run(run())
+        contender = CallLock(catalog)
+        assert contender.acquire()
+        process = multiprocessing.get_context('fork').Process(target=inspect)
+        process.start()
+        try:
+            parent.send('check')
+            assert parent.poll(5)
+            assert parent.recv()['state'] == 'BLOCKED'
+            parent.send('close')
+            assert parent.poll(5) and parent.recv() == 'released'
+            contender.release()
+            parent.send('check')
+            assert parent.poll(5)
+            assert parent.recv()['state'] == 'SAFE_TO_STOP'
+            assert not contender.acquire()
+            parent.send('close')
+            assert parent.poll(5) and parent.recv() == 'released'
+            process.join(5)
+            assert process.exitcode == 0
+            assert contender.acquire()
+            contender.release()
+            assert before == {p: p.read_bytes() for p in root.rglob('*') if p.is_file()}
+        finally:
+            contender.release()
+            parent.close()
+            child.close()
+        print('C2_DRAIN_RESULT uid=23455 gid=23456 root_owned_640_lock=PASS bidirectional_flock=PASS bytes=unchanged')

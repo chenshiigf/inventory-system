@@ -11,6 +11,7 @@ from pathlib import Path
 import socket
 import stat
 import struct
+import sys
 import threading
 import time
 
@@ -113,7 +114,12 @@ class DrainGate:
             stack = ExitStack()
             try:
                 for path in (self.visual_root / 'calls.lock', self.catalog_root / 'calls.lock'):
-                    stack.enter_context(existing_lock(path))
+                    if sys.platform == 'linux':
+                        import fcntl
+                        stream = stack.enter_context(checked_path(path, existing=True).open('rb'))
+                        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    else:
+                        stack.enter_context(existing_lock(path))
             except BaseException:
                 stack.close()
                 raise
@@ -129,7 +135,7 @@ class DrainGate:
             if db.execute('PRAGMA user_version').fetchone()[0] != 1:
                 raise ValueError('unknown budget schema')
             metrics['reserved_calls'] = db.execute("SELECT count(*) FROM call_reservations WHERE state='reserved'").fetchone()[0]
-            metrics['unresolved_calls'] = db.execute("SELECT count(*) FROM call_reservations WHERE state IS NULL OR state NOT IN ('reserved','settled')").fetchone()[0]
+            metrics['unresolved_calls'] = db.execute("SELECT count(*) FROM call_reservations WHERE state IS NULL OR state NOT IN ('reserved','settled','unknown')").fetchone()[0]
         indices = [self.visual_root / 'index.db', *sorted((self.visual_root / 'production-indices').glob('*/index.db'))]
         metrics['index_jobs'] = 0
         for path in indices:

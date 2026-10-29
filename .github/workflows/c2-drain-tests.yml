@@ -1,0 +1,58 @@
+name: C2 private drain gate validation
+
+on:
+  pull_request:
+    branches: [codex/numbering-v2-c2-linux-validation]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: c2-drain-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  c2-drain:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12.3'
+      - name: Install existing locked dependencies
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/c2-drain-venv"
+          "$RUNNER_TEMP/c2-drain-venv/bin/python" -m pip --isolated install -r api/tests/requirements-c2-linux.lock.txt
+          "$RUNNER_TEMP/c2-drain-venv/bin/python" -m pip check
+      - name: Drain and daily operation regression on synthetic data
+        working-directory: api
+        run: |
+          set -euo pipefail
+          sudo -n env -i \
+            HOME="$RUNNER_TEMP/c2-drain-home" \
+            PATH="$RUNNER_TEMP/c2-drain-venv/bin:/usr/bin:/bin" \
+            LD_LIBRARY_PATH="$pythonLocation/lib" \
+            PYTHONDONTWRITEBYTECODE=1 \
+            INVENTORY_DATA_DIR="$RUNNER_TEMP/c2-drain-defaults" \
+            DATABASE_URL="sqlite:///$RUNNER_TEMP/c2-drain-defaults/unused.db" \
+            "$RUNNER_TEMP/c2-drain-venv/bin/python" -B -m pytest -q -s -rA \
+              -p no:cacheprovider --basetemp "$RUNNER_TEMP/c2-drain-data" \
+              --junitxml "$RUNNER_TEMP/c2-drain-results.xml" \
+              tests/test_maintenance_drain.py tests/test_maintenance_linux.py \
+              tests/test_product_import_tasks.py tests/test_visual_search.py \
+              tests/test_products.py tests/test_inventory_movements.py
+      - name: Require all new Linux cases without skips
+        run: |
+          "$RUNNER_TEMP/c2-drain-venv/bin/python" - "$RUNNER_TEMP/c2-drain-results.xml" <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          cases = ET.parse(sys.argv[1]).findall('.//testcase')
+          assert cases and not any(c.find('skipped') is not None for c in cases)
+          assert sum('test_linux_' in c.attrib['name'] for c in cases) == 5
+          print('C2_DRAIN_RESULT all five Linux control scenarios executed; no production access or stop command')
+          PY

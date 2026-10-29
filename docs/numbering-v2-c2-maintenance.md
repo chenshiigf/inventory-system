@@ -2,7 +2,7 @@
 
 **状态：仅本地准备；未授权执行。** 编号业务基线固定为 `d2873699032057717fbbad9c077275180883fb39`，本准备分支不改 B 逻辑。本清单只冻结、复制、验证、恢复原版经营，不迁移、不换号、不部署。完整部署器及日/周备份单元均不作为四库一致备份入口：其范围不足，且包含清理、上传或启动服务动作。
 
-**本次收口结论：维护 BLOCKED。** 已知生产停止参数为 `TimeoutStopUSec=90s`、`KillMode=control-group`，但安全退出的前置实测证据和独立 Linux 验证尚缺；不得以清单/Windows 模拟通过为由申请实际停机执行。
+**维护执行仍须单独授权。** Linux 基础验证已由 PR #6 完成；后台等待没有固定上界，停止前必须使用[私有排空门禁](numbering-v2-c2-drain.md)。该门禁需要独立 API 小版本部署及运行时验收，本次不部署；生产未具备门禁前保持 BLOCKED。
 
 ## 开始门槛与人工签字单
 
@@ -130,12 +130,21 @@ c2_require_stop_policy() {
 }
 c2_stop_api() {
   c2_require_stop_policy || return 60
+  # 以下路径只能来自独立发布验收及当前私有 socket 配置，不能猜测。
+  [ -n "${PY:-}" ] && [ -n "${CURRENT_API:-}" ] && [ -n "${MAINTENANCE_SOCKET:-}" ] \
+    && [ -d "${EVIDENCE:-}" ] || return 62
+  local pid
+  pid=$(systemctl show inventory-system-api.service -p MainPID --value) || return 62
+  case "$pid" in ''|*[!0-9]*|0) return 62;; esac
+  "$PY" -B "$CURRENT_API/scripts/maintenance_control.py" status \
+    --socket "$MAINTENANCE_SOCKET" --pid "$pid" > "$EVIDENCE/drain-last.json" || return 62
+  [ "$(systemctl show inventory-system-api.service -p MainPID --value)" = "$pid" ] || return 62
   systemctl stop inventory-system-api.service || return 61
   # 仅停止命令返回成功；尚不等于正常退出验收或 SOURCE_SAFE 通过。
 }
 ```
 
-步骤 1 执行 `c2_capture_original_state`，非零即终止。签字人完成停止策略实测/复核后，才允许将 `API_STOP_EVIDENCE` 指向该次审核记录并设置 `API_STOP_POLICY=PASS`；两者必须在步骤 2 之前审查，步骤 5 再检查一次，不能在停机后补填。当前没有此证据，保持 BLOCKED。
+步骤 1 执行 `c2_capture_original_state`，非零即终止。签字人完成停止策略实测/复核后，才允许将 `API_STOP_EVIDENCE` 指向该次审核记录并设置 `API_STOP_POLICY=PASS`；两者必须在步骤 2 之前审查，步骤 5 再检查一次，不能在停机后补填。`PY`、`CURRENT_API` 为当次核验的 API Python 与目录；`MAINTENANCE_SOCKET` 为已部署 API 配置的私有绝对路径。API 新版本和门禁未单独验收则保持 BLOCKED。排空检查失败返回 62，API 继续运行，不进入 stop，也不自动重试或覆盖数据库；SOURCE_SAFE 仍须人工审核。
 
 原 AI 标记若存在，须为单链接普通文件，内容精确为 `enabled\n`；用 `stat`、`sha256sum` 记录，`cp --preserve=all --reflink=never` 复制到新 EVIDENCE，再核验 hash。异常即停止；不读取凭据。此步骤只保全开关证据，不复制业务库。
 

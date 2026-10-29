@@ -36,8 +36,10 @@ def rank_candidates(query, gallery, dimension, top_k=5, min_score=0):
 
 class VisualService:
     def __init__(self, root, uploads_root, config: VisualConfig, provider=None, *, source=None,
-                 call_lock_root=None, runtime_switch=None, budget=None):
+                 call_lock_root=None, runtime_switch=None, budget=None, maintenance=None):
         self.config = config
+        self.maintenance = maintenance
+        self._maintenance_activity = None
         self.uploads_root = uploads_root
         self.source = source or DevelopmentSource(uploads_root)
         if self.source.production and config.source_identity != self.source.identity_key:
@@ -64,22 +66,41 @@ class VisualService:
         self.executor.shutdown(wait=True, cancel_futures=False)
 
     def _acquire(self):
+        activity = self.maintenance.activity('ai_call') if self.maintenance else None
+        if activity:
+            from app.maintenance import MaintenanceRejected
+            try:
+                activity.__enter__()
+            except MaintenanceRejected as error:
+                raise VisualError('系统维护中，请稍后重试', 503) from error
         if not self.slot.acquire(blocking=False):
+            if activity:
+                activity.__exit__(None, None, None)
             return False
         try:
             if self.process_slot.acquire():
+                self._maintenance_activity = activity
                 return True
         except BaseException:
             self.slot.release()
+            if activity:
+                activity.__exit__(None, None, None)
             raise
         self.slot.release()
+        if activity:
+            activity.__exit__(None, None, None)
         return False
 
     def _release(self):
+        activity, self._maintenance_activity = self._maintenance_activity, None
         try:
             self.process_slot.release()
         finally:
-            self.slot.release()
+            try:
+                self.slot.release()
+            finally:
+                if activity:
+                    activity.__exit__(None, None, None)
 
     def plan(self, db: Session):
         rows = self.store.rows() if self.store.ready else {}
@@ -173,7 +194,10 @@ class VisualService:
                 connection.execute("INSERT INTO visual_jobs (id,index_key,owner,status,max_items,started_at) VALUES (?,?,?,'running',?,?)", (job_id, self.config.index_key, owner, max_items, now()))
             bind = self.source.bind(db)
             if background:
-                self.executor.submit(self._run_job, bind, job_id, plan, max_items)
+                if self.maintenance:
+                    self.maintenance.submit(self.executor, self._run_job, bind, job_id, plan, max_items)
+                else:
+                    self.executor.submit(self._run_job, bind, job_id, plan, max_items)
                 return {"job_id": job_id, "status": "running", **summary}
             self._run_job(bind, job_id, plan, max_items)
             return {**self.source.context(), **self.store.job(job_id), "model": self.config.model,

@@ -1,6 +1,7 @@
 from pathlib import Path
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -27,6 +28,7 @@ from app.services.visual_search.admission import VisualSearchAdmission
 from app.services.visual_search.upload_limit import VisualUploadLimit
 from app.services.visual_search.runtime_control import DailyBudgetLedger, RuntimeSwitch
 from app.services.visual_search.images import VisualError
+from app.maintenance import DrainGate, MaintenanceMiddleware, MaintenanceRejected
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,7 @@ def create_app(
     visual_provider=None,
     production_catalog_directory: Path | None = None,
     visual_production_provider=None,
+    maintenance_socket: Path | None = None,
 ) -> FastAPI:
     data_root = (data_directory or DATA_DIR).expanduser().resolve()
     default_uploads_directory = (
@@ -85,9 +88,13 @@ def create_app(
     ):
         directory.mkdir(parents=True, exist_ok=True)
 
-    sessions = PreviewSessionLifecycle(product_import_root)
-    registry = PreviewTaskRegistry(sessions)
     visual_root = visual_directory(data_root)
+    maintenance_path = maintenance_socket or os.environ.get('INVENTORY_MAINTENANCE_SOCKET')
+    maintenance = DrainGate(visual_root, production_catalog_directory or visual_root / 'production-catalog') if maintenance_path else None
+    sessions = PreviewSessionLifecycle(product_import_root)
+    registry = PreviewTaskRegistry(sessions, maintenance=maintenance)
+    if maintenance:
+        maintenance.observers.append(registry.drain_state)
     visual_config_error = False
     runtime_switch = RuntimeSwitch(visual_root)
     budget = None
@@ -96,12 +103,12 @@ def create_app(
         budget = DailyBudgetLedger(visual_root / "daily-budget.sqlite3", visual_config)
         visual_service = VisualService(
             visual_root, uploads_root, visual_config, visual_provider,
-            call_lock_root=visual_root, runtime_switch=runtime_switch, budget=budget,
+            call_lock_root=visual_root, runtime_switch=runtime_switch, budget=budget, maintenance=maintenance,
         )
         visual_sources = VisualSources(
             visual_service, visual_root, visual_config,
             catalog_root=production_catalog_directory, provider=visual_production_provider,
-            runtime_switch=runtime_switch, budget=budget,
+            runtime_switch=runtime_switch, budget=budget, maintenance=maintenance,
         )
     except Exception:
         # A broken visual-only config/index must never prevent inventory startup.
@@ -111,14 +118,28 @@ def create_app(
         visual_service = UnavailableVisualService()
         visual_sources = UnavailableVisualSources()
         budget = None
+        if maintenance:
+            maintenance.fail('visual_initialization_failed')
 
     @asynccontextmanager
     async def lifespan(_application: FastAPI):
         await asyncio.to_thread(sessions.cleanup)
+        if maintenance:
+            await maintenance.start(Path(maintenance_path))
         async def cleanup_tasks():
             while True:
                 await asyncio.sleep(60)
-                registry.cleanup()
+                if maintenance:
+                    try:
+                        with maintenance.activity('periodic_cleanup'):
+                            registry.cleanup()
+                    except MaintenanceRejected:
+                        continue
+                    except Exception:
+                        maintenance.fail('periodic_cleanup_failed')
+                        raise
+                else:
+                    registry.cleanup()
 
         cleanup = asyncio.create_task(cleanup_tasks())
         try:
@@ -129,9 +150,12 @@ def create_app(
             await asyncio.to_thread(registry.close)
             await asyncio.to_thread(visual_service.close)
             await asyncio.to_thread(visual_sources.close)
+            if maintenance:
+                await maintenance.close()
 
     application = FastAPI(title="Inventory System API", version="0.1.0", lifespan=lifespan)
     application.state.product_import_preview_tasks = registry
+    application.state.maintenance = maintenance
     application.state.visual_config = visual_config
     application.state.visual_config_error = visual_config_error
     application.state.visual_search = visual_service
@@ -156,6 +180,9 @@ def create_app(
         configuration_available=not visual_config_error,
     )
     application.add_middleware(VisualUploadLimit)
+    if maintenance:
+        # Outermost user middleware: no new body parsing, dependency, or job entry.
+        application.add_middleware(MaintenanceMiddleware, gate=maintenance)
 
     application.include_router(products_router)
     application.include_router(dashboard_router)

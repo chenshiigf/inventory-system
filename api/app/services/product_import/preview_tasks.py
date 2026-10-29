@@ -40,8 +40,9 @@ class PreviewTask:
 
 
 class PreviewTaskRegistry:
-    def __init__(self, sessions: PreviewSessionLifecycle, ttl_seconds: float = 3600) -> None:
+    def __init__(self, sessions: PreviewSessionLifecycle, ttl_seconds: float = 3600, *, maintenance=None) -> None:
         self.sessions = sessions
+        self.maintenance = maintenance
         self.ttl_seconds = ttl_seconds
         self._guard = Lock()
         self._heavy = Lock()
@@ -49,6 +50,12 @@ class PreviewTaskRegistry:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="import-preview")
 
     def acquire(self) -> None:
+        if self.maintenance:
+            from app.maintenance import MaintenanceRejected
+            try:
+                self.maintenance.check_entry()
+            except MaintenanceRejected as error:
+                raise PreviewBusy('系统维护中，请稍后重试。') from error
         if not self._heavy.acquire(blocking=False):
             raise PreviewBusy(BUSY_MESSAGE)
 
@@ -101,7 +108,10 @@ class PreviewTaskRegistry:
         with self._guard:
             self._tasks[task_id] = task
         try:
-            self._executor.submit(self._run, task, engine, file_name, already_imported)
+            if self.maintenance:
+                self.maintenance.submit(self._executor, self._run, task, engine, file_name, already_imported)
+            else:
+                self._executor.submit(self._run, task, engine, file_name, already_imported)
         except Exception:
             with self._guard:
                 del self._tasks[task_id]
@@ -162,3 +172,19 @@ class PreviewTaskRegistry:
                     task.cancel.set()
         self._executor.shutdown(wait=True)
         self.cleanup()
+
+    def drain_state(self) -> dict:
+        if not self._guard.acquire(blocking=False):
+            raise RuntimeError('preview state unavailable')
+        try:
+            active = sum(task.response.status not in TERMINAL_STATUSES for task in self._tasks.values())
+        finally:
+            self._guard.release()
+        if not self.sessions._guard.acquire(blocking=False):
+            raise RuntimeError('preview sessions unavailable')
+        try:
+            reservations = sum(self.sessions._active.values())
+        finally:
+            self.sessions._guard.release()
+        return {'preview_tasks': active, 'preview_heavy': int(self._heavy.locked()),
+                'preview_sessions': reservations}

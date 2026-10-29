@@ -302,15 +302,18 @@ systemctl() {
 }
 curl() { printf 'health\n' >> "$LOG"; [ "$SCENARIO" != health_failed ]; }
 SOURCE_SAFE=yes
+C2_STATE_CAPTURED=yes
 API_WAS_ACTIVE=yes
 AI_STATE_RESTORED=yes
-TIMER_WAS_ACTIVE=yes
-TIMER_DECISION=not-missed
+DB_TIMER_WAS_ACTIVE=yes
+FULL_TIMER_WAS_ACTIVE=no
+DB_TIMER_DECISION=not-missed
+FULL_TIMER_DECISION=pending
 case "$SCENARIO" in
   source_unknown) SOURCE_SAFE=no ;;
-  timer_inactive) TIMER_WAS_ACTIVE=no ;;
-  catchup_pending) TIMER_DECISION=pending ;;
-  catchup_approved) TIMER_DECISION=catchup-approved ;;
+  timer_inactive) DB_TIMER_WAS_ACTIVE=no ;;
+  catchup_pending) DB_TIMER_DECISION=pending ;;
+  catchup_approved) DB_TIMER_DECISION=catchup-approved ;;
   ai_not_restored) AI_STATE_RESTORED=no ;;
 esac
 c2_resume_api && c2_restore_timer inventory-db-backup.timer
@@ -357,3 +360,125 @@ def test_documented_ai_marker_restore_preserves_original_bytes(tmp_path, scenari
         assert marker.read_bytes() == b'DO NOT OVERWRITE'
     else:
         assert not marker.exists()
+
+
+@pytest.mark.parametrize('api,db,full,expected', [
+    ('active', 'active', 'inactive', 0), ('active', 'inactive', 'active', 0),
+    ('active', 'active', 'active', 0), ('active', 'inactive', 'inactive', 0),
+    ('inactive', 'active', 'active', 10), ('active', 'activating', 'active', 11),
+    ('active', 'active', 'failed', 12),
+])
+def test_original_state_is_captured_per_unit_before_changes(tmp_path, api, db, full, expected):
+    bash = shutil.which('bash')
+    if not bash:
+        pytest.skip('bash unavailable')
+    doc = (ROOT / 'docs/numbering-v2-c2-maintenance.md').read_text(encoding='utf8')
+    functions = doc.split('<!-- capture-functions -->\n```bash\n', 1)[1].split('\n```', 1)[0]
+    script = functions + '''
+systemctl() {
+  [ "$1" = show ] || return 99
+  case "$2" in
+    inventory-system-api.service) current=$API_INITIAL ;;
+    inventory-db-backup.timer) current=$DB_INITIAL ;;
+    inventory-full-backup.timer) current=$FULL_INITIAL ;;
+    *) return 99 ;;
+  esac
+  if [ "$4" = ActiveState ]; then printf '%s\n' "$current"; return; fi
+  case "$current:$2" in
+    active:inventory-system-api.service) printf 'running\n' ;;
+    active:*) printf 'waiting\n' ;;
+    inactive:*) printf 'dead\n' ;;
+    *) printf 'start\n' ;;
+  esac
+}
+c2_capture_original_state || exit $?
+[ "$SOURCE_SAFE:$API_STOP_POLICY:$DB_TIMER_DECISION:$FULL_TIMER_DECISION" = no:BLOCKED:pending:pending ] || exit 98
+( DB_TIMER_WAS_ACTIVE=no ) 2>/dev/null
+[ "$?" -ne 0 ] || exit 97
+( FULL_TIMER_WAS_ACTIVE=yes ) 2>/dev/null
+[ "$?" -ne 0 ] || exit 96
+'''
+    env = {**os.environ, 'C2_STATE_CAPTURED': 'no', 'API_INITIAL': api, 'DB_INITIAL': db, 'FULL_INITIAL': full,
+           'EVIDENCE': tmp_path.as_posix()}
+    result = subprocess.run([bash, '-c', script], env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode == expected, result.stderr
+    if expected == 0:
+        assert (tmp_path / 'original-api-active.txt').read_text().strip() == 'yes'
+        assert (tmp_path / 'original-db-timer-active.txt').read_text().strip() == ('yes' if db == 'active' else 'no')
+        assert (tmp_path / 'original-full-timer-active.txt').read_text().strip() == ('yes' if full == 'active' else 'no')
+
+
+@pytest.mark.parametrize('target,db,full,db_decision,full_decision,expected,started', [
+    ('db', 'no', 'yes', 'pending', 'not-missed', 0, False),
+    ('full', 'yes', 'no', 'not-missed', 'pending', 0, False),
+    ('db', 'yes', 'yes', 'pending', 'catchup-approved', 50, False),
+    ('full', 'yes', 'yes', 'catchup-approved', 'pending', 50, False),
+    ('db', 'yes', 'no', 'catchup-approved', 'pending', 0, True),
+    ('full', 'no', 'yes', 'pending', 'not-missed', 0, True),
+])
+def test_timer_never_inherits_other_timer_state_or_decision(tmp_path, target, db, full, db_decision, full_decision, expected, started):
+    bash = shutil.which('bash')
+    if not bash:
+        pytest.skip('bash unavailable')
+    doc = (ROOT / 'docs/numbering-v2-c2-maintenance.md').read_text(encoding='utf8')
+    functions = doc.split('<!-- recovery-functions -->\n```bash\n', 1)[1].split('\n```', 1)[0]
+    script = functions + '''
+systemctl() { printf '%s\n' "$*" >> "$LOG"; }
+# Deliberately stale legacy variables must have no effect.
+TIMER_WAS_ACTIVE=yes
+TIMER_DECISION=catchup-approved
+c2_restore_timer "$TARGET"
+'''
+    unit = 'inventory-db-backup.timer' if target == 'db' else 'inventory-full-backup.timer'
+    log = tmp_path / 'commands.txt'
+    env = {**os.environ, 'C2_STATE_CAPTURED': 'yes', 'SOURCE_SAFE': 'yes', 'API_HEALTHY': 'yes',
+           'AI_STATE_RESTORED': 'yes', 'DB_TIMER_WAS_ACTIVE': db, 'FULL_TIMER_WAS_ACTIVE': full,
+           'DB_TIMER_DECISION': db_decision, 'FULL_TIMER_DECISION': full_decision,
+           'LOG': log.as_posix(), 'TARGET': unit}
+    result = subprocess.run([bash, '-c', script], env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode == expected, result.stderr
+    commands = log.read_text().splitlines() if log.exists() else []
+    assert commands == ([f'start {unit}', f'is-active --quiet {unit}'] if started else [])
+
+
+@pytest.mark.parametrize('scenario,expected', [('blocked', 60), ('empty_evidence', 60), ('not_captured', 60), ('approved_mock', 0)])
+def test_stop_cannot_be_used_as_policy_experiment(tmp_path, scenario, expected):
+    bash = shutil.which('bash')
+    if not bash:
+        pytest.skip('bash unavailable')
+    doc = (ROOT / 'docs/numbering-v2-c2-maintenance.md').read_text(encoding='utf8')
+    functions = doc.split('<!-- capture-functions -->\n```bash\n', 1)[1].split('\n```', 1)[0]
+    evidence = tmp_path / 'synthetic-stop-review.txt'
+    evidence.write_text('OFFLINE MOCK APPROVAL' if scenario != 'empty_evidence' else '')
+    log = tmp_path / 'commands.txt'
+    script = functions + '\nsystemctl() { printf "%s\\n" "$*" >> "$LOG"; }\nc2_stop_api\n'
+    env = {**os.environ, 'C2_STATE_CAPTURED': 'no' if scenario == 'not_captured' else 'yes',
+           'API_STOP_POLICY': 'BLOCKED' if scenario == 'blocked' else 'PASS',
+           'API_STOP_EVIDENCE': evidence.as_posix(), 'LOG': log.as_posix()}
+    result = subprocess.run([bash, '-c', script], env=env, capture_output=True, text=True, timeout=15)
+    assert result.returncode == expected, result.stderr
+    assert (log.read_text().splitlines() if log.exists() else []) == (
+        ['stop inventory-system-api.service'] if expected == 0 else [])
+
+
+@pytest.mark.parametrize('daily_rc,decision,expected', [('1', 'not-missed', 1), ('0', 'pending', 50), ('0', 'not-missed', 0)])
+def test_weekly_restore_cannot_continue_after_daily_failure(tmp_path, daily_rc, decision, expected):
+    bash = shutil.which('bash')
+    if not bash:
+        pytest.skip('bash unavailable')
+    doc = (ROOT / 'docs/numbering-v2-c2-maintenance.md').read_text(encoding='utf8')
+    functions = doc.split('<!-- recovery-functions -->\n```bash\n', 1)[1].split('\n```', 1)[0]
+    weekly = doc.split('<!-- weekly-timer-restore -->\n```bash\n', 1)[1].split('\n```', 1)[0]
+    log = tmp_path / 'commands.txt'
+    env = {**os.environ, 'C2_STATE_CAPTURED': 'yes', 'SOURCE_SAFE': 'yes', 'API_HEALTHY': 'yes',
+           'AI_STATE_RESTORED': 'yes', 'DB_TIMER_RESTORE_RC': daily_rc, 'FULL_TIMER_RESTORE_RC': '1',
+           'FULL_TIMER_WAS_ACTIVE': 'yes', 'FULL_TIMER_DECISION': 'pending',
+           'LOG': log.as_posix(), 'EVIDENCE': tmp_path.as_posix()}
+    script = functions + '\nsystemctl() { printf "%s\\n" "$*" >> "$LOG"; }\n' + weekly
+    script += '\nexit "$FULL_TIMER_RESTORE_RC"\n'
+    # Binary stdin avoids Windows translating the LF into CRLF for Bash read.
+    result = subprocess.run([bash, '-c', script], env=env, input=(decision + '\n').encode('utf8'),
+                            capture_output=True, timeout=15)
+    assert result.returncode == expected, result.stderr
+    commands = log.read_text().splitlines() if log.exists() else []
+    assert commands == (['start inventory-full-backup.timer', 'is-active --quiet inventory-full-backup.timer'] if expected == 0 else [])

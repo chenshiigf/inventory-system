@@ -1,5 +1,6 @@
 """Only fixed local sources. Production index cannot target existing dev/phase15 files."""
 from dataclasses import replace
+from contextlib import nullcontext
 import json
 from pathlib import Path
 import threading
@@ -12,7 +13,7 @@ from .runtime_control import DailyBudgetLedger, RuntimeSwitch
 
 
 def production_service(visual_root, config, *, catalog_root=None, provider=None, initialize=False,
-                       runtime_switch=None, budget=None):
+                       runtime_switch=None, budget=None, maintenance=None):
     visual_root = Path(visual_root).resolve()
     source = ProductionSource(catalog_root or visual_root / "production-catalog")
     root = visual_root / "production-indices" / source.identity_key
@@ -43,19 +44,25 @@ def production_service(visual_root, config, *, catalog_root=None, provider=None,
     return VisualService(root, None, replace(config, source_identity=source.identity_key), provider,
                          source=source, call_lock_root=visual_root,
                          runtime_switch=runtime_switch or RuntimeSwitch(visual_root),
-                         budget=budget or DailyBudgetLedger(Path(visual_root) / "daily-budget.sqlite3", config))
+                         budget=budget or DailyBudgetLedger(Path(visual_root) / "daily-budget.sqlite3", config),
+                         maintenance=maintenance)
 
 
 class VisualSources:
     def __init__(self, development, root, config, *, catalog_root=None, provider=None,
-                 runtime_switch=None, budget=None):
+                 runtime_switch=None, budget=None, maintenance=None):
         self.development, self.root, self.config = development, root, config
         self.catalog_root, self.provider = catalog_root, provider
         self.runtime_switch, self.budget = runtime_switch, budget
+        self.maintenance = maintenance
         self.production = None
         self.lock = threading.Lock()
 
     def get(self, name):
+        with self.maintenance.activity('source_lookup') if self.maintenance else nullcontext():
+            return self._get(name)
+
+    def _get(self, name):
         if name == "development":
             return self.development
         if name != "production-catalog":
@@ -64,7 +71,7 @@ class VisualSources:
             if self.production is None:
                 self.production = production_service(self.root, self.config, catalog_root=self.catalog_root,
                                                     provider=self.provider, runtime_switch=self.runtime_switch,
-                                                    budget=self.budget)
+                                                    budget=self.budget, maintenance=self.maintenance)
                 self.production.slot = self.development.slot
             return self.production
 
